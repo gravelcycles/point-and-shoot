@@ -1,5 +1,7 @@
+import AVFoundation
 import Photos
 import UIKit
+import UniformTypeIdentifiers
 
 enum PhotoLibraryError: LocalizedError {
     case notAuthorized
@@ -28,31 +30,107 @@ enum PhotoLibrary {
         return status
     }
 
-    /// Saves a photo. When `rawCompanion` is given, Photos stores it as a RAW+HEIF/JPEG pair.
-    static func savePhoto(primary: Data, rawCompanion: Data?) async throws {
+    /// Holds the new asset's identifier out of the change block.
+    private final class IDBox { var value: String? }
+
+    /// Saves a photo and returns its library identifier. When `rawCompanion` is given,
+    /// Photos stores it as a RAW+HEIF/JPEG pair.
+    @discardableResult
+    static func savePhoto(primary: Data, rawCompanion: Data?) async throws -> String? {
         try await ensureAddAccess()
+        let box = IDBox()
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
             request.addResource(with: .photo, data: primary, options: nil)
             if let rawCompanion {
                 request.addResource(with: .alternatePhoto, data: rawCompanion, options: nil)
             }
+            box.value = request.placeholderForCreatedAsset?.localIdentifier
         }
+        return box.value
     }
 
-    static func saveVideo(at url: URL) async throws {
+    @discardableResult
+    static func saveVideo(at url: URL) async throws -> String? {
         try await ensureAddAccess()
+        let box = IDBox()
         try await PHPhotoLibrary.shared().performChanges {
             let options = PHAssetResourceCreationOptions()
             options.shouldMoveFile = true
-            PHAssetCreationRequest.forAsset().addResource(with: .video, fileURL: url, options: options)
+            let request = PHAssetCreationRequest.forAsset()
+            request.addResource(with: .video, fileURL: url, options: options)
+            box.value = request.placeholderForCreatedAsset?.localIdentifier
+        }
+        return box.value
+    }
+
+    @discardableResult
+    static func saveCopy(data: Data) async throws -> String? {
+        try await ensureAddAccess()
+        let box = IDBox()
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            request.addResource(with: .photo, data: data, options: nil)
+            box.value = request.placeholderForCreatedAsset?.localIdentifier
+        }
+        return box.value
+    }
+
+    static func toggleFavorite(_ asset: PHAsset) async throws {
+        let newValue = !asset.isFavorite
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest(for: asset).isFavorite = newValue
         }
     }
 
-    static func saveCopy(data: Data) async throws {
-        try await ensureAddAccess()
+    /// iOS shows its own "Delete Photo?" confirmation.
+    static func delete(_ asset: PHAsset) async throws {
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
+            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+        }
+    }
+
+    static func hasRAW(_ asset: PHAsset) -> Bool {
+        PHAssetResource.assetResources(for: asset).contains { r in
+            let uti = r.uniformTypeIdentifier.lowercased()
+            return uti.contains("raw-image") || uti.contains("dng")
+        }
+    }
+
+    /// Writes the original file (HEIC/JPEG/DNG/MOV, full quality and metadata) to a temp
+    /// URL for the share sheet.
+    static func exportForSharing(_ asset: PHAsset) async -> URL? {
+        if asset.mediaType == .video {
+            return await withCheckedContinuation { cont in
+                let options = PHVideoRequestOptions()
+                options.isNetworkAccessAllowed = true
+                options.version = .current
+                PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { av, _, _ in
+                    cont.resume(returning: (av as? AVURLAsset)?.url)
+                }
+            }
+        }
+        let result: (Data, String)? = await withCheckedContinuation { cont in
+            let options = PHImageRequestOptions()
+            options.isNetworkAccessAllowed = true
+            options.version = .current
+            options.deliveryMode = .highQualityFormat
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, uti, _, _ in
+                if let data, let uti { cont.resume(returning: (data, uti)) } else { cont.resume(returning: nil) }
+            }
+        }
+        guard let result else { return nil }
+        let (data, uti) = result
+        let ext = UTType(uti)?.preferredFilenameExtension ?? "jpg"
+        let name = (PHAssetResource.assetResources(for: asset).first?.originalFilename as NSString?)?
+            .deletingPathExtension ?? "Photo"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).\(ext)")
+        try? FileManager.default.removeItem(at: url)
+        do {
+            try data.write(to: url)
+            return url
+        } catch {
+            return nil
         }
     }
 

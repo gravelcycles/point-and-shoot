@@ -45,6 +45,9 @@ final class CameraController: NSObject {
     private(set) var shutterBlink = 0
     private(set) var capturesInFlight = 0
     private(set) var lastThumbnail: UIImage?
+    private(set) var lastThumbnailDate = Date.distantPast
+    /// Library ID of the most recent photo/video this app saved — the viewer opens on it.
+    private(set) var lastSavedAssetID: String?
     private(set) var countdown: Int?
     var toast: String?
 
@@ -98,6 +101,7 @@ final class CameraController: NSObject {
     @ObservationIgnored private var isConfigured = false
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var lastISOAdjust = Date.distantPast
+    @ObservationIgnored private var suspendWhenIdle = false
 
     override init() {
         super.init()
@@ -133,6 +137,30 @@ final class CameraController: NSObject {
         sessionQueue.async {
             if self.session.isRunning { self.session.stopRunning() }
             DispatchQueue.main.async { self.isSessionRunning = false }
+        }
+    }
+
+    /// Opening the roll: free the camera, but never while a shot is still being processed
+    /// and saved — stopping the session then could drop the photo.
+    func suspendForBrowsing() {
+        if isRecording { stopRecording() }
+        if capturesInFlight == 0 {
+            stop()
+        } else {
+            suspendWhenIdle = true
+        }
+    }
+
+    func resumeAfterBrowsing() {
+        suspendWhenIdle = false
+        start()
+    }
+
+    private func captureFinished() {
+        capturesInFlight = max(0, capturesInFlight - 1)
+        if capturesInFlight == 0 && suspendWhenIdle {
+            suspendWhenIdle = false
+            stop()
         }
     }
 
@@ -890,7 +918,7 @@ final class CameraController: NSObject {
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         sessionQueue.async {
             guard let device = self.device, self.session.outputs.contains(self.photoOutput) else {
-                DispatchQueue.main.async { self.capturesInFlight = max(0, self.capturesInFlight - 1) }
+                DispatchQueue.main.async { self.captureFinished() }
                 return
             }
             if let connection = self.photoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(rotation) {
@@ -901,12 +929,16 @@ final class CameraController: NSObject {
             let processor = PhotoCaptureProcessor(
                 plan: plan,
                 willCapture: { [weak self] in self?.shutterBlink += 1 },
-                thumbnail: { [weak self] image in self?.lastThumbnail = image },
-                completion: { [weak self] message in
+                thumbnail: { [weak self] image in
+                    self?.lastThumbnail = image
+                    self?.lastThumbnailDate = Date()
+                },
+                completion: { [weak self] message, assetID in
                     guard let self else { return }
                     self.sessionQueue.async { self.inFlight[id] = nil }
                     DispatchQueue.main.async {
-                        self.capturesInFlight = max(0, self.capturesInFlight - 1)
+                        if let assetID { self.lastSavedAssetID = assetID }
+                        self.captureFinished()
                         if let message { self.toast = message }
                     }
                 })
@@ -1037,9 +1069,15 @@ final class CameraController: NSObject {
                 }
                 Task {
                     do {
-                        try await PhotoLibrary.saveVideo(at: url)
                         let thumb = await Self.videoThumbnail(url: url)
-                        await MainActor.run { if let thumb { self.lastThumbnail = thumb } }
+                        let assetID = try await PhotoLibrary.saveVideo(at: url)
+                        await MainActor.run {
+                            if let thumb {
+                                self.lastThumbnail = thumb
+                                self.lastThumbnailDate = Date()
+                            }
+                            if let assetID { self.lastSavedAssetID = assetID }
+                        }
                     } catch {
                         self.post("Couldn't save video: \(error.localizedDescription)")
                     }

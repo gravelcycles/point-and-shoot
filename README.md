@@ -51,24 +51,41 @@ same frames being recorded.
 The **volume buttons** fire the shutter. On iPhone 16, **Camera Control** adjusts zoom and
 exposure.
 
-## Editor (Snapseed-style)
+## Roll & editor
 
-Tap the thumbnail to open the Roll, then tap a photo.
+**Shoot → tap the thumbnail → you're looking at that shot.** If it's still developing (a
+Zero RAW develop, say), you see a blurred preview that sharpens the moment it's saved. The
+camera waits for every in-flight shot to finish saving before it pauses, so nothing is lost.
 
-- **Swipe ↕ on the photo** to choose a parameter and **↔** to dial it in. A pill shows the
-  value, and a haptic ticks when you cross zero. Hold ◧ to compare with the original.
-- **Looks**: Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir,
-  Silver, with live thumbnails
-- **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation, vibrance,
-  warmth, tint
-- **Details**: structure, sharpening, fade, grain, vignette
-- **Crop**: free or locked aspect, straighten dial, rotate, flip
-- **RAW**: if the photo has a DNG, the edit develops from the sensor data. You get real
-  white balance and exposure, plus Apple's noise reduction and local tone mapping as
-  sliders you can turn down to zero.
-- **Non-destructive**: edits are saved as Photos adjustment data. Reopen one to keep
-  tweaking, or *Revert to Original* in the editor or in Photos. *Save as Copy* makes a new
-  HEIF instead.
+- **Viewer**: swipe sideways through your camera roll (photos and videos), pinch to peek
+  at focus, tap to hide the controls, and swipe down to get back to shooting. It also has
+  Share (the original full-quality file, RAW included), Favorite, Delete (iOS asks you to
+  confirm), and a grid of the whole roll.
+- **Edit** opens the editor on that photo, with a preview showing instantly while the
+  full-quality source loads.
+  - **Swipe ↕ on the photo** to choose a parameter and **↔** to dial it in. A pill shows
+    the value, and a haptic ticks when you cross zero. Hold ◧ to compare with the original.
+  - **Looks**: Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400,
+    Noir, Silver, with live thumbnails.
+  - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
+    vibrance, warmth, tint.
+  - **Details**: structure, sharpening, fade, grain, vignette.
+  - **Crop**: free or locked aspect, straighten dial, rotate, flip.
+  - **RAW**: if the photo has a DNG, the edit develops from the sensor data. You get real
+    white balance and exposure, plus Apple's noise reduction and local tone mapping as
+    sliders you can turn down to zero.
+  - **Copy Edits / Paste Edits**: carry a look from one photo to the next. Crop isn't
+    copied.
+- **Saving goes straight to your camera roll.**
+  - **Save** (one tap) updates the photo in Photos the same way Apple's own editor does.
+    The original is kept, the edit shows as *Edited* everywhere, and you can *Revert* in
+    Photos or here. Reopen the photo here and every slider is where you left it.
+  - **Save as New Photo** keeps the original untouched and adds a new full-resolution
+    HEIF next to it.
+  - Closing with unsaved changes asks whether to save or discard.
+- **Everything stays in sync**: the app watches your photo library. New shots, saved
+  edits, favorites, deletes, and edits made in Apple's Photos app show up immediately in
+  the viewer, the grid, and the camera's thumbnail.
 
 ## Build
 
@@ -91,7 +108,8 @@ PointAndShoot/
   UI/             CameraView, ControlStrip + DialPanel, ScrubDial, Overlays, SettingsView
   Editor/         EditorView, EditSession, EditPipeline (Core Image graph), EditRecipe,
                   CropOverlay, MetalImageView
-  Library/        LibraryView (roll grid), PhotoLibrary (save/fetch helpers)
+  Library/        RollStore (live camera roll), PhotoViewer (full-screen pager),
+                  LibraryView (RollGrid), PhotoLibrary (save/share/fetch helpers)
 ```
 
 ### Why it stays smooth

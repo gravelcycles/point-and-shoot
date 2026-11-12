@@ -37,7 +37,7 @@ struct EditorView: View {
     @State private var session: EditSession
     @Environment(\.dismiss) private var dismiss
 
-    @State private var tool: EditorTool = .tune
+    @State private var tool: EditorTool = .looks
     @State private var selection: [EditorTool: Int] = [:]
     @State private var showOriginal = false
     @State private var dragMode: DragMode?
@@ -47,11 +47,16 @@ struct EditorView: View {
     @State private var undoStack: [EditRecipe] = []
     @State private var selectionTick = 0
     @State private var zeroTick = 0
+    @State private var confirmDiscard = false
+
+    /// Called with a short message ("Saved to Photos") after a successful save.
+    private let onSaved: (String) -> Void
 
     private enum DragMode { case choose, adjust }
 
-    init(asset: PHAsset) {
+    init(asset: PHAsset, onSaved: @escaping (String) -> Void = { _ in }) {
         _session = State(initialValue: EditSession(asset: asset))
+        self.onSaved = onSaved
     }
 
     private var adjustments: [Adjustment] { tool.adjustments }
@@ -72,6 +77,12 @@ struct EditorView: View {
         .task { await session.load(maxPixels: 2400) }
         .sensoryFeedback(.selection, trigger: selectionTick)
         .sensoryFeedback(.impact(weight: .light), trigger: zeroTick)
+        .interactiveDismissDisabled(session.hasChanges)
+        .confirmationDialog("Discard your edits?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+            Button("Save to Photos") { Task { await saveAndClose() } }
+            Button("Discard Edits", role: .destructive) { dismiss() }
+            Button("Keep Editing", role: .cancel) {}
+        }
         .alert("Something went wrong", isPresented: Binding(
             get: { session.errorMessage != nil },
             set: { if !$0 { session.errorMessage = nil } })) {
@@ -85,7 +96,9 @@ struct EditorView: View {
 
     private var header: some View {
         HStack(spacing: 18) {
-            Button { dismiss() } label: {
+            Button {
+                if session.hasChanges { confirmDiscard = true } else { dismiss() }
+            } label: {
                 Image(systemName: "xmark").font(.system(size: 17, weight: .semibold))
             }
             Button(action: undo) {
@@ -99,7 +112,7 @@ struct EditorView: View {
             Image(systemName: showOriginal ? "square.split.2x1.fill" : "square.split.2x1")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(showOriginal ? Color.yellow : Color.white)
-                .frame(width: 44, height: 44)
+                .frame(width: 40, height: 44)
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0, maximumDistance: 60, pressing: { pressing in
                     showOriginal = pressing
@@ -107,27 +120,64 @@ struct EditorView: View {
 
             Menu {
                 Button {
-                    Task { await session.save(); if session.errorMessage == nil { dismiss() } }
-                } label: { Label("Save", systemImage: "checkmark") }
-                Button {
-                    Task { await session.saveCopy(); if session.errorMessage == nil { dismiss() } }
-                } label: { Label("Save as Copy", systemImage: "plus.square.on.square") }
+                    Task {
+                        if await session.saveCopy() { finish("Saved as a new photo") }
+                    }
+                } label: { Label("Save as New Photo", systemImage: "plus.square.on.square") }
+
                 Divider()
-                Button(role: .destructive) {
-                    Task { await session.revertToOriginal(); dismiss() }
-                } label: { Label("Revert to Original", systemImage: "arrow.counterclockwise") }
+                Button {
+                    EditClipboard.recipe = session.recipe
+                } label: { Label("Copy Edits", systemImage: "doc.on.doc") }
+                Button {
+                    guard let copied = EditClipboard.recipe else { return }
+                    pushUndo()
+                    withAnimation(.snappy) { session.recipe = copied.look(appliedTo: session.recipe) }
+                } label: { Label("Paste Edits", systemImage: "doc.on.clipboard") }
+                .disabled(EditClipboard.recipe == nil)
+
+                if session.canRevert {
+                    Divider()
+                    Button(role: .destructive) {
+                        Task {
+                            if await session.revertToOriginal() { finish("Reverted to original") }
+                        }
+                    } label: { Label("Revert to Original", systemImage: "arrow.counterclockwise") }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle").font(.system(size: 19, weight: .semibold))
+                    .frame(width: 36, height: 44)
+            }
+            .disabled(session.isLoading || session.isSaving)
+
+            Button {
+                Task { await saveAndClose() }
             } label: {
                 Text("Save")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.black)
-                    .padding(.horizontal, 14).padding(.vertical, 7)
+                    .padding(.horizontal, 16).padding(.vertical, 7)
                     .background(Color.yellow, in: Capsule())
             }
-            .disabled(session.isLoading || session.isSaving)
+            .buttonStyle(PressScaleStyle(scale: 0.94))
+            .disabled(session.isLoading || session.isSaving || !session.hasChanges)
+            .opacity(session.hasChanges ? 1 : 0.45)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 16)
         .frame(height: 52)
+    }
+
+    /// One tap: writes the edit to the photo in your camera roll (non-destructively —
+    /// Photos keeps the original and you can revert there or here).
+    private func saveAndClose() async {
+        if await session.save() { finish("Saved to Photos") }
+    }
+
+    private func finish(_ message: String) {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        onSaved(message)
+        dismiss()
     }
 
     // MARK: Canvas

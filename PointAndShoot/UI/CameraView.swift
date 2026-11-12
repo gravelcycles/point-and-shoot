@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CameraView: View {
     let camera: CameraController
+    let roll: RollStore
 
     @State private var motion = MotionManager()
     @State private var activeDial: DialKind?
@@ -36,6 +37,7 @@ struct CameraView: View {
             case .active where !showLibrary:
                 camera.start()
                 motion.start()
+                roll.activateIfAuthorized()
             case .background:
                 camera.stop()
                 motion.stop()
@@ -44,8 +46,9 @@ struct CameraView: View {
             }
         }
         .onChange(of: showLibrary) { _, open in
-            // Hand the GPU and camera back while editing.
-            if open { camera.stop() } else { camera.start() }
+            // Hand the camera back while browsing/editing — but only once any shot still
+            // developing has been saved.
+            if open { camera.suspendForBrowsing() } else { camera.resumeAfterBrowsing() }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(camera: camera)
@@ -53,7 +56,7 @@ struct CameraView: View {
                 .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showLibrary) {
-            LibraryView()
+            PhotoViewer(roll: roll, camera: camera)
         }
         .preferredColorScheme(.dark)
     }
@@ -176,7 +179,7 @@ struct CameraView: View {
             }
 
             HStack {
-                ThumbnailButton(image: camera.lastThumbnail, rotation: motion.iconRotation) {
+                ThumbnailButton(image: rollThumbnail, rotation: motion.iconRotation) {
                     showLibrary = true
                 }
                 .disabled(camera.isRecording)
@@ -212,6 +215,13 @@ struct CameraView: View {
             ], startPoint: .top, endPoint: .bottom)
             .allowsHitTesting(false)
         )
+    }
+
+    /// Whichever is fresher: the instant preview from the shutter, or the roll's newest
+    /// (which reflects edits and anything shot in other apps).
+    private var rollThumbnail: UIImage? {
+        if let shot = camera.lastThumbnail, camera.lastThumbnailDate > roll.latestThumbnailDate { return shot }
+        return roll.latestThumbnail ?? camera.lastThumbnail
     }
 
     // MARK: - Actions

@@ -18,7 +18,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private let plan: PhotoPlan
     private let willCapture: () -> Void
     private let thumbnail: (UIImage) -> Void
-    private let completion: (String?) -> Void
+    private let completion: (_ message: String?, _ assetID: String?) -> Void
 
     private var rawData: Data?
     private var processedData: Data?
@@ -28,7 +28,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     init(plan: PhotoPlan,
          willCapture: @escaping () -> Void,
          thumbnail: @escaping (UIImage) -> Void,
-         completion: @escaping (String?) -> Void) {
+         completion: @escaping (_ message: String?, _ assetID: String?) -> Void) {
         self.plan = plan
         self.willCapture = willCapture
         self.thumbnail = thumbnail
@@ -60,7 +60,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
         if let error = error ?? captureError {
-            completion("Capture failed: \(error.localizedDescription)")
+            completion("Capture failed: \(error.localizedDescription)", nil)
             return
         }
         let plan = self.plan
@@ -76,17 +76,18 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                     if primary == nil { alternate = nil; primary = raw }
                 }
 
+                let assetID: String?
                 if let primary {
-                    try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: primary == raw ? nil : alternate)
+                    assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: primary == raw ? nil : alternate)
                 } else if let raw {
-                    try await PhotoLibrary.savePhoto(primary: raw, rawCompanion: nil)
+                    assetID = try await PhotoLibrary.savePhoto(primary: raw, rawCompanion: nil)
                 } else {
-                    self.completion("Nothing was captured")
+                    self.completion("Nothing was captured", nil)
                     return
                 }
-                self.completion(plan.fallbackNote)
+                self.completion(plan.fallbackNote, assetID)
             } catch {
-                self.completion("Couldn't save: \(error.localizedDescription)")
+                self.completion("Couldn't save: \(error.localizedDescription)", nil)
             }
         }
     }

@@ -19,6 +19,10 @@ final class EditSession {
     let asset: PHAsset
 
     var recipe = EditRecipe()
+    /// The recipe as it was when opened (or last saved) — for "discard changes?".
+    private(set) var savedRecipe = EditRecipe()
+    /// Quick screen-size image shown instantly while the real source decodes.
+    private(set) var placeholder: CIImage?
     private(set) var isLoading = true
     private(set) var hasRAW = false
     private(set) var isSaving = false
@@ -38,11 +42,14 @@ final class EditSession {
     }
 
     var developsFromRAW: Bool { hasRAW && recipe.useRAW }
+    var hasChanges: Bool { !isLoading && recipe != savedRecipe }
+    var canRevert: Bool { asset.hasAdjustments }
 
     // MARK: Loading
 
     func load(maxPixels: CGFloat) async {
         previewMaxPixels = maxPixels
+        loadPlaceholder(maxPixels: maxPixels)
         let options = PHContentEditingInputRequestOptions()
         options.isNetworkAccessAllowed = true
         options.canHandleAdjustmentData = { data in
@@ -102,14 +109,28 @@ final class EditSession {
         }
 
         recipe = loaded
+        savedRecipe = loaded
         isLoading = false
         Task { await renderLookThumbnails() }
+    }
+
+    private func loadPlaceholder(maxPixels: CGFloat) {
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.isNetworkAccessAllowed = true
+        options.version = .current
+        let side = min(maxPixels, 1400)
+        PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: side, height: side),
+                                              contentMode: .aspectFit, options: options) { [weak self] image, _ in
+            guard let self, let image, self.isLoading else { return }
+            self.placeholder = CIImage(image: image, options: [.applyOrientationProperty: true])
+        }
     }
 
     // MARK: Rendering
 
     /// The source before any edit (for press-and-hold compare).
-    var originalPreview: CIImage? { previewBase }
+    var originalPreview: CIImage? { previewBase ?? placeholder }
 
     /// Source with geometry but no crop — what the crop tool draws on.
     func uncroppedPreview() -> CIImage? {
@@ -120,7 +141,7 @@ final class EditSession {
     }
 
     func editedPreview() -> CIImage? {
-        guard let base = sourcePreview() else { return nil }
+        guard let base = sourcePreview() else { return placeholder }
         return EditPipeline.apply(recipe, to: base, developedFromRAW: developsFromRAW)
     }
 
@@ -207,8 +228,9 @@ final class EditSession {
     }
 
     /// Non-destructive save: Photos keeps the original and our recipe; revert any time.
-    func save() async {
-        guard let input else { return }
+    @discardableResult
+    func save() async -> Bool {
+        guard let input else { return false }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -226,12 +248,16 @@ final class EditSession {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest(for: asset).contentEditingOutput = output
             }
+            savedRecipe = recipe
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func saveCopy() async {
+    @discardableResult
+    func saveCopy() async -> Bool {
         isSaving = true
         defer { isSaving = false }
         do {
@@ -243,19 +269,25 @@ final class EditSession {
                 throw EditError.couldNotRender
             }
             try await PhotoLibrary.saveCopy(data: data)
+            savedRecipe = recipe
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func revertToOriginal() async {
+    @discardableResult
+    func revertToOriginal() async -> Bool {
         let asset = self.asset
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest(for: asset).revertAssetContentToOriginal()
             }
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 }

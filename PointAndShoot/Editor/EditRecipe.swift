@@ -47,6 +47,22 @@ struct EditRecipe: Codable, Equatable {
         crop == CGRect(x: 0, y: 0, width: 1, height: 1) && straighten == 0 && quarterTurns % 4 == 0 && !flipped
     }
 
+    /// This recipe's look (tone, color, detail, effects) on top of `target`'s crop and RAW
+    /// settings — for pasting an edit onto another photo.
+    func look(appliedTo target: EditRecipe) -> EditRecipe {
+        var r = self
+        r.crop = target.crop
+        r.straighten = target.straighten
+        r.quarterTurns = target.quarterTurns
+        r.flipped = target.flipped
+        r.useRAW = target.useRAW
+        r.rawInitialized = target.rawInitialized
+        r.rawNoiseReduction = target.rawNoiseReduction
+        r.rawLocalTone = target.rawLocalTone
+        r.rawBoost = target.rawBoost
+        return r
+    }
+
     /// Clears tone & color (used before applying a Look), keeping geometry and RAW settings.
     mutating func resetTone() {
         let keep = self
@@ -61,6 +77,11 @@ struct EditRecipe: Codable, Equatable {
         rawLocalTone = keep.rawLocalTone
         rawBoost = keep.rawBoost
     }
+}
+
+/// Copy an edit from one photo, paste it on the next.
+enum EditClipboard {
+    static var recipe: EditRecipe?
 }
 
 struct Adjustment: Identifiable {
