@@ -106,7 +106,8 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Camera/LocationTagger.swift     CoreLocation GPS + compass; EXIF/ISO6709 builders
   UI/CameraView.swift             main screen, top bar, lens picker, shutter (tap/hold-burst),
                                   thumbnail, gestures, hints, launch-request handling
-  UI/ControlStrip.swift           FOCUS/WB/ISO/SHUTTER/EV/LOOK readouts + DialPanel
+  UI/TopBar.swift                 top bar: flash/timer/settings buttons, format pill, format panels
+  UI/ControlStrip.swift           FOCUS/WB/ISO/SHUTTER/EV/FILTER readouts + DialPanel
   UI/ScrubDial.swift              haptic tick-mark jog dial (reused in the editor's straighten)
   UI/PreviewView.swift            CAMetalLayer host + UIKit gestures; volume-button interaction
   UI/Overlays.swift               grid, frame lines, level, histogram, meter, reticle, EV slider, toast
@@ -223,7 +224,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     (`.alternatePhoto`).
   - Processing levels Apple, Balanced, Natural, Zero; 12 MP or max resolution.
   - Flash, self-timer, responsive capture and zero shutter lag.
-  - Capture **Looks**: previewed live and baked on as an editable edit (needs full Photos
+  - Capture **Filters** (called Looks in code): previewed live and baked on as an editable edit (needs full Photos
     access).
   - Hold the shutter for **burst**.
 - **Controls:**
@@ -311,6 +312,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     add their own.
   - The bottom controls have a near-invisible hit-testable background so gaps between
     controls never reach the viewfinder.
+- **One presentation per view:** never chain several `.sheet` / `.fullScreenCover` modifiers
+  on the same view. On iOS 26 that silently stopped the Settings sheet from appearing.
+  Attach each one to its own anchor: the button that opens it, or a `Color.clear` in a
+  `.background { … }` (see `PhotoViewer`).
 - **Re-render discipline:** values that change several times a second (histogram, meter
   offset, audio level, ISO/shutter in auto) must be read inside small leaf views, e.g.
   `LiveHistogram(camera:)`, never in `CameraView`'s body. Reading them there re-renders the
@@ -318,7 +323,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **UI tests:** `PointAndShootUITests` runs in the simulator with the `-uitest` launch
   argument (`TestHooks.isUITest`). That mode skips the camera session, permission prompts
   and the tour, and loads default settings.
-  - Tests find controls by accessibility identifiers (`strip.*`, `badge.*`, `topbar.*`,
+  - Tests find controls by accessibility identifiers (`strip.*`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`,
     `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`).
   - New controls should get an identifier and, if they're custom, an off-center tap test.
   - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass

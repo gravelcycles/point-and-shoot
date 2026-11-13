@@ -31,6 +31,10 @@ struct PreviewView: UIViewRepresentable {
         let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.pinch(_:)))
         let pan = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.pan(_:)))
         pan.maximumNumberOfTouches = 1
+        // A pinch must always win over the one-finger drag (which changes EV / mode).
+        pan.delegate = c
+        pinch.delegate = c
+        c.panRecognizer = pan
         for g in [tap, long, pinch, pan] as [UIGestureRecognizer] { view.addGestureRecognizer(g) }
         return view
     }
@@ -39,7 +43,20 @@ struct PreviewView: UIViewRepresentable {
         context.coordinator.parent = self
     }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        weak var panRecognizer: UIPanGestureRecognizer?
+
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            if g is UIPanGestureRecognizer { return g.numberOfTouches < 2 }
+            return true
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            (g is UIPinchGestureRecognizer && other is UIPanGestureRecognizer)
+                || (g is UIPanGestureRecognizer && other is UIPinchGestureRecognizer)
+        }
+
         var parent: PreviewView
         init(_ parent: PreviewView) { self.parent = parent }
 
@@ -54,6 +71,10 @@ struct PreviewView: UIViewRepresentable {
         }
 
         @objc func pinch(_ g: UIPinchGestureRecognizer) {
+            if g.state == .began, let pan = panRecognizer, pan.state == .began || pan.state == .changed {
+                pan.isEnabled = false   // cancels the drag cleanly
+                pan.isEnabled = true
+            }
             parent.onPinch(g.scale, g.state)
         }
 

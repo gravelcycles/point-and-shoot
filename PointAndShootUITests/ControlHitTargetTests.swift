@@ -33,13 +33,20 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping the edge of LOOK didn't open the look picker")
     }
 
-    func testOutlinedBadgeRespondsInsideItsBorder() {
-        let format = app.buttons["badge.format"]
-        XCTAssertTrue(format.waitForExistence(timeout: 3))
-        let before = format.label
-        tapOffLabel(format, dx: 0.94)
-        let changed = NSPredicate(format: "label != %@", before)
-        expectation(for: changed, evaluatedWith: format)
+    func testFormatPillOpensPanelAndChangesFileType() {
+        let pill = app.buttons["topbar.format"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 3))
+        XCTAssertTrue(pill.label.contains("HEIF"), "unexpected default format: \(pill.label)")
+        tapOffLabel(pill, dx: 0.95)
+        let jpeg = app.buttons["JPEG"]
+        guard jpeg.waitForExistence(timeout: 3) else {
+            print(app.debugDescription)
+            return XCTFail("Tapping the format pill's edge didn't open the format panel")
+        }
+        jpeg.tap()
+        app.buttons["format.done"].tap()
+        let changed = NSPredicate(format: "label CONTAINS 'JPEG'")
+        expectation(for: changed, evaluatedWith: pill)
         waitForExpectations(timeout: 3)
     }
 
@@ -80,8 +87,35 @@ final class ControlHitTargetTests: XCTestCase {
 
     func testModePickerSwitchesToVideo() {
         tapOffLabel(app.buttons["mode.video"], dx: 0.5, dy: 0.95)
-        XCTAssertTrue(app.buttons["badge.resolution"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.buttons["topbar.videoformat"].waitForExistence(timeout: 3),
                       "Tapping VIDEO didn't switch to video mode")
+    }
+
+    func testFilterCardsSelectAndDoubleTapResets() {
+        let strip = app.buttons["strip.look"]
+        tapOffLabel(strip, dx: 0.1)
+        let warm = app.buttons["filter.warm400"]
+        XCTAssertTrue(warm.waitForExistence(timeout: 3), "Filter cards didn't appear")
+        warm.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Warm 400'"), evaluatedWith: strip)
+        waitForExpectations(timeout: 3)
+        strip.doubleTap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Off'"), evaluatedWith: strip)
+        waitForExpectations(timeout: 3)
+    }
+
+    func testFilterGuideExplainsAndPicks() {
+        tapOffLabel(app.buttons["strip.look"], dx: 0.1)
+        let info = app.buttons["filter.info"]
+        XCTAssertTrue(info.waitForExistence(timeout: 3))
+        info.tap()
+        // The guide opens at half height and its List is lazy: only the first few rows
+        // exist until scrolled, so pick one near the top.
+        let warm = app.buttons["guide.warm400"]
+        XCTAssertTrue(warm.waitForExistence(timeout: 4), "Filter guide didn't open")
+        warm.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Warm 400'"), evaluatedWith: app.buttons["strip.look"])
+        waitForExpectations(timeout: 3)
     }
 
     /// The empty strip above the controls overlaps the bottom of the viewfinder. Taps there

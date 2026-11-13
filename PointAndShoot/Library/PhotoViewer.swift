@@ -15,6 +15,8 @@ struct PhotoViewer: View {
     @State private var dragY: CGFloat = 0
     @State private var editing: AssetItem?
     @State private var showGrid = false
+    /// The photo was opened from the grid, so swiping down goes back to the grid.
+    @State private var cameFromGrid = false
     @State private var infoAsset: AssetItem?
     @State private var shareURL: ShareItem?
     @State private var preparingShare = false
@@ -94,26 +96,35 @@ struct PhotoViewer: View {
                 assetHasRAW = false
             }
         }
-        .fullScreenCover(item: $editing) { item in
-            EditorView(asset: item.asset) { message in
-                show(banner: message)
-            }
-        }
-        .sheet(item: $infoAsset) { item in
-            PhotoInfoSheet(asset: item.asset)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showGrid) {
-            RollGrid(roll: roll) { asset in
-                selectedID = asset.localIdentifier
-                showGrid = false
-            }
-        }
-        .sheet(item: $shareURL) { item in
-            ActivityView(items: [item.url])
-                .presentationDetents([.medium, .large])
-                .ignoresSafeArea()
+        // One presentation per anchor view: several sheets/covers chained on the same view
+        // is unreliable (it's what kept Settings from opening on the camera screen).
+        .background {
+            Color.clear
+                .fullScreenCover(item: $editing) { item in
+                    EditorView(asset: item.asset) { message in
+                        show(banner: message)
+                    }
+                }
+            Color.clear
+                .sheet(item: $infoAsset) { item in
+                    PhotoInfoSheet(asset: item.asset)
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                }
+            Color.clear
+                .sheet(isPresented: $showGrid) {
+                    RollGrid(roll: roll) { asset in
+                        selectedID = asset.localIdentifier
+                        cameFromGrid = true
+                        showGrid = false
+                    }
+                }
+            Color.clear
+                .sheet(item: $shareURL) { item in
+                    ActivityView(items: item.urls)
+                        .presentationDetents([.medium, .large])
+                        .ignoresSafeArea()
+                }
         }
     }
 
@@ -142,7 +153,9 @@ struct PhotoViewer: View {
             withAnimation(.easeOut(duration: 0.2)) { chromeHidden.toggle() }
         }
         .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
+            // Global space: the pager itself moves with the finger, so local translation
+            // would shrink as you drag (jitter, and twice the travel to dismiss).
+            DragGesture(minimumDistance: 24, coordinateSpace: .global)
                 .onChanged { v in
                     // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
@@ -151,7 +164,14 @@ struct PhotoViewer: View {
                 }
                 .onEnded { v in
                     if dragY > 130 || v.predictedEndTranslation.height > 420 && dragY > 40 {
-                        dismiss()
+                        // Back to wherever the photo was opened from: the grid or the camera.
+                        if cameFromGrid {
+                            cameFromGrid = false
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { dragY = 0 }
+                            showGrid = true
+                        } else {
+                            dismiss()
+                        }
                     } else {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
                     }
@@ -239,7 +259,13 @@ struct PhotoViewer: View {
             barButton(asset?.isFavorite == true ? "heart.fill" : "heart",
                       tint: asset?.isFavorite == true ? .red : .white) {
                 guard let asset else { return }
-                Task { try? await PhotoLibrary.toggleFavorite(asset) }
+                Task {
+                    do {
+                        try await PhotoLibrary.toggleFavorite(asset)
+                    } catch where !PhotoLibrary.isUserCancel(error) {
+                        show(banner: "Couldn't change favorite: \(error.localizedDescription)")
+                    } catch {}
+                }
             }
             .disabled(asset == nil)
             Spacer()
@@ -258,7 +284,13 @@ struct PhotoViewer: View {
             Spacer()
             barButton("trash") {
                 guard let asset else { return }
-                Task { try? await PhotoLibrary.delete(asset) }
+                Task {
+                    do {
+                        try await PhotoLibrary.delete(asset)
+                    } catch where !PhotoLibrary.isUserCancel(error) {
+                        show(banner: "Couldn't delete: \(error.localizedDescription)")
+                    } catch {}
+                }
             }
             .disabled(asset == nil)
             Spacer()
@@ -329,8 +361,10 @@ struct PhotoViewer: View {
 }
 
 struct ShareItem: Identifiable {
-    let url: URL
-    var id: String { url.absoluteString }
+    let urls: [URL]
+    let id = UUID()
+    init(url: URL) { urls = [url] }
+    init(urls: [URL]) { self.urls = urls }
 }
 
 // MARK: - Pages
@@ -363,8 +397,7 @@ private struct AssetPage: View {
             VideoPage(asset: asset, isCurrent: isCurrent)
         } else {
             PhotoPage(asset: asset, manager: manager)
-                // Reload when an edit lands so you see the new version immediately.
-                .id(asset.revisionKey)
+
         }
     }
 }
@@ -404,7 +437,9 @@ private struct PhotoPage: View {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { zoom = 1 }
                     }
             )
-            .task { load(size: geo.size) }
+            // Reload when an edit lands, keeping the current image up meanwhile (favoriting
+            // also bumps the revision, and used to flash a spinner).
+            .task(id: asset.revisionKey) { load(size: geo.size) }
         }
     }
 
