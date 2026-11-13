@@ -135,6 +135,12 @@ Screen: long-press → Customize → Lock Screen → tap the camera button → P
 with Point & Shoot") and Spotlight. To set up the Action button, go to Settings → Action
 Button → Shortcut → Point & Shoot. The app opens straight into that mode.
 
+## Developing
+
+`CLAUDE.md` is the full engineering handoff: architecture, threading rules, design
+decisions, tunables, CI/CD, and a device test plan. Claude Code reads it automatically.
+Start a local session from there.
+
 ## Build
 
 1. Open `PointAndShoot.xcodeproj` in **Xcode 16 or newer**.
