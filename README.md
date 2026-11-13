@@ -113,6 +113,22 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
   edits, favorites, deletes, and edits made in Apple's Photos app show up immediately in
   the viewer, the grid, and the camera's thumbnail.
 
+## Lock Screen, Control Center & the Action button (iOS 18)
+
+There's a **Point & Shoot control** you can put in Control Center, swap in for the Lock
+Screen's camera button, or assign to the Action button.
+
+- **Phone locked:** a lightweight Point & Shoot camera opens instantly, with no unlock
+  needed. You get a shutter, volume-button capture, and a "Full app" button that asks for
+  Face ID and continues in the app.
+- **Phone unlocked:** it opens the full app.
+
+Lock Screen shots go straight into Photos. If iOS doesn't allow that from the Lock Screen,
+they're held safely and imported the next time you open the app.
+
+To set it up: long-press Control Center → **Add a Control** → Point & Shoot. On the Lock
+Screen: long-press → Customize → Lock Screen → tap the camera button → Point & Shoot.
+
 ## Shortcuts & the Action button
 
 **Take a Photo** and **Record a Video** appear in the Shortcuts app, Siri ("Take a photo

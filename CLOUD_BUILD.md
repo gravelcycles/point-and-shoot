@@ -15,7 +15,9 @@ step below happens in a web browser.
 
 ## One-time setup (~15 minutes)
 
-1. **Pick a bundle ID** that's yours, e.g. `com.yourname.pointandshoot`.
+1. **Pick a bundle ID** that's yours, e.g. `com.yourname.pointandshoot`. The Lock Screen
+   camera and Control Center button are app extensions with IDs ending `.lockedcapture`
+   and `.widgets`. Automatic signing registers those for you on the first build.
    - developer.apple.com/account → **Certificates, Identifiers & Profiles** →
      **Identifiers** → **+** → App IDs → App.
    - Description "Point & Shoot", Bundle ID *Explicit* = your ID → Continue → Register.
