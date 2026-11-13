@@ -64,7 +64,6 @@ struct FilterSwatch: View {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Color.white.opacity(0.1)
-                ProgressView().controlSize(.mini).tint(.white)
             }
         }
         .frame(width: side, height: side)
