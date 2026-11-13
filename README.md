@@ -19,6 +19,13 @@ Native SwiftUI + AVFoundation + Core Image on Metal. iPhone, iOS 17+.
 
 Responsive capture and zero shutter lag are turned on wherever the hardware supports them.
 
+- **Looks at capture time.** Tap **LOOK** and pick Warm 400, Mono 400, Cine, Chrome, Noir
+  or another. You see it live in the viewfinder, and every shot is saved with the look as
+  an *editable edit*. The untouched original stays one tap away in the editor or Photos.
+- **Hold the shutter for burst.** Shots fire as fast as the camera keeps up, with a
+  counter on the button. Burst frames skip RAW so they stay fast.
+- The app reopens on the lens you used last.
+
 ## Exposure, like a camera body
 
 - **P / S / M**: Auto with EV compensation, **shutter priority** (shutter held, ISO
@@ -27,6 +34,8 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   Kelvin, and manual focus. Each detent clicks with a haptic, you can fling to coast, and
   **A** returns that control to auto.
 - **Tap** to focus and meter. **Hold** to lock AE/AF. **Pinch** to zoom.
+- **Drag up/down on the viewfinder** for exposure compensation in ⅓-stop clicks, with a
+  sun slider. **Swipe sideways** to switch Photo/Video.
 - **Lenses by focal length** (13 / 24 / 48 / 77 / 120 mm, depending on the phone),
   including the 48 mm crop from the 48 MP main sensor. Within the same glass the zoom
   ramps smoothly. Between lenses the preview blurs and settles instead of freezing.
@@ -39,7 +48,11 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
 - **180° shutter lock**: shutter = 1/(2×fps) with auto ISO, so motion blur looks natural
 - Stabilization off / standard / cinematic / cinematic extended
 - **Log view assist**: preview Apple Log through a Rec.709 transform while the file stays Log
-- Audio meter, recording clock
+- Audio meter and recording clock
+- **Recording time left** for your current settings. If storage runs low, recording
+  stops and saves cleanly before the phone is full.
+- If the phone gets hot, peaking, zebras and the histogram pause so recording stays
+  smooth.
 
 ## Assists
 
@@ -64,6 +77,9 @@ exposure.
 Zero RAW develop, say), you see a blurred preview that sharpens the moment it's saved. The
 camera waits for every in-flight shot to finish saving before it pauses, so nothing is lost.
 
+- **Info** (ⓘ in the viewer): lens, focal length, aperture, shutter, ISO, EV,
+  resolution, file type and size, and a map of where you took the shot, with altitude and
+  which way you were facing.
 - **Viewer**: swipe sideways through your camera roll (photos and videos), pinch to peek
   at focus, tap to hide the controls, and swipe down to get back to shooting. It also has
   Share (the original full-quality file, RAW included), Favorite, Delete (iOS asks you to
@@ -93,6 +109,12 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
 - **Everything stays in sync**: the app watches your photo library. New shots, saved
   edits, favorites, deletes, and edits made in Apple's Photos app show up immediately in
   the viewer, the grid, and the camera's thumbnail.
+
+## Shortcuts & the Action button
+
+**Take a Photo** and **Record a Video** appear in the Shortcuts app, Siri ("Take a photo
+with Point & Shoot") and Spotlight. To set up the Action button, go to Settings → Action
+Button → Shortcut → Point & Shoot. The app opens straight into that mode.
 
 ## Build
 

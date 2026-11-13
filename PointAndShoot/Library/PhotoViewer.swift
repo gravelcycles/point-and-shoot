@@ -15,6 +15,7 @@ struct PhotoViewer: View {
     @State private var dragY: CGFloat = 0
     @State private var editing: AssetItem?
     @State private var showGrid = false
+    @State private var infoAsset: AssetItem?
     @State private var shareURL: ShareItem?
     @State private var preparingShare = false
     @State private var assetHasRAW = false
@@ -97,6 +98,11 @@ struct PhotoViewer: View {
             EditorView(asset: item.asset) { message in
                 show(banner: message)
             }
+        }
+        .sheet(item: $infoAsset) { item in
+            PhotoInfoSheet(asset: item.asset)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showGrid) {
             RollGrid(roll: roll) { asset in
@@ -192,13 +198,19 @@ struct PhotoViewer: View {
                 } else if selectedID == Self.pendingID {
                     Text("Saving…").font(.system(size: 14, weight: .semibold))
                 }
+                HStack(spacing: 4) {
+                    if assetHasRAW { tag("RAW") }
+                    if selectedAsset?.hasAdjustments == true { tag("EDITED") }
+                }
+                .padding(.top, 2)
             }
             Spacer()
-            HStack(spacing: 4) {
-                if assetHasRAW { tag("RAW") }
-                if selectedAsset?.hasAdjustments == true { tag("EDITED") }
+            Button { showGrid = true } label: {
+                Image(systemName: "square.grid.3x3")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
             }
-            .frame(minWidth: 40, alignment: .trailing)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 16)
@@ -250,7 +262,10 @@ struct PhotoViewer: View {
             }
             .disabled(asset == nil)
             Spacer()
-            barButton("square.grid.3x3") { showGrid = true }
+            barButton("info.circle") {
+                if let asset { infoAsset = AssetItem(asset: asset) }
+            }
+            .disabled(asset == nil)
         }
         .padding(.horizontal, 22)
         .padding(.bottom, 8)
