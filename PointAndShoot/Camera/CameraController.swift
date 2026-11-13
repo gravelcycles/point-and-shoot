@@ -109,6 +109,8 @@ final class CameraController: NSObject {
     @ObservationIgnored private var lastISOAdjust = Date.distantPast
     @ObservationIgnored private var suspendWhenIdle = false
     @ObservationIgnored private var burstTimer: Timer?
+    @ObservationIgnored private var recordingGeneration = 0
+    @ObservationIgnored private var meterSampling = false
     @ObservationIgnored private var meterTicks = 0
     @ObservationIgnored private var recordingLocation: TaggedLocation?
 
@@ -150,6 +152,9 @@ final class CameraController: NSObject {
         location.stop()
         meterTimer?.invalidate()
         meterTimer = nil
+        burstTimer?.invalidate()
+        burstTimer = nil
+        burstCount = 0
         if isRecording { stopRecording() }
         sessionQueue.async {
             if self.session.isRunning { self.session.stopRunning() }
@@ -350,7 +355,10 @@ final class CameraController: NSObject {
         let focus = (focusMode, lensPosition)
 
         sessionQueue.async {
-            guard let lens = lens ?? self.initialLens(for: s) else { return }
+            guard let lens = lens ?? self.initialLens(for: s) else {
+                self.endTransition()
+                return
+            }
             self.session.beginConfiguration()
             self.session.automaticallyConfiguresCaptureDeviceForWideColor = false
 
@@ -375,6 +383,7 @@ final class CameraController: NSObject {
             }
             guard let device = self.device else {
                 self.session.commitConfiguration()
+                self.endTransition()
                 return
             }
 
@@ -450,6 +459,14 @@ final class CameraController: NSObject {
                 self.renderer.update { $0.transitionBlur = false }
                 self.isSwitchingLens = false
             }
+        }
+    }
+
+    /// Un-blur the viewfinder even when a reconfigure bails out early.
+    private func endTransition() {
+        DispatchQueue.main.async {
+            self.renderer.update { $0.transitionBlur = false }
+            self.isSwitchingLens = false
         }
     }
 
@@ -718,6 +735,7 @@ final class CameraController: NSObject {
         }
         // Manual focus position doesn't translate across lenses.
         if focusMode != .auto { focusMode = .auto }
+        aeafLocked = false
         reconfigure(settings, lens: lens)
     }
 
@@ -785,12 +803,23 @@ final class CameraController: NSObject {
                 d.setExposureTargetBias(max(d.minExposureTargetBias, min(bias, d.maxExposureTargetBias)), completionHandler: nil)
             case .shutterPriority, .manual:
                 guard d.isExposureModeSupported(.custom) else { return }
-                let seconds = max(f.minExposureDuration.seconds, min(shutter, f.maxExposureDuration.seconds))
-                let duration = CMTime(seconds: seconds, preferredTimescale: 1_000_000)
-                let clampedISO = max(f.minISO, min(iso, f.maxISO))
+                _ = f
+                let (duration, clampedISO) = Self.safeExposure(d, seconds: shutter, iso: iso)
                 d.setExposureModeCustom(duration: duration, iso: clampedISO, completionHandler: nil)
             }
         }
+    }
+
+    /// Clamps to the *current* format's limits, comparing in CMTime. AVFoundation raises
+    /// (crashes) for out-of-range values, and both the UI's cached ranges and a rounded
+    /// CMTime can land just outside them right after a lens or format change.
+    static func safeExposure(_ d: AVCaptureDevice, seconds: Double, iso: Float) -> (CMTime, Float) {
+        let f = d.activeFormat
+        var duration = CMTime(seconds: seconds, preferredTimescale: 1_000_000_000)
+        duration = CMTimeMaximum(duration, f.minExposureDuration)
+        duration = CMTimeMinimum(duration, f.maxExposureDuration)
+        let clampedISO = max(f.minISO, min(iso, f.maxISO))
+        return (duration, clampedISO)
     }
 
     /// Shutter priority: hold the shutter, float ISO against the meter.
@@ -806,8 +835,8 @@ final class CameraController: NSObject {
         sessionQueue.async {
             self.withLockedDevice { d in
                 guard d.exposureMode == .custom else { return }
-                let duration = CMTime(seconds: s, preferredTimescale: 1_000_000)
-                d.setExposureModeCustom(duration: duration, iso: clamped, completionHandler: nil)
+                let (duration, safeISO) = Self.safeExposure(d, seconds: s, iso: clamped)
+                d.setExposureModeCustom(duration: duration, iso: safeISO, completionHandler: nil)
             }
         }
     }
@@ -910,46 +939,70 @@ final class CameraController: NSObject {
         meterTimer = timer
     }
 
+    private struct MeterSample {
+        var offset: Float
+        var iso: Float
+        var duration: Double
+        var lensPosition: Float
+        var kelvin: Float?
+        var zoom: CGFloat
+        var audio: Float?
+    }
+
+    /// 15×/s readouts. The device is sampled on `sessionQueue`: AVCaptureDevice getters take
+    /// locks that `commitConfiguration()` holds, so reading them on main froze touches for
+    /// as long as a reconfigure took.
     private func meterTick() {
         meterTicks &+= 1
         if meterTicks % 30 == 1 { updateStorage() }
-        guard let d = device else { return }
-        let offset = d.exposureTargetOffset
-        if abs(offset - meterOffset) > 0.03 { meterOffset = offset }
+        guard !meterSampling else { return }   // previous sample still waiting on a busy queue
+        meterSampling = true
+        let wantsAudio = settings.mode == .video && settings.recordAudio
+        let wantsKelvin = whiteBalance == .auto
+        sessionQueue.async {
+            guard let d = self.device else {
+                DispatchQueue.main.async { self.meterSampling = false }
+                return
+            }
+            var kelvin: Float?
+            if wantsKelvin, d.whiteBalanceMode != .locked {
+                let gains = d.deviceWhiteBalanceGains
+                let maxGain = d.maxWhiteBalanceGain
+                if gains.redGain >= 1, gains.greenGain >= 1, gains.blueGain >= 1,
+                   gains.redGain <= maxGain, gains.greenGain <= maxGain, gains.blueGain <= maxGain {
+                    kelvin = d.temperatureAndTintValues(for: gains).temperature
+                }
+            }
+            let sample = MeterSample(
+                offset: d.exposureTargetOffset,
+                iso: d.iso,
+                duration: d.exposureDuration.seconds,
+                lensPosition: d.lensPosition,
+                kelvin: kelvin,
+                zoom: d.videoZoomFactor,
+                audio: wantsAudio ? self.audioDataOutput.connection(with: .audio)?.audioChannels.first?.averagePowerLevel : nil)
+            DispatchQueue.main.async {
+                self.meterSampling = false
+                self.apply(meter: sample)
+            }
+        }
+    }
 
+    private func apply(meter m: MeterSample) {
+        if abs(m.offset - meterOffset) > 0.03 { meterOffset = m.offset }
         switch exposureMode {
         case .auto:
-            let newISO = d.iso
-            let newShutter = d.exposureDuration.seconds
-            if abs(newISO - iso) > 0.5 { iso = newISO }
-            if newShutter.isFinite, abs(newShutter - shutter) / max(shutter, 1e-6) > 0.01 { shutter = newShutter }
+            if abs(m.iso - iso) > 0.5 { iso = m.iso }
+            if m.duration.isFinite, abs(m.duration - shutter) / max(shutter, 1e-6) > 0.01 { shutter = m.duration }
         case .shutterPriority:
-            shutterPriorityStep(offset: offset)
+            shutterPriorityStep(offset: m.offset)
         case .manual:
             break
         }
-
-        if focusMode != .manual {
-            let lp = d.lensPosition
-            if abs(lp - lensPosition) > 0.005 { lensPosition = lp }
-        }
-        if whiteBalance == .auto, d.whiteBalanceMode != .locked {
-            let gains = d.deviceWhiteBalanceGains
-            let maxGain = d.maxWhiteBalanceGain
-            if gains.redGain >= 1, gains.greenGain >= 1, gains.blueGain >= 1,
-               gains.redGain <= maxGain, gains.greenGain <= maxGain, gains.blueGain <= maxGain {
-                let k = d.temperatureAndTintValues(for: gains).temperature
-                if abs(k - measuredKelvin) > 25 { measuredKelvin = k }
-            }
-        }
-        if settings.mode == .video && settings.recordAudio,
-           let channel = audioDataOutput.connection(with: .audio)?.audioChannels.first {
-            audioLevel = channel.averagePowerLevel
-        }
-        if !isSwitchingLens {
-            let z = d.videoZoomFactor
-            if abs(z - zoomFactor) > 0.01 { zoomFactor = z }
-        }
+        if focusMode != .manual, abs(m.lensPosition - lensPosition) > 0.005 { lensPosition = m.lensPosition }
+        if whiteBalance == .auto, let k = m.kelvin, abs(k - measuredKelvin) > 25 { measuredKelvin = k }
+        if let level = m.audio { audioLevel = level }
+        if !isSwitchingLens, abs(m.zoom - zoomFactor) > 0.01 { zoomFactor = m.zoom }
     }
 
     // MARK: - Storage & heat
@@ -1171,6 +1224,13 @@ final class CameraController: NSObject {
 
     private func startRecording() {
         let s = settings
+        // Flip state now, not when the writer is ready: a quick second tap must see a
+        // recording to stop (it used to start a second writer, or leave a stale "REC").
+        recordingGeneration += 1
+        let generation = recordingGeneration
+        isRecording = true
+        recordingStart = Date()
+        UIApplication.shared.isIdleTimerDisabled = true
         let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
         recordingLocation = place
@@ -1210,18 +1270,20 @@ final class CameraController: NSObject {
                 }
                 try self.recorder.start(videoSettings: videoSettings, audioSettings: audioSettings,
                                         transform: transform, metadata: metadata)
-                DispatchQueue.main.async {
-                    self.isRecording = true
-                    self.recordingStart = Date()
-                    UIApplication.shared.isIdleTimerDisabled = true
-                }
             } catch {
+                DispatchQueue.main.async {
+                    guard generation == self.recordingGeneration, self.isRecording else { return }
+                    self.isRecording = false
+                    self.recordingStart = nil
+                    UIApplication.shared.isIdleTimerDisabled = false
+                }
                 self.post("Couldn't start recording: \(error.localizedDescription)")
             }
         }
     }
 
     func stopRecording() {
+        recordingGeneration += 1
         let place = recordingLocation
         haptic(.medium)
         isRecording = false

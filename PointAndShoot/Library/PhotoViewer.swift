@@ -153,7 +153,9 @@ struct PhotoViewer: View {
             withAnimation(.easeOut(duration: 0.2)) { chromeHidden.toggle() }
         }
         .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
+            // Global space: the pager itself moves with the finger, so local translation
+            // would shrink as you drag (jitter, and twice the travel to dismiss).
+            DragGesture(minimumDistance: 24, coordinateSpace: .global)
                 .onChanged { v in
                     // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
@@ -257,7 +259,13 @@ struct PhotoViewer: View {
             barButton(asset?.isFavorite == true ? "heart.fill" : "heart",
                       tint: asset?.isFavorite == true ? .red : .white) {
                 guard let asset else { return }
-                Task { try? await PhotoLibrary.toggleFavorite(asset) }
+                Task {
+                    do {
+                        try await PhotoLibrary.toggleFavorite(asset)
+                    } catch where !PhotoLibrary.isUserCancel(error) {
+                        show(banner: "Couldn't change favorite: \(error.localizedDescription)")
+                    } catch {}
+                }
             }
             .disabled(asset == nil)
             Spacer()
@@ -389,8 +397,7 @@ private struct AssetPage: View {
             VideoPage(asset: asset, isCurrent: isCurrent)
         } else {
             PhotoPage(asset: asset, manager: manager)
-                // Reload when an edit lands so you see the new version immediately.
-                .id(asset.revisionKey)
+
         }
     }
 }
@@ -430,7 +437,9 @@ private struct PhotoPage: View {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { zoom = 1 }
                     }
             )
-            .task { load(size: geo.size) }
+            // Reload when an edit lands, keeping the current image up meanwhile (favoriting
+            // also bumps the revision, and used to flash a spinner).
+            .task(id: asset.revisionKey) { load(size: geo.size) }
         }
     }
 

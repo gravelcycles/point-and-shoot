@@ -268,12 +268,12 @@ struct CameraView: View {
                 guard abs(t.x) > 8 || abs(t.y) > 8 else { return }
                 panAxis = abs(t.y) > abs(t.x) ? .vertical : .horizontal
                 panStartEV = camera.exposureBias
+                // Once per drag, not on every touch event (that re-rendered the screen).
+                if panAxis == .vertical && camera.exposureMode == .manual {
+                    camera.toast = "Manual exposure — use the ISO / shutter dials"
+                }
             }
-            guard panAxis == .vertical else { return }
-            guard camera.exposureMode != .manual else {
-                if evIndicator == nil { camera.toast = "Manual exposure — use the ISO / shutter dials" }
-                return
-            }
+            guard panAxis == .vertical, camera.exposureMode != .manual else { return }
             let raw = panStartEV - Float(t.y) / 170
             let snapped = (max(-3, min(3, raw)) * 3).rounded() / 3
             if snapped != camera.exposureBias {
@@ -282,6 +282,10 @@ struct CameraView: View {
             }
             evHideTask?.cancel()
             withAnimation(.easeOut(duration: 0.12)) { evIndicator = snapped }
+        case .cancelled, .failed:
+            // e.g. a second finger turned it into a pinch: no mode switch, no EV change.
+            panAxis = nil
+            withAnimation(.easeOut(duration: 0.3)) { evIndicator = nil }
         default:
             if panAxis == .horizontal, !camera.isRecording,
                abs(t.x) > 50 || abs(velocity.x) > 500 {
@@ -476,6 +480,9 @@ struct ShutterButton: View {
     @State private var pressed = false
     @State private var bursting = false
     @State private var holdTask: Task<Void, Never>?
+    /// Resets itself when the touch is cancelled (Control Center, a call, an alert), where
+    /// DragGesture.onEnded never fires — otherwise a burst would run away.
+    @GestureState private var touching = false
 
     var body: some View {
         ZStack {
@@ -509,6 +516,7 @@ struct ShutterButton: View {
         // Tap = shoot. Hold (photo) = burst until you let go.
         .gesture(
             DragGesture(minimumDistance: 0)
+                .updating($touching) { _, state, _ in state = true }
                 .onChanged { _ in
                     guard !pressed else { return }
                     pressed = true
@@ -532,6 +540,20 @@ struct ShutterButton: View {
                     }
                 }
         )
+        .onChange(of: touching) { _, isTouching in
+            guard !isTouching else { return }
+            // Safety net for a *cancelled* touch. Deferred one tick so a normal release is
+            // handled by onEnded first (otherwise ending a burst could also fire a tap).
+            DispatchQueue.main.async {
+                holdTask?.cancel()
+                holdTask = nil
+                pressed = false
+                if bursting {
+                    bursting = false
+                    onBurstEnd()
+                }
+            }
+        }
         .accessibilityElement()
         .accessibilityLabel(mode == .photo ? "Take photo" : (isRecording ? "Stop recording" : "Start recording"))
         .accessibilityAddTraits(.isButton)
