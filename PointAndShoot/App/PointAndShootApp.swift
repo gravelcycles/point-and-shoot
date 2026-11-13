@@ -8,7 +8,10 @@ struct PointAndShootApp: App {
     var body: some Scene {
         WindowGroup {
             CameraView(camera: camera, roll: roll)
-                .onAppear { roll.activateIfAuthorized() }
+                .onAppear {
+                    roll.activateIfAuthorized()
+                    FilmPipeline.prewarm()
+                }
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)
         }

@@ -251,6 +251,7 @@ final class CameraController: NSObject {
         let videoFormatChanged = old.videoResolution != s.videoResolution || old.frameRate != s.frameRate
             || old.videoColor != s.videoColor || old.recordAudio != s.recordAudio || old.stabilization != s.stabilization
         let photoPipelineChanged = old.rawMode != s.rawMode || old.processing != s.processing
+            || old.captureLookNeedsRAW != s.captureLookNeedsRAW
 
         if old.mode != s.mode {
             // Entering video with a 180° shutter: classic cinematographer default.
@@ -471,7 +472,7 @@ final class CameraController: NSObject {
         }
         // Only turn ProRAW on when it's wanted — it changes how the output allocates buffers.
         if photoOutput.isAppleProRAWSupported {
-            photoOutput.isAppleProRAWEnabled = s.rawMode == .proRAW && s.processing != .zero
+            photoOutput.isAppleProRAWEnabled = s.rawMode == .proRAW && !s.developsBayerRAW
         }
         if photoOutput.isZeroShutterLagSupported { photoOutput.isZeroShutterLagEnabled = true }
         if photoOutput.isResponsiveCaptureSupported { photoOutput.isResponsiveCaptureEnabled = true }
@@ -1084,7 +1085,8 @@ final class CameraController: NSObject {
     private func makePhotoSettings(_ s: CameraSettings, device: AVCaptureDevice,
                                    burst: Bool = false) -> (AVCapturePhotoSettings, PhotoPlan) {
         // Bursts trade RAW and heavy processing for speed.
-        let wantsZero = s.processing == .zero && !burst
+        // Zero processing and film looks develop the Bayer RAW themselves.
+        let wantsZero = s.developsBayerRAW && !burst
         let rawMode: RawMode = burst ? .off : (wantsZero ? .bayer : s.rawMode)
         let rawTypes = photoOutput.availableRawPhotoPixelFormatTypes
         var rawType: OSType?
@@ -1102,7 +1104,8 @@ final class CameraController: NSObject {
         if let rawType {
             plan.expectsRAW = true
             plan.zeroDevelop = wantsZero
-            plan.storeRAW = wantsZero ? s.zeroKeepsDNG : true
+            // A film look's edit re-develops from the DNG, so it's always kept.
+            plan.storeRAW = wantsZero ? (s.zeroKeepsDNG || s.captureLookNeedsRAW) : true
             plan.zeroAsHEIF = codec == .hevc
             if wantsZero || !s.keepProcessedWithRAW {
                 photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType)
@@ -1113,7 +1116,11 @@ final class CameraController: NSObject {
         } else {
             photoSettings = AVCapturePhotoSettings(format: processedFormat)
             plan.expectsProcessed = true
-            if wantsZero { plan.fallbackNote = "Zero needs Bayer RAW — this lens used Natural" }
+            if wantsZero {
+                plan.fallbackNote = s.processing == .zero
+                    ? "Zero needs Bayer RAW — this lens used Natural"
+                    : "No Bayer RAW on this lens — Print look applied to the processed photo"
+            }
         }
 
         // Bayer RAW can't go through multi-frame fusion; ask for the honest single frame.

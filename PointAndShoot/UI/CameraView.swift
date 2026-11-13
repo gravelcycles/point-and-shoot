@@ -344,7 +344,7 @@ struct TopBar: View {
                 Spacer(minLength: 4)
                 Badge(text: rawLabel, active: rawActive, rotation: rotation) { cycleRAW() }
                     .accessibilityIdentifier("badge.raw")
-                if !(rawActive && (!s.keepProcessedWithRAW || s.processing == .zero)) {
+                if !(rawActive && (!s.keepProcessedWithRAW || s.developsBayerRAW)) {
                     Badge(text: s.photoFormat.label, active: false, rotation: rotation) {
                         camera.update { $0.photoFormat = s.photoFormat == .heif ? .jpeg : .heif }
                     }
@@ -410,9 +410,9 @@ struct TopBar: View {
         return m < 1 ? "<1 min" : "\(m) min"
     }
 
-    private var rawActive: Bool { camera.settings.rawMode != .off || camera.settings.processing == .zero }
+    private var rawActive: Bool { camera.settings.rawMode != .off || camera.settings.developsBayerRAW }
     private var rawLabel: String {
-        if camera.settings.processing == .zero { return "RAW" }
+        if camera.settings.developsBayerRAW { return "RAW" }
         return camera.settings.rawMode.badge
     }
 

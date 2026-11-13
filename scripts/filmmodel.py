@@ -1,0 +1,228 @@
+"""Reference implementation of the Print look (PointAndShoot/Editor/FilmModel.swift +
+FilmPipeline.swift), in numpy. Keep the two in lockstep: tests compare their numbers.
+
+Used by scripts/print-look.py to preview the look on DNGs and to fit its parameters to
+reference images.
+"""
+from __future__ import annotations
+
+import copy
+import json
+import math
+
+import numpy as np
+
+SHAPER_SCALE = 16.0
+SHAPER_POWER = 4.0
+DENSITY_SCALE = 4.0
+
+SRGB_TO_REC2020 = np.array([
+    [0.627404, 0.329283, 0.043313],
+    [0.069097, 0.919540, 0.011362],
+    [0.016391, 0.088013, 0.895595],
+])
+REC2020_TO_P3 = np.linalg.inv(np.array([
+    [0.753833, 0.198597, 0.047570],
+    [0.045744, 0.941777, 0.012479],
+    [-0.001210, 0.017601, 0.983609],
+]))  # inverse of P3 -> Rec.2020
+
+
+def softplus(x, k):
+    z = x / k
+    return k * (np.maximum(z, 0) + np.log1p(np.exp(-np.abs(z))))
+
+
+def _tangents(x, y):
+    """Fritsch-Carlson monotone cubic tangents (same algorithm as FilmCurve.swift)."""
+    n = len(x)
+    d = [(y[i + 1] - y[i]) / (x[i + 1] - x[i]) for i in range(n - 1)]
+    m = [d[0]] + [(d[i - 1] + d[i]) / 2 for i in range(1, n - 1)] + [d[-1]]
+    for i in range(n - 1):
+        if d[i] == 0:
+            m[i] = m[i + 1] = 0.0
+            continue
+        a, b = m[i] / d[i], m[i + 1] / d[i]
+        h = a * a + b * b
+        if h > 9:
+            t = 3 / math.sqrt(h)
+            m[i], m[i + 1] = t * a * d[i], t * b * d[i]
+    return m
+
+
+def curve_density(c, logE):
+    """FilmCurve.density: monotone cubic through (logE, density) knots, flat beyond the
+    ends. c = dict(x=[...], y=[...], gamma=slope multiplier about logE 0)."""
+    x, y = c["x"], c["y"]
+    m = c.get("_m") or _tangents(x, y)
+    u = np.asarray(logE, dtype=np.float64) * c.get("gamma", 1.0)
+    u = np.clip(u, x[0], x[-1])
+    xs = np.asarray(x); ys = np.asarray(y); ms = np.asarray(m)
+    i = np.clip(np.searchsorted(xs, u, side="right") - 1, 0, len(xs) - 2)
+    h = xs[i + 1] - xs[i]
+    t = (u - xs[i]) / h
+    t2, t3 = t * t, t * t * t
+    return ((2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * ms[i]
+            + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * ms[i + 1])
+
+
+def scene_from_display(x):
+    v = np.clip(x, 0, 0.995)
+    return v / (1.333 - 1.11 * v)
+
+
+def negative_density(rgb2020, stock):
+    """Scene light (linear Rec.2020, ...x3) -> negative density per layer."""
+    e = rgb2020 @ np.array(stock["sensitivity"]).reshape(3, 3).T
+    out = np.empty_like(e)
+    for c in range(3):
+        out[..., c] = curve_density(stock["negative"][c], np.log10(np.maximum(e[..., c], 1e-6) / 0.18))
+    return out
+
+
+def grey_negative_density(stock):
+    return np.array([float(curve_density(stock["negative"][c], 0.0)) for c in range(3)])
+
+
+def print_curves(stock, controls):
+    contrast = 2 ** (controls.get("contrast", 0) * 0.5)
+    split = stock["crossover"]
+    amount = 1 + controls.get("crossover", 0)
+    curves = []
+    for i in range(3):
+        c = dict(stock["print"][i])
+        c["gamma"] = c.get("gamma", 1.0) * contrast * (1 + split[i] * amount)
+        curves.append(c)
+    return curves
+
+
+def display(dn, stock, controls=None):
+    """Negative density (...x3) -> linear Display P3 (white = 1)."""
+    controls = controls or {}
+    curves = print_curves(stock, controls)
+    grey = grey_negative_density(stock)
+    printer = stock.get("printer", [0.0, 0.0, 0.0])
+    dp = np.empty_like(dn)
+    for c in range(3):
+        dp[..., c] = curve_density(curves[c], grey[c] - dn[..., c] + printer[c])
+    X = np.array(stock["crosstalk"]).reshape(3, 3)
+    dm = dp @ X.T
+    base = X @ np.array([curves[c]["y"][0] for c in range(3)])
+    sat = controls.get("saturation", 0)
+    if sat != 0:
+        mean = dm.mean(axis=-1, keepdims=True)
+        k = 1 + sat * (0.6 if sat > 0 else 1.0)
+        dm = mean + (dm - mean) * k
+    h, s = controls.get("highlights", 0), controls.get("shadows", 0)
+    if h != 0 or s != 0:
+        neutral = dm.mean(axis=-1, keepdims=True)
+        wh = np.exp(-((neutral - 0.25) / 0.45) ** 2)
+        t = np.clip((neutral - 0.9) / (2.4 - 0.9), 0, 1)
+        ws = t * t * (3 - 2 * t)
+        dm = dm + (-0.22 * h * wh - 0.45 * s * ws)
+    t = 10.0 ** (-(dm - base))
+    return t @ np.array(stock["display"]).reshape(3, 3).T
+
+
+def encode_srgb(x):
+    v = np.clip(x, 0, 1)
+    return np.where(v <= 0.0031308, 12.92 * v, 1.055 * np.power(v, 1 / 2.4) - 0.055)
+
+
+def decode_srgb(v):
+    v = np.asarray(v, dtype=np.float64)
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+
+
+def neutral_response(stops, stock, controls=None):
+    x = 0.18 * 2.0 ** np.asarray(stops, dtype=np.float64)
+    rgb = np.stack([x, x, x], axis=-1)
+    return display(negative_density(rgb, stock), stock, controls)
+
+
+# --- Cubes (what the app generates), for parity tests ---------------------------------
+
+def negative_cube(stock, source="sceneLinear", n=64):
+    u = np.arange(n) / (n - 1)
+    x = SHAPER_SCALE * u ** SHAPER_POWER
+    lin = x if source == "sceneLinear" else scene_from_display(x)
+    b, g, r = np.meshgrid(lin, lin, lin, indexing="ij")
+    rgb = np.stack([r, g, b], axis=-1)
+    return negative_density(rgb, stock) / DENSITY_SCALE  # [b, g, r, 3]
+
+
+def print_cube(stock, controls=None, n=48):
+    d = np.arange(n) * (DENSITY_SCALE / (n - 1))
+    b, g, r = np.meshgrid(d, d, d, indexing="ij")
+    return encode_srgb(display(np.stack([r, g, b], axis=-1), stock, controls))
+
+
+# --- Full image render (mirrors FilmPipeline) ------------------------------------------
+
+def _gauss(img, sigma):
+    from scipy.ndimage import gaussian_filter
+    if img.ndim == 3:
+        return gaussian_filter(img, (sigma, sigma, 0), mode="nearest")
+    return gaussian_filter(img, sigma, mode="nearest")
+
+
+def halation(lin_srgb, stock, strength=1.0, source="sceneLinear"):
+    """Light scattered back from the film base into the layers (mostly red), added in
+    linear light, energy-conserving: E' = (E + a*glow) / (1 + a). Clipped highlights get
+    boosted first, since the sensor clips where film wouldn't."""
+    if strength <= 0:
+        return lin_srgb
+    hal = stock["halation_spread"]
+    h, w = lin_srgb.shape[:2]
+    unit = max(h, w) / 1000.0
+    t = hal["threshold"] if source == "sceneLinear" else hal["display_threshold"]
+    boost = hal["boost"] if source == "sceneLinear" else hal["display_boost"]
+    src = lin_srgb + boost * np.clip(lin_srgb - t, 0, 64)
+    glow = sum(wt * _gauss(src, s * unit) for s, wt in zip(hal["sigmas"], hal["weights"]))
+    a = np.array(stock["halation"]) * strength
+    return (lin_srgb + a * glow) / (1 + a)
+
+
+def grain_field(shape, stock, strength, seed=7):
+    """Zero-mean grain in negative density: a shared (monochrome) part plus a per-layer
+    part, blurred to the grain size. Amplitude is defined at a 4032 px long side and
+    scales down with resolution (smaller renders average the grain)."""
+    from scipy.ndimage import gaussian_filter
+    h, w = shape
+    unit = max(h, w) / 1000.0
+    sigma_px = max(0.35, stock["grain_size"] * unit)
+    rng = np.random.default_rng(seed)
+    def field():
+        f = gaussian_filter(rng.standard_normal((h, w)), sigma_px)
+        return f / (f.std() + 1e-9)
+    shared = field()
+    c = stock["grainChroma"]
+    norm = math.sqrt((1 - c) ** 2 + c ** 2)
+    sigma = stock["grainDensity"] * strength * min(1.0, unit / 4.032)
+    return np.stack([((1 - c) * shared + c * field()) / norm for _ in range(3)], -1) * sigma
+
+
+def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0, grain_amount=1.0,
+           source="sceneLinear"):
+    """Scene-linear sRGB-primaries image -> Display P3 linear image."""
+    controls = controls or {}
+    x = lin_srgb * 2.0 ** (exposure_ev + stock.get("exposure", 0.0))
+    x = halation(x, stock, halation_amount, source)
+    if source == "sceneLinear":
+        rgb2020 = x @ SRGB_TO_REC2020.T
+    else:
+        rgb2020 = scene_from_display(np.clip(x, 0, 1)) @ SRGB_TO_REC2020.T
+    rgb2020 = np.clip(rgb2020, 0, SHAPER_SCALE)
+    dn = negative_density(rgb2020, stock)
+    if grain_amount > 0:
+        dn = dn + grain_field(dn.shape[:2], stock, grain_amount)
+    return np.clip(display(dn, stock, controls), 0, 1)
+
+
+def load_stock(path):
+    with open(path) as f:
+        return json.load(f)
+
+
+def stock_copy(stock):
+    return copy.deepcopy(stock)

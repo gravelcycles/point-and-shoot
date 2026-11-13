@@ -379,3 +379,11 @@ enum Stops {
         return best
     }
 }
+
+extension CameraSettings {
+    /// The capture look is a film look, which develops from the sensor's Bayer RAW (like
+    /// Zero processing) so the film model gets real scene light.
+    var captureLookNeedsRAW: Bool { Look.named(captureLook)?.recipe.film != nil }
+    /// We capture Bayer RAW and develop it ourselves: Zero processing, or a film look.
+    var developsBayerRAW: Bool { processing == .zero || captureLookNeedsRAW }
+}

@@ -157,7 +157,8 @@ final class PreviewRenderer {
         image = image.transformed(by: CGAffineTransform(translationX: tx, y: ty)).cropped(to: bounds)
 
         if let look = cfg.look {
-            image = EditPipeline.apply(look, to: image, developedFromRAW: false, applyCrop: false).cropped(to: bounds)
+            image = EditPipeline.apply(look, to: image, developedFromRAW: false, applyCrop: false, animateGrain: true)
+                .cropped(to: bounds)
         }
 
         lastBase = image

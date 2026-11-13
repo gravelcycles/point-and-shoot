@@ -6,7 +6,9 @@ import Photos
 /// kind of save the editor does. Used to bake a capture-time Look onto a fresh shot while
 /// keeping the untouched original one "Revert" away.
 enum RecipeBaker {
-    static func apply(_ recipe: EditRecipe, toAssetWithID id: String) async throws {
+    /// `rawData`: the shot's DNG, when the caller still has it in memory. Film looks
+    /// develop from it (scene light); other looks use the processed photo.
+    static func apply(_ recipe: EditRecipe, toAssetWithID id: String, rawData: Data? = nil) async throws {
         guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
                 || PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited,
               let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return }
@@ -21,7 +23,19 @@ enum RecipeBaker {
             throw EditError.couldNotLoad
         }
 
-        var output = EditPipeline.apply(recipe, to: base, developedFromRAW: false)
+        var recipe = recipe
+        var output: CIImage
+        if recipe.film != nil, let raw = await rawFilter(rawData, asset: asset) {
+            let defaults = EditPipeline.readDefaults(raw)
+            recipe.rawInitialized = true
+            recipe.rawLocalTone = Double(defaults.localTone * 100)
+            recipe.rawBoost = Double(defaults.boost * 100)
+            EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
+            output = raw.outputImage.map { EditPipeline.apply(recipe, to: $0, developedFromRAW: true) }
+                ?? EditPipeline.apply(recipe, to: base, developedFromRAW: false)
+        } else {
+            output = EditPipeline.apply(recipe, to: base, developedFromRAW: false)
+        }
         if let props = CIImage(contentsOf: url)?.properties {
             output = output.settingProperties(uprightProperties(props))
         }
@@ -38,6 +52,12 @@ enum RecipeBaker {
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest(for: asset).contentEditingOutput = editingOutput
         }
+    }
+
+    private static func rawFilter(_ data: Data?, asset: PHAsset) async -> CIRAWFilter? {
+        if let data, let raw = CIRAWFilter(imageData: data, identifierHint: "com.adobe.raw-image") { return raw }
+        guard let data = await PhotoLibrary.rawData(for: asset) else { return nil }
+        return CIRAWFilter(imageData: data, identifierHint: nil)
     }
 
     /// Source metadata with orientation reset (pixels are already upright) and stale

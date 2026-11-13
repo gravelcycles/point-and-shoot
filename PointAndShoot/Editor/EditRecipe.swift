@@ -47,6 +47,21 @@ struct EditRecipe: Codable, Equatable {
     // used (nil = untouched), which also keeps older saved edits decoding fine.
     var mixer: [Double]?
 
+    // Film emulation (the Print look). nil = not a film look — older edits decode fine.
+    // When set, exposure, contrast, highlights, shadows, saturation and grain act inside
+    // the film model instead of as ordinary adjustments (see EditPipeline).
+    var film: FilmRecipe?
+
+    /// Key-path views of the film settings, for the sliders (only shown with a film look).
+    var filmHalation: Double {
+        get { film?.halation ?? FilmRecipe().halation }
+        set { film?.halation = newValue }
+    }
+    var filmCrossover: Double {
+        get { film?.crossover ?? FilmRecipe().crossover }
+        set { film?.crossover = newValue }
+    }
+
     /// Always-24-values view of the mixer, for key-path based sliders.
     var mixerValues: [Double] {
         get { mixer ?? Array(repeating: 0, count: ColorBand.allCases.count * 3) }
@@ -87,6 +102,18 @@ struct EditRecipe: Codable, Equatable {
         rawLocalTone = keep.rawLocalTone
         rawBoost = keep.rawBoost
     }
+}
+
+/// Settings of the film emulation that have no ordinary-edit equivalent.
+struct FilmRecipe: Codable, Equatable {
+    /// 0…100; 50 = the look as designed.
+    var halation: Double = 50
+    /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),
+    /// -100 = none, +100 = double.
+    var crossover: Double = 0
+
+    /// Grain amount the look starts with (EditRecipe.grain, 0…100; 50 = as designed).
+    static let defaultGrain: Double = 50
 }
 
 /// Copy an edit from one photo, paste it on the next.
@@ -155,6 +182,17 @@ struct Adjustment: Identifiable {
         .init(id: "vignette", name: "Vignette", range: -100...100, keyPath: \.vignette),
     ]
 
+    /// Details for a film look: the film's own grain and halation come first.
+    static let filmDetails: [Adjustment] = [
+        .init(id: "grain", name: "Grain", range: 0...100, keyPath: \.grain),
+        .init(id: "halation", name: "Halation", range: 0...100, keyPath: \.filmHalation),
+        .init(id: "crossover", name: "Crossover", range: -100...100, keyPath: \.filmCrossover),
+        .init(id: "structure", name: "Structure", range: -100...100, keyPath: \.structure),
+        .init(id: "sharpen", name: "Sharpening", range: 0...100, keyPath: \.sharpen),
+        .init(id: "fade", name: "Fade", range: 0...100, keyPath: \.fade),
+        .init(id: "vignette", name: "Vignette", range: -100...100, keyPath: \.vignette),
+    ]
+
     /// Hue / Saturation / Luminance for one color band.
     static func mixer(_ band: ColorBand) -> [Adjustment] {
         let base = band.rawValue * 3
@@ -182,6 +220,14 @@ struct Look: Identifiable {
 
     static let all: [Look] = [
         Look(id: "none", name: "Original") { _ in },
+        // Negative printed to print film, applied to the RAW sensor data when there is
+        // any (FilmModel.swift). Dense blacks, a long soft highlight shoulder, warm
+        // highlights over cool shadows, film color, halation and grain.
+        Look(id: "print", name: "Print") { r in
+            r.film = FilmRecipe()
+            r.grain = FilmRecipe.defaultGrain
+            r.rawNoiseReduction = 15
+        },
         Look(id: "natural", name: "Natural") { r in
             r.contrast = 8; r.vibrance = 12; r.highlights = -10
         },
