@@ -49,6 +49,11 @@ final class CameraController: NSObject {
     /// Library ID of the most recent photo/video this app saved — the viewer opens on it.
     private(set) var lastSavedAssetID: String?
     private(set) var countdown: Int?
+    private(set) var burstCount = 0
+    /// Estimated recording time left on the phone at the current video settings.
+    private(set) var recordingTimeLeft: TimeInterval?
+    /// Thermal state is serious or worse: heavy assists are paused.
+    private(set) var isHot = false
     var toast: String?
 
     // Exposure / focus / white balance
@@ -103,6 +108,8 @@ final class CameraController: NSObject {
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var lastISOAdjust = Date.distantPast
     @ObservationIgnored private var suspendWhenIdle = false
+    @ObservationIgnored private var burstTimer: Timer?
+    @ObservationIgnored private var meterTicks = 0
     @ObservationIgnored private var recordingLocation: TaggedLocation?
 
     override init() {
@@ -110,6 +117,9 @@ final class CameraController: NSObject {
         renderer.onHistogram = { [weak self] h in
             DispatchQueue.main.async { self?.histogram = h }
         }
+        observers.append(NotificationCenter.default.addObserver(
+            forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.thermalChanged() })
         pushRendererConfig()
     }
 
@@ -229,6 +239,7 @@ final class CameraController: NSObject {
 
     private func apply(old: CameraSettings, new s: CameraSettings) {
         pushRendererConfig()
+        updateStorage()
         if old.saveLocation != s.saveLocation {
             if s.saveLocation { location.start() } else { location.stop(disabled: true) }
         }
@@ -261,14 +272,15 @@ final class CameraController: NSObject {
         let s = settings
         let manualFocus = focusMode == .manual
         let front = currentLens?.position == .front
+        let hot = isHot
         renderer.update { c in
-            c.peaking = s.focusPeaking && (manualFocus || s.mode == .video)
+            c.peaking = !hot && s.focusPeaking && (manualFocus || s.mode == .video)
             c.peakingColor = s.peakingColor.rgb
-            c.zebras = s.zebras
+            c.zebras = !hot && s.zebras
             c.zebraThreshold = s.zebraThreshold
             c.logAssist = s.mode == .video && s.videoColor == .appleLog && s.logViewAssist
             c.mirrored = front
-            c.computeHistogram = s.showHistogram
+            c.computeHistogram = !hot && s.showHistogram
             c.look = s.mode == .photo ? Look.named(s.captureLook)?.recipe : nil
         }
     }
@@ -302,7 +314,7 @@ final class CameraController: NSObject {
         if let id = s.lastLensID, let remembered = lensesCache.first(where: { $0.id == id }) {
             return remembered
         }
-        lensesCache.first { $0.position == .back && $0.device.deviceType == .builtInWideAngleCamera && $0.zoom == 1 }
+        return lensesCache.first { $0.position == .back && $0.device.deviceType == .builtInWideAngleCamera && $0.zoom == 1 }
             ?? lensesCache.first
     }
 
@@ -877,6 +889,8 @@ final class CameraController: NSObject {
     }
 
     private func meterTick() {
+        meterTicks &+= 1
+        if meterTicks % 30 == 1 { updateStorage() }
         guard let d = device else { return }
         let offset = d.exposureTargetOffset
         if abs(offset - meterOffset) > 0.03 { meterOffset = offset }
@@ -916,6 +930,47 @@ final class CameraController: NSObject {
         }
     }
 
+    // MARK: - Storage & heat
+
+    /// Rough bits/second for the current video settings (ProRes figures per Apple's
+    /// ProRes white paper, scaled by pixel rate).
+    static func estimatedBitrate(_ s: CameraSettings) -> Double {
+        let d = s.videoResolution.dimensions
+        let pixelsPerSecond = Double(d.width) * Double(d.height) * Double(s.frameRate)
+        let video: Double
+        switch s.videoCodec {
+        case .proRes422HQ: video = pixelsPerSecond * 2.96
+        case .proRes422: video = pixelsPerSecond * 1.97
+        case .hevc, .h264: video = pixelsPerSecond * (s.videoColor.isTenBit ? 0.22 : 0.16)
+        }
+        return video + (s.recordAudio ? 256_000 : 0)
+    }
+
+    private func updateStorage() {
+        guard settings.mode == .video else {
+            if recordingTimeLeft != nil { recordingTimeLeft = nil }
+            return
+        }
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        guard let free = (try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage else { return }
+        // Keep ~1 GB back: Photos needs room to take the file when recording stops.
+        let usable = max(0, Double(free) - 1_000_000_000)
+        recordingTimeLeft = usable / (Self.estimatedBitrate(settings) / 8)
+        if isRecording && free < 600_000_000 {
+            stopRecording()
+            toast = "Storage almost full — recording stopped and saved"
+        }
+    }
+
+    private func thermalChanged() {
+        let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+        guard hot != isHot else { return }
+        isHot = hot
+        pushRendererConfig()
+        toast = hot ? "Phone is hot — peaking, zebras & histogram paused" : "Cooled down — assists back on"
+    }
+
     // MARK: - Photo capture
 
     func shutterPressed() {
@@ -945,10 +1000,38 @@ final class CameraController: NSObject {
         }
     }
 
-    private func capturePhoto() {
+    // MARK: - Burst
+
+    /// Hold the shutter: fires processed (non-RAW), fast-prioritized frames as quickly as
+    /// the pipeline keeps up, without ever queueing a backlog.
+    func startBurst() {
+        guard settings.mode == .photo, !isRecording, countdown == nil else { return }
+        burstTimer?.invalidate()
+        burstCount = 0
+        fireBurstShot()
+        let timer = Timer(timeInterval: 0.11, repeats: true) { [weak self] _ in self?.fireBurstShot() }
+        RunLoop.main.add(timer, forMode: .common)
+        burstTimer = timer
+    }
+
+    func stopBurst() {
+        burstTimer?.invalidate()
+        burstTimer = nil
+        if burstCount > 1 { toast = "Burst: \(burstCount) shots" }
+        burstCount = 0
+    }
+
+    private func fireBurstShot() {
+        guard burstCount < 60 else { stopBurst(); return }
+        guard capturesInFlight < 4 else { return }
+        burstCount += 1
+        capturePhoto(burst: true)
+    }
+
+    private func capturePhoto(burst: Bool = false) {
         let s = settings
         capturesInFlight += 1
-        haptic(.medium)
+        haptic(burst ? .soft : .medium)
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
         let look = Look.named(s.captureLook)?.recipe
@@ -960,7 +1043,7 @@ final class CameraController: NSObject {
             if let connection = self.photoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(rotation) {
                 connection.videoRotationAngle = rotation
             }
-            let (avSettings, basePlan) = self.makePhotoSettings(s, device: device)
+            let (avSettings, basePlan) = self.makePhotoSettings(s, device: device, burst: burst)
             var plan = basePlan
             plan.location = place
             plan.look = look
@@ -986,9 +1069,11 @@ final class CameraController: NSObject {
         }
     }
 
-    private func makePhotoSettings(_ s: CameraSettings, device: AVCaptureDevice) -> (AVCapturePhotoSettings, PhotoPlan) {
-        let wantsZero = s.processing == .zero
-        let rawMode: RawMode = wantsZero ? .bayer : s.rawMode
+    private func makePhotoSettings(_ s: CameraSettings, device: AVCaptureDevice,
+                                   burst: Bool = false) -> (AVCapturePhotoSettings, PhotoPlan) {
+        // Bursts trade RAW and heavy processing for speed.
+        let wantsZero = s.processing == .zero && !burst
+        let rawMode: RawMode = burst ? .off : (wantsZero ? .bayer : s.rawMode)
         let rawTypes = photoOutput.availableRawPhotoPixelFormatTypes
         var rawType: OSType?
         switch rawMode {
@@ -1021,18 +1106,18 @@ final class CameraController: NSObject {
 
         // Bayer RAW can't go through multi-frame fusion; ask for the honest single frame.
         let isBayer = rawType.map { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) } ?? false
-        let wanted: AVCapturePhotoOutput.QualityPrioritization = isBayer ? .speed : s.processing.prioritization
+        let wanted: AVCapturePhotoOutput.QualityPrioritization = (isBayer || burst) ? .speed : s.processing.prioritization
         photoSettings.photoQualityPrioritization =
             wanted.rawValue <= photoOutput.maxPhotoQualityPrioritization.rawValue ? wanted : photoOutput.maxPhotoQualityPrioritization
 
-        if device.hasFlash, photoOutput.supportedFlashModes.contains(s.flash.avMode) {
+        if !burst, device.hasFlash, photoOutput.supportedFlashModes.contains(s.flash.avMode) {
             photoSettings.flashMode = s.flash.avMode
         }
 
         let all = device.activeFormat.supportedMaxPhotoDimensions.sorted { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) }
         let standard = all.last { Int($0.width) * Int($0.height) <= 13_000_000 } ?? all.first
         let maxDims = photoOutput.maxPhotoDimensions
-        if isBayer || s.resolution == .standard, let standard {
+        if isBayer || burst || s.resolution == .standard, let standard {
             photoSettings.maxPhotoDimensions = standard
         } else {
             photoSettings.maxPhotoDimensions = maxDims

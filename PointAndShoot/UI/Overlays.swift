@@ -157,6 +157,31 @@ struct Triangle: Shape {
     }
 }
 
+/// Sun-on-a-track readout while dragging exposure on the viewfinder.
+struct ExposureDragIndicator: View {
+    let ev: Float
+
+    var body: some View {
+        let fraction = CGFloat((ev + 3) / 6)
+        VStack(spacing: 6) {
+            ZStack {
+                Capsule().fill(Color.yellow.opacity(0.5)).frame(width: 1.5, height: 120)
+                Image(systemName: "sun.max.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.yellow)
+                    .offset(y: 60 - fraction * 120)
+            }
+            .frame(height: 130)
+            Text(Stops.evLabel(ev))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.yellow)
+                .shadow(radius: 3)
+        }
+        .animation(.interactiveSpring(response: 0.2), value: ev)
+    }
+}
+
 struct FocusReticle: View {
     let locked: Bool
     @State private var appeared = false

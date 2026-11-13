@@ -15,6 +15,12 @@ struct CameraView: View {
     @State private var pinchStart: CGFloat = 1
     @State private var blink = false
     @AppStorage("hints.v1.seen") private var hintsSeen = false
+    @State private var panAxis: PanAxis?
+    @State private var panStartEV: Float = 0
+    @State private var evIndicator: Float?
+    @State private var evHideTask: Task<Void, Never>?
+
+    private enum PanAxis { case vertical, horizontal }
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -106,15 +112,7 @@ struct CameraView: View {
                     if state == .began { pinchStart = camera.zoomFactor }
                     camera.setZoom(min(max(pinchStart * scale, 1), 10))
                 },
-                onSwipe: { direction in
-                    guard !camera.isRecording else { return }
-                    let target: CaptureMode = direction == .left ? .video : .photo
-                    if target != camera.settings.mode {
-                        camera.haptic(.light)
-                        withAnimation(.smooth) { activeDial = nil }
-                        camera.update { $0.mode = target }
-                    }
-                })
+                onPan: handlePan)
 
             if s.showGrid { GridOverlay() }
             if let ratio = s.frameLines.ratio { FrameLinesOverlay(ratio: ratio, landscape: motion.isLandscape) }
@@ -124,6 +122,16 @@ struct CameraView: View {
                 FocusReticle(locked: reticleLocked)
                     .id(reticleID)
                     .position(reticle)
+            }
+
+            if let ev = evIndicator {
+                GeometryReader { geo in
+                    let anchor = reticle ?? CGPoint(x: geo.size.width - 40, y: geo.size.height / 2)
+                    ExposureDragIndicator(ev: ev)
+                        .position(x: min(anchor.x + 56, geo.size.width - 22), y: anchor.y)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
             }
 
             VStack {
@@ -195,9 +203,11 @@ struct CameraView: View {
                 .disabled(camera.isRecording)
                 Spacer()
                 ShutterButton(mode: camera.settings.mode, isRecording: camera.isRecording,
-                              countingDown: camera.countdown != nil) {
-                    camera.shutterPressed()
-                }
+                              countingDown: camera.countdown != nil,
+                              burstCount: camera.burstCount,
+                              onTap: { camera.shutterPressed() },
+                              onBurstStart: { camera.startBurst() },
+                              onBurstEnd: { camera.stopBurst() })
                 Spacer()
                 Button {
                     camera.flipCamera()
@@ -235,6 +245,50 @@ struct CameraView: View {
     }
 
     // MARK: - Actions
+
+    /// One finger on the viewfinder: vertical drag = exposure compensation (like the
+    /// built-in camera, but in ⅓-stop clicks); horizontal swipe = Photo/Video.
+    private func handlePan(_ t: CGPoint, _ velocity: CGPoint, _ state: UIGestureRecognizer.State) {
+        switch state {
+        case .began, .changed:
+            if panAxis == nil {
+                guard abs(t.x) > 8 || abs(t.y) > 8 else { return }
+                panAxis = abs(t.y) > abs(t.x) ? .vertical : .horizontal
+                panStartEV = camera.exposureBias
+            }
+            guard panAxis == .vertical else { return }
+            guard camera.exposureMode != .manual else {
+                if evIndicator == nil { camera.toast = "Manual exposure — use the ISO / shutter dials" }
+                return
+            }
+            let raw = panStartEV - Float(t.y) / 170
+            let snapped = (max(-3, min(3, raw)) * 3).rounded() / 3
+            if snapped != camera.exposureBias {
+                camera.setExposureBias(snapped)
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+            evHideTask?.cancel()
+            withAnimation(.easeOut(duration: 0.12)) { evIndicator = snapped }
+        default:
+            if panAxis == .horizontal, !camera.isRecording,
+               abs(t.x) > 50 || abs(velocity.x) > 500 {
+                let target: CaptureMode = t.x < 0 ? .video : .photo
+                if target != camera.settings.mode {
+                    camera.haptic(.light)
+                    withAnimation(.smooth) { activeDial = nil }
+                    camera.update { $0.mode = target }
+                }
+            }
+            if panAxis == .vertical {
+                evHideTask = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.2))
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeOut(duration: 0.3)) { evIndicator = nil }
+                }
+            }
+            panAxis = nil
+        }
+    }
 
     /// Action button / Siri / Shortcuts asked for a specific mode.
     private func consumeLaunchRequest() {
@@ -298,6 +352,11 @@ struct TopBar: View {
             } else if camera.isRecording, let start = camera.recordingStart {
                 Spacer()
                 RecordingClock(start: start)
+                if let left = camera.recordingTimeLeft {
+                    Text(Self.timeLeft(left) + " left")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(left < 300 ? Color.red : Color.white.opacity(0.6))
+                }
                 Spacer()
             } else {
                 Spacer(minLength: 0)
@@ -315,6 +374,13 @@ struct TopBar: View {
                     let options = camera.supportedCodecs.filter { !(s.videoColor.isTenBit && $0 == .h264) }
                     camera.update { $0.videoCodec = cycled(s.videoCodec, in: options) }
                 }
+                if let left = camera.recordingTimeLeft {
+                    Text(Self.timeLeft(left))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(left < 300 ? Color.red : Color.white.opacity(0.55))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
                 Spacer(minLength: 0)
             }
             GPSIndicator(tagger: camera.location, rotation: rotation) {
@@ -324,6 +390,12 @@ struct TopBar: View {
                 .disabled(camera.isRecording)
         }
         .foregroundStyle(.white)
+    }
+
+    static func timeLeft(_ seconds: TimeInterval) -> String {
+        let m = Int(seconds / 60)
+        if m >= 60 { return "\(m / 60)h \(m % 60)m" }
+        return m < 1 ? "<1 min" : "\(m) min"
     }
 
     private var rawActive: Bool { camera.settings.rawMode != .off || camera.settings.processing == .zero }
@@ -533,28 +605,74 @@ struct ShutterButton: View {
     let mode: CaptureMode
     let isRecording: Bool
     let countingDown: Bool
-    let action: () -> Void
+    var burstCount: Int = 0
+    let onTap: () -> Void
+    var onBurstStart: () -> Void = {}
+    var onBurstEnd: () -> Void = {}
+
+    @State private var pressed = false
+    @State private var bursting = false
+    @State private var holdTask: Task<Void, Never>?
 
     var body: some View {
-        Button(action: action) {
-            ZStack {
+        ZStack {
+            Circle()
+                .stroke(bursting ? Color.yellow : Color.white, lineWidth: 4)
+                .frame(width: 78, height: 78)
+            if mode == .photo {
                 Circle()
-                    .stroke(Color.white, lineWidth: 4)
-                    .frame(width: 78, height: 78)
-                if mode == .photo {
-                    Circle()
-                        .fill(countingDown ? Color.yellow : Color.white)
-                        .frame(width: 64, height: 64)
-                } else {
-                    RoundedRectangle(cornerRadius: isRecording ? 7 : 32, style: .continuous)
-                        .fill(Color.red)
-                        .frame(width: isRecording ? 30 : 64, height: isRecording ? 30 : 64)
+                    .fill(countingDown ? Color.yellow : Color.white)
+                    .frame(width: 64, height: 64)
+                    .scaleEffect(bursting ? 0.82 : 1)
+                if bursting && burstCount > 0 {
+                    Text("\(burstCount)")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.black)
+                        .contentTransition(.numericText())
                 }
+            } else {
+                RoundedRectangle(cornerRadius: isRecording ? 7 : 32, style: .continuous)
+                    .fill(Color.red)
+                    .frame(width: isRecording ? 30 : 64, height: isRecording ? 30 : 64)
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isRecording)
-            .animation(.spring(response: 0.3, dampingFraction: 0.72), value: mode)
         }
-        .buttonStyle(PressScaleStyle(scale: 0.9))
+        .scaleEffect(pressed ? 0.9 : 1)
+        .animation(.spring(response: 0.22, dampingFraction: 0.6), value: pressed)
+        .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isRecording)
+        .animation(.spring(response: 0.3, dampingFraction: 0.72), value: mode)
+        .animation(.snappy(duration: 0.12), value: burstCount)
+        .contentShape(Circle())
+        // Tap = shoot. Hold (photo) = burst until you let go.
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard !pressed else { return }
+                    pressed = true
+                    guard mode == .photo, !countingDown else { return }
+                    holdTask = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(380))
+                        guard !Task.isCancelled, pressed else { return }
+                        bursting = true
+                        onBurstStart()
+                    }
+                }
+                .onEnded { _ in
+                    pressed = false
+                    holdTask?.cancel()
+                    holdTask = nil
+                    if bursting {
+                        bursting = false
+                        onBurstEnd()
+                    } else {
+                        onTap()
+                    }
+                }
+        )
+        .accessibilityElement()
+        .accessibilityLabel(mode == .photo ? "Take photo" : (isRecording ? "Stop recording" : "Start recording"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onTap() }
     }
 }
 

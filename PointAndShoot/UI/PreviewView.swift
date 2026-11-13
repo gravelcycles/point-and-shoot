@@ -9,7 +9,9 @@ struct PreviewView: UIViewRepresentable {
     var onTap: (CGPoint, CGSize) -> Void
     var onLongPress: (CGPoint, CGSize) -> Void
     var onPinch: (CGFloat, UIGestureRecognizer.State) -> Void
-    var onSwipe: (UISwipeGestureRecognizer.Direction) -> Void
+    /// One-finger drag: translation, velocity, state. The caller decides the axis
+    /// (vertical = exposure, horizontal = switch mode).
+    var onPan: (CGPoint, CGPoint, UIGestureRecognizer.State) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -24,11 +26,9 @@ struct PreviewView: UIViewRepresentable {
         let long = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.longPress(_:)))
         long.minimumPressDuration = 0.55
         let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.pinch(_:)))
-        let left = UISwipeGestureRecognizer(target: c, action: #selector(Coordinator.swipe(_:)))
-        left.direction = .left
-        let right = UISwipeGestureRecognizer(target: c, action: #selector(Coordinator.swipe(_:)))
-        right.direction = .right
-        for g in [tap, long, pinch, left, right] as [UIGestureRecognizer] { view.addGestureRecognizer(g) }
+        let pan = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.pan(_:)))
+        pan.maximumNumberOfTouches = 1
+        for g in [tap, long, pinch, pan] as [UIGestureRecognizer] { view.addGestureRecognizer(g) }
         return view
     }
 
@@ -54,8 +54,9 @@ struct PreviewView: UIViewRepresentable {
             parent.onPinch(g.scale, g.state)
         }
 
-        @objc func swipe(_ g: UISwipeGestureRecognizer) {
-            parent.onSwipe(g.direction)
+        @objc func pan(_ g: UIPanGestureRecognizer) {
+            guard let v = g.view else { return }
+            parent.onPan(g.translation(in: v), g.velocity(in: v), g.state)
         }
     }
 }
