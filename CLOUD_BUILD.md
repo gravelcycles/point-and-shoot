@@ -1,5 +1,9 @@
 # Cloud builds → TestFlight (no Mac needed)
 
+> **Build checks** run on GitHub Actions on every push. They're free because the repo is
+> public: see the Actions tab. Codemagic below is an optional alternative, and its
+> TestFlight workflow is the way to get the app onto your phone.
+
 Builds run on [Codemagic](https://codemagic.io). The free personal plan gives you 500 Mac
 build minutes a month. A build check takes a few minutes; a TestFlight build takes about
 10–15 minutes.
