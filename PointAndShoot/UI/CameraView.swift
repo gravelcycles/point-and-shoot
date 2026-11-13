@@ -297,6 +297,9 @@ struct TopBar: View {
                 }
                 Spacer(minLength: 0)
             }
+            GPSIndicator(tagger: camera.location, rotation: rotation) {
+                camera.toast = camera.location.statusText
+            }
             iconButton("slider.horizontal.3", active: false) { showSettings = true }
                 .disabled(camera.isRecording)
         }
@@ -351,6 +354,52 @@ func cycled<T: Equatable>(_ value: T, in options: [T]) -> T {
     guard !options.isEmpty else { return value }
     guard let i = options.firstIndex(of: value) else { return options[0] }
     return options[(i + 1) % options.count]
+}
+
+/// Green = locked, pulsing yellow = searching, slashed = off/denied. Tap for details.
+struct GPSIndicator: View {
+    let tagger: LocationTagger
+    let rotation: Angle
+    let action: () -> Void
+    @State private var pulse = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(color)
+                .opacity(isSearching && pulse ? 0.35 : 1)
+                .frame(width: 26, height: 36)
+                .rotationEffect(rotation)
+        }
+        .buttonStyle(PressScaleStyle())
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
+        }
+    }
+
+    private var isSearching: Bool {
+        if case .searching = tagger.fix { return true }
+        return false
+    }
+
+    private var symbol: String {
+        switch tagger.fix {
+        case .off, .denied: "location.slash"
+        case .searching: "location"
+        case .good, .rough: "location.fill"
+        }
+    }
+
+    private var color: Color {
+        switch tagger.fix {
+        case .off: .white.opacity(0.4)
+        case .denied: .red.opacity(0.8)
+        case .searching: .yellow
+        case .rough: .yellow
+        case .good: .green
+        }
+    }
 }
 
 struct Badge: View {

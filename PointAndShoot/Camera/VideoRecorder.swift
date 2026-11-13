@@ -22,12 +22,14 @@ final class VideoRecorder {
     private var outputURL: URL?
     private(set) var isRecording = false
 
-    func start(videoSettings: [String: Any], audioSettings: [String: Any]?, transform: CGAffineTransform) throws {
+    func start(videoSettings: [String: Any], audioSettings: [String: Any]?, transform: CGAffineTransform,
+               metadata: [AVMetadataItem] = []) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("PS_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(6))")
             .appendingPathExtension("mov")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         writer.shouldOptimizeForNetworkUse = false
+        writer.metadata = metadata
 
         let video = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         video.expectsMediaDataInRealTime = true

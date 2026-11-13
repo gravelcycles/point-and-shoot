@@ -12,6 +12,19 @@ struct PhotoPlan {
     /// Keep the DNG in the library (paired with the processed image when there is one).
     var storeRAW = true
     var fallbackNote: String?
+    var location: TaggedLocation?
+}
+
+/// Writes GPS (and compass heading) into the photo file's own EXIF.
+private final class GPSCustomizer: NSObject, AVCapturePhotoFileDataRepresentationCustomizer {
+    let location: TaggedLocation
+    init(_ location: TaggedLocation) { self.location = location }
+
+    func replacementMetadata(for photo: AVCapturePhoto) -> [String: Any]? {
+        var metadata = photo.metadata
+        metadata[kCGImagePropertyGPSDictionary as String] = location.exifGPS
+        return metadata
+    }
 }
 
 final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
@@ -44,10 +57,12 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
             captureError = error
             return
         }
+        let data = plan.location.map { photo.fileDataRepresentation(with: GPSCustomizer($0)) }
+            ?? photo.fileDataRepresentation()
         if photo.isRawPhoto {
-            rawData = photo.fileDataRepresentation()
+            rawData = data
         } else {
-            processedData = photo.fileDataRepresentation()
+            processedData = data
         }
         if !sentThumbnail, let cg = photo.previewCGImageRepresentation() {
             sentThumbnail = true
@@ -77,10 +92,12 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                 }
 
                 let assetID: String?
+                let where_ = plan.location?.location
                 if let primary {
-                    assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: primary == raw ? nil : alternate)
+                    assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: primary == raw ? nil : alternate,
+                                                               location: where_)
                 } else if let raw {
-                    assetID = try await PhotoLibrary.savePhoto(primary: raw, rawCompanion: nil)
+                    assetID = try await PhotoLibrary.savePhoto(primary: raw, rawCompanion: nil, location: where_)
                 } else {
                     self.completion("Nothing was captured", nil)
                     return

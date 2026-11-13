@@ -268,7 +268,7 @@ final class EditSession {
                                                                     options: [quality: 0.93]) else {
                 throw EditError.couldNotRender
             }
-            try await PhotoLibrary.saveCopy(data: data)
+            try await PhotoLibrary.saveCopy(data: data, location: asset.location)
             savedRecipe = recipe
             return true
         } catch {

@@ -199,6 +199,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos and record video.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Point & Shoot tags your photos and videos with where they were taken. Works offline.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Point & Shoot records sound with your videos.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Point & Shoot saves your photos and videos to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Point & Shoot shows your photos so you can edit them.";
@@ -237,6 +238,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos and record video.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Point & Shoot tags your photos and videos with where they were taken. Works offline.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Point & Shoot records sound with your videos.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Point & Shoot saves your photos and videos to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Point & Shoot shows your photos so you can edit them.";

@@ -84,6 +84,7 @@ final class CameraController: NSObject {
 
     let session = AVCaptureSession()
     let renderer = PreviewRenderer()
+    let location = LocationTagger()
     private let sessionQueue = DispatchQueue(label: "camera.session", qos: .userInitiated)
     private let dataQueue = DispatchQueue(label: "camera.data", qos: .userInitiated)
     private let photoOutput = AVCapturePhotoOutput()
@@ -102,6 +103,7 @@ final class CameraController: NSObject {
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var lastISOAdjust = Date.distantPast
     @ObservationIgnored private var suspendWhenIdle = false
+    @ObservationIgnored private var recordingLocation: TaggedLocation?
 
     override init() {
         super.init()
@@ -131,6 +133,7 @@ final class CameraController: NSObject {
     }
 
     func stop() {
+        location.stop()
         meterTimer?.invalidate()
         meterTimer = nil
         if isRecording { stopRecording() }
@@ -165,6 +168,7 @@ final class CameraController: NSObject {
     }
 
     private func startSession() {
+        if settings.saveLocation { location.start() }
         if !isConfigured {
             isConfigured = true
             // Serial queue: discovery → configuration → startRunning, in that order.
@@ -225,6 +229,9 @@ final class CameraController: NSObject {
 
     private func apply(old: CameraSettings, new s: CameraSettings) {
         pushRendererConfig()
+        if old.saveLocation != s.saveLocation {
+            if s.saveLocation { location.start() } else { location.stop(disabled: true) }
+        }
 
         let videoFormatChanged = old.videoResolution != s.videoResolution || old.frameRate != s.frameRate
             || old.videoColor != s.videoColor || old.recordAudio != s.recordAudio || old.stabilization != s.stabilization
@@ -916,6 +923,7 @@ final class CameraController: NSObject {
         capturesInFlight += 1
         haptic(.medium)
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
+        let place = s.saveLocation ? location.snapshot() : nil
         sessionQueue.async {
             guard let device = self.device, self.session.outputs.contains(self.photoOutput) else {
                 DispatchQueue.main.async { self.captureFinished() }
@@ -924,7 +932,9 @@ final class CameraController: NSObject {
             if let connection = self.photoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(rotation) {
                 connection.videoRotationAngle = rotation
             }
-            let (avSettings, plan) = self.makePhotoSettings(s, device: device)
+            let (avSettings, basePlan) = self.makePhotoSettings(s, device: device)
+            var plan = basePlan
+            plan.location = place
             let id = avSettings.uniqueID
             let processor = PhotoCaptureProcessor(
                 plan: plan,
@@ -1018,12 +1028,14 @@ final class CameraController: NSObject {
     private func startRecording() {
         let s = settings
         let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
+        let place = s.saveLocation ? location.snapshot() : nil
+        recordingLocation = place
         haptic(.medium)
         dataQueue.async {
             // These come back as untyped dictionaries on some SDKs; normalize.
             let forCodec = self.videoDataOutput.recommendedVideoSettings(
-                forVideoCodecType: s.videoCodec.avCodec, assetWriterOutputFileType: .mov) as? [String: Any]
-            let generic = self.videoDataOutput.recommendedVideoSettingsForAssetWriter(writingTo: .mov) as? [String: Any]
+                forVideoCodecType: s.videoCodec.avCodec, assetWriterOutputFileType: .mov)
+            let generic = self.videoDataOutput.recommendedVideoSettingsForAssetWriter(writingTo: .mov)
             var videoSettings: [String: Any] = forCodec ?? generic ?? [:]
             if videoSettings.isEmpty {
                 self.post("Recording isn't available with these settings")
@@ -1040,11 +1052,20 @@ final class CameraController: NSObject {
                 videoSettings[AVVideoCompressionPropertiesKey] = props
             }
             let audioSettings: [String: Any]? = s.recordAudio
-                ? (self.audioDataOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mov) as? [String: Any])
+                ? self.audioDataOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mov)
                 : nil
             let transform = CGAffineTransform(rotationAngle: angle * .pi / 180)
             do {
-                try self.recorder.start(videoSettings: videoSettings, audioSettings: audioSettings, transform: transform)
+                var metadata: [AVMetadataItem] = []
+                if let place {
+                    let item = AVMutableMetadataItem()
+                    item.identifier = .quickTimeMetadataLocationISO6709
+                    item.dataType = kCMMetadataBaseDataType_UTF8 as String
+                    item.value = place.iso6709 as NSString
+                    metadata.append(item)
+                }
+                try self.recorder.start(videoSettings: videoSettings, audioSettings: audioSettings,
+                                        transform: transform, metadata: metadata)
                 DispatchQueue.main.async {
                     self.isRecording = true
                     self.recordingStart = Date()
@@ -1057,6 +1078,7 @@ final class CameraController: NSObject {
     }
 
     func stopRecording() {
+        let place = recordingLocation
         haptic(.medium)
         isRecording = false
         recordingStart = nil
@@ -1070,7 +1092,7 @@ final class CameraController: NSObject {
                 Task {
                     do {
                         let thumb = await Self.videoThumbnail(url: url)
-                        let assetID = try await PhotoLibrary.saveVideo(at: url)
+                        let assetID = try await PhotoLibrary.saveVideo(at: url, location: place?.location)
                         await MainActor.run {
                             if let thumb {
                                 self.lastThumbnail = thumb

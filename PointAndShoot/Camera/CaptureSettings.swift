@@ -263,13 +263,24 @@ struct CameraSettings: Codable, Equatable {
     var zebraThreshold: Double = 0.95
     var frameLines: FrameLines = .none
     var volumeShutter: Bool = true
+    /// Geotag photos and videos (GPS works offline / in airplane mode).
+    var saveLocation: Bool = true
     var haptics: Bool = true
 
     static let storageKey = "camera.settings.v1"
 
+    /// Loads saved settings, filling any options added since they were saved with defaults
+    /// (so an app update never wipes your setup).
     static func load() -> CameraSettings {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let s = try? JSONDecoder().decode(CameraSettings.self, from: data) else {
+              let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let defaultsData = try? JSONEncoder().encode(CameraSettings()),
+              var merged = try? JSONSerialization.jsonObject(with: defaultsData) as? [String: Any] else {
+            return CameraSettings()
+        }
+        merged.merge(saved) { _, stored in stored }
+        guard let mergedData = try? JSONSerialization.data(withJSONObject: merged),
+              let s = try? JSONDecoder().decode(CameraSettings.self, from: mergedData) else {
             return CameraSettings()
         }
         return s

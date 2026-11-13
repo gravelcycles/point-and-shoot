@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreLocation
 import Photos
 import UIKit
 import UniformTypeIdentifiers
@@ -36,11 +37,12 @@ enum PhotoLibrary {
     /// Saves a photo and returns its library identifier. When `rawCompanion` is given,
     /// Photos stores it as a RAW+HEIF/JPEG pair.
     @discardableResult
-    static func savePhoto(primary: Data, rawCompanion: Data?) async throws -> String? {
+    static func savePhoto(primary: Data, rawCompanion: Data?, location: CLLocation? = nil) async throws -> String? {
         try await ensureAddAccess()
         let box = IDBox()
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
+            request.location = location
             request.addResource(with: .photo, data: primary, options: nil)
             if let rawCompanion {
                 request.addResource(with: .alternatePhoto, data: rawCompanion, options: nil)
@@ -51,13 +53,14 @@ enum PhotoLibrary {
     }
 
     @discardableResult
-    static func saveVideo(at url: URL) async throws -> String? {
+    static func saveVideo(at url: URL, location: CLLocation? = nil) async throws -> String? {
         try await ensureAddAccess()
         let box = IDBox()
         try await PHPhotoLibrary.shared().performChanges {
             let options = PHAssetResourceCreationOptions()
             options.shouldMoveFile = true
             let request = PHAssetCreationRequest.forAsset()
+            request.location = location
             request.addResource(with: .video, fileURL: url, options: options)
             box.value = request.placeholderForCreatedAsset?.localIdentifier
         }
@@ -65,11 +68,12 @@ enum PhotoLibrary {
     }
 
     @discardableResult
-    static func saveCopy(data: Data) async throws -> String? {
+    static func saveCopy(data: Data, location: CLLocation? = nil) async throws -> String? {
         try await ensureAddAccess()
         let box = IDBox()
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
+            request.location = location
             request.addResource(with: .photo, data: data, options: nil)
             box.value = request.placeholderForCreatedAsset?.localIdentifier
         }

@@ -48,6 +48,13 @@ histogram, a horizon level, a rule-of-thirds grid, and frame lines (1:1, 4:5, 16
 2.39) that follow how you're holding the phone. All of them are drawn on the GPU from the
 same frames being recorded.
 
+**Geotagging works in airplane mode.** Photos and videos are tagged with GPS position,
+altitude, and which way the camera was facing (compass). All of it uses the phone's GPS
+chip and magnetometer, so no signal is needed. Without network help the first fix can take
+a minute, and it works best outdoors. The location icon in the top bar shows the status:
+green means locked, pulsing yellow means searching. Tap it to see the accuracy. The
+location is written into the file itself (EXIF / QuickTime), so it survives sharing.
+
 The **volume buttons** fire the shutter. On iPhone 16, **Camera Control** adjusts zoom and
 exposure.
 

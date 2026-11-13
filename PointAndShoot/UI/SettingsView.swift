@@ -161,12 +161,13 @@ struct SettingsView: View {
 
     private var controlsSection: some View {
         Section {
+            Toggle("Save location (GPS)", isOn: camera.binding(\.saveLocation))
             Toggle("Volume buttons take photo", isOn: camera.binding(\.volumeShutter))
             Toggle("Haptics", isOn: camera.binding(\.haptics))
         } header: {
             Text("Controls")
         } footer: {
-            Text("Tap to focus and meter. Hold to lock AE/AF. Pinch to zoom. Swipe the viewfinder to switch Photo/Video. On iPhone 16, Camera Control adjusts zoom and exposure.")
+            Text("Location uses the GPS chip and compass, so it works in airplane mode — the first fix can take a minute without signal, and works best outdoors. Tap the location icon in the top bar to see accuracy. Tap to focus and meter. Hold to lock AE/AF. Pinch to zoom. Swipe the viewfinder to switch Photo/Video. On iPhone 16, Camera Control adjusts zoom and exposure.")
         }
     }
 }
