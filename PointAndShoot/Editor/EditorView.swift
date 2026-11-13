@@ -2,13 +2,14 @@ import Photos
 import SwiftUI
 
 enum EditorTool: String, CaseIterable, Identifiable {
-    case looks, tune, details, crop, raw
+    case looks, tune, details, color, crop, raw
     var id: String { rawValue }
     var label: String {
         switch self {
         case .looks: "Looks"
         case .tune: "Tune"
         case .details: "Details"
+        case .color: "Color"
         case .crop: "Crop"
         case .raw: "RAW"
         }
@@ -18,6 +19,7 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .looks: "camera.filters"
         case .tune: "slider.horizontal.3"
         case .details: "triangle.lefthalf.filled"
+        case .color: "paintpalette"
         case .crop: "crop.rotate"
         case .raw: "r.square"
         }
@@ -59,7 +61,11 @@ struct EditorView: View {
         self.onSaved = onSaved
     }
 
-    private var adjustments: [Adjustment] { tool.adjustments }
+    @State private var colorBand: ColorBand = .red
+
+    private var adjustments: [Adjustment] {
+        tool == .color ? Adjustment.mixer(colorBand) : tool.adjustments
+    }
     private var selectedIndex: Int { min(selection[tool] ?? 0, max(adjustments.count - 1, 0)) }
     private var current: Adjustment? { adjustments.isEmpty ? nil : adjustments[selectedIndex] }
 
@@ -68,7 +74,7 @@ struct EditorView: View {
             header
             canvas
             toolPanel
-                .frame(height: 118)
+                .frame(height: 132)
             toolTabs
         }
         .background(Color.black.ignoresSafeArea())
@@ -274,7 +280,7 @@ struct EditorView: View {
         switch tool {
         case .looks:
             looksPanel
-        case .tune, .details, .raw:
+        case .tune, .details, .color, .raw:
             adjustmentPanel
         case .crop:
             cropPanel
@@ -317,6 +323,9 @@ struct EditorView: View {
 
     private var adjustmentPanel: some View {
         VStack(spacing: 10) {
+            if tool == .color {
+                colorBandPicker
+            }
             if tool == .raw {
                 if session.hasRAW {
                     Toggle(isOn: Binding(get: { session.recipe.useRAW },
@@ -378,6 +387,36 @@ struct EditorView: View {
                 .foregroundStyle(.white.opacity(0.4))
         }
         .padding(.top, 10)
+    }
+
+    /// Eight swatches; a dot marks bands you've changed.
+    private var colorBandPicker: some View {
+        HStack(spacing: 0) {
+            ForEach(ColorBand.allCases) { band in
+                let selected = band == colorBand
+                let values = session.recipe.mixerValues
+                let edited = (0..<3).contains { values[band.rawValue * 3 + $0] != 0 }
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { colorBand = band }
+                    selectionTick += 1
+                } label: {
+                    VStack(spacing: 4) {
+                        Circle()
+                            .fill(Color(hue: band.hue / 360, saturation: 0.85, brightness: 0.95))
+                            .frame(width: selected ? 28 : 22, height: selected ? 28 : 22)
+                            .overlay(Circle().stroke(Color.white, lineWidth: selected ? 2.5 : 0))
+                        Circle()
+                            .fill(edited ? Color.yellow : Color.clear)
+                            .frame(width: 4, height: 4)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(band.name)
+            }
+        }
+        .padding(.horizontal, 12)
     }
 
     private var cropPanel: some View {

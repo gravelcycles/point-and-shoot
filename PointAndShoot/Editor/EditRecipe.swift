@@ -43,6 +43,16 @@ struct EditRecipe: Codable, Equatable {
     var rawLocalTone: Double = 50
     var rawBoost: Double = 100
 
+    // Color mixer: 8 bands × (hue, saturation, luminance), -100…100. Stored only when
+    // used (nil = untouched), which also keeps older saved edits decoding fine.
+    var mixer: [Double]?
+
+    /// Always-24-values view of the mixer, for key-path based sliders.
+    var mixerValues: [Double] {
+        get { mixer ?? Array(repeating: 0, count: ColorBand.allCases.count * 3) }
+        set { mixer = newValue.allSatisfy { $0 == 0 } ? nil : newValue }
+    }
+
     var isGeometryIdentity: Bool {
         crop == CGRect(x: 0, y: 0, width: 1, height: 1) && straighten == 0 && quarterTurns % 4 == 0 && !flipped
     }
@@ -84,6 +94,38 @@ enum EditClipboard {
     static var recipe: EditRecipe?
 }
 
+enum ColorBand: Int, CaseIterable, Identifiable {
+    case red, orange, yellow, green, aqua, blue, purple, magenta
+    var id: Int { rawValue }
+
+    var name: String {
+        switch self {
+        case .red: "Red"
+        case .orange: "Orange"
+        case .yellow: "Yellow"
+        case .green: "Green"
+        case .aqua: "Aqua"
+        case .blue: "Blue"
+        case .purple: "Purple"
+        case .magenta: "Magenta"
+        }
+    }
+
+    /// Center hue in degrees.
+    var hue: Double {
+        switch self {
+        case .red: 0
+        case .orange: 30
+        case .yellow: 60
+        case .green: 120
+        case .aqua: 180
+        case .blue: 240
+        case .purple: 270
+        case .magenta: 300
+        }
+    }
+}
+
 struct Adjustment: Identifiable {
     let id: String
     let name: String
@@ -112,6 +154,16 @@ struct Adjustment: Identifiable {
         .init(id: "grain", name: "Grain", range: 0...100, keyPath: \.grain),
         .init(id: "vignette", name: "Vignette", range: -100...100, keyPath: \.vignette),
     ]
+
+    /// Hue / Saturation / Luminance for one color band.
+    static func mixer(_ band: ColorBand) -> [Adjustment] {
+        let base = band.rawValue * 3
+        return [
+            .init(id: "mix\(base)", name: "\(band.name) Hue", range: -100...100, keyPath: \.mixerValues[base]),
+            .init(id: "mix\(base + 1)", name: "\(band.name) Saturation", range: -100...100, keyPath: \.mixerValues[base + 1]),
+            .init(id: "mix\(base + 2)", name: "\(band.name) Luminance", range: -100...100, keyPath: \.mixerValues[base + 2]),
+        ]
+    }
 
     static let raw: [Adjustment] = [
         .init(id: "rawNR", name: "Noise Reduction", range: 0...100, keyPath: \.rawNoiseReduction),
