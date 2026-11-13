@@ -89,9 +89,30 @@ enum PhotoLibrary {
 
     /// iOS shows its own "Delete Photo?" confirmation.
     static func delete(_ asset: PHAsset) async throws {
+        try await delete([asset])
+    }
+
+    /// One system "Delete N Photos?" confirmation for the whole batch.
+    static func delete(_ assets: [PHAsset]) async throws {
+        guard !assets.isEmpty else { return }
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+            PHAssetChangeRequest.deleteAssets(assets as NSArray)
         }
+    }
+
+    /// The user tapping "Don't Allow"/"Cancel" on the system confirmation isn't an error.
+    static func isUserCancel(_ error: Error) -> Bool {
+        let ns = error as NSError
+        return ns.domain == PHPhotosErrorDomain && ns.code == PHPhotosError.userCancelled.rawValue
+    }
+
+    /// Exports originals for several assets (for one share sheet).
+    static func exportForSharing(_ assets: [PHAsset]) async -> [URL] {
+        var urls: [URL] = []
+        for asset in assets {
+            if let url = await exportForSharing(asset) { urls.append(url) }
+        }
+        return urls
     }
 
     static func hasRAW(_ asset: PHAsset) -> Bool {
@@ -105,12 +126,17 @@ enum PhotoLibrary {
     /// URL for the share sheet.
     static func exportForSharing(_ asset: PHAsset) async -> URL? {
         if asset.mediaType == .video {
+            // Copy the movie out of Photos' private storage so share targets can read it.
+            let resources = PHAssetResource.assetResources(for: asset)
+            guard let resource = resources.first(where: { $0.type == .fullSizeVideo })
+                    ?? resources.first(where: { $0.type == .video }) else { return nil }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(resource.originalFilename)
+            try? FileManager.default.removeItem(at: url)
+            let options = PHAssetResourceRequestOptions()
+            options.isNetworkAccessAllowed = true
             return await withCheckedContinuation { cont in
-                let options = PHVideoRequestOptions()
-                options.isNetworkAccessAllowed = true
-                options.version = .current
-                PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { av, _, _ in
-                    cont.resume(returning: (av as? AVURLAsset)?.url)
+                PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
+                    cont.resume(returning: error == nil ? url : nil)
                 }
             }
         }

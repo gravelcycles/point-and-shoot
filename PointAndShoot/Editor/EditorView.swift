@@ -6,7 +6,7 @@ enum EditorTool: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .looks: "Looks"
+        case .looks: "Filters"
         case .tune: "Tune"
         case .details: "Details"
         case .color: "Color"
@@ -62,6 +62,7 @@ struct EditorView: View {
     }
 
     @State private var colorBand: ColorBand = .red
+    @State private var showFilterGuide = false
 
     private var adjustments: [Adjustment] {
         if tool == .color { return Adjustment.mixer(colorBand) }
@@ -322,9 +323,29 @@ struct EditorView: View {
                     }
                     .buttonStyle(PressScaleStyle(scale: 0.94))
                 }
+                Button { showFilterGuide = true } label: {
+                    VStack(spacing: 6) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 22, weight: .medium))
+                            .frame(width: 68, height: 68)
+                            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        Text("About").font(.system(size: 11, weight: .semibold))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressScaleStyle(scale: 0.94))
+                .accessibilityLabel("About filters")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
+        }
+        .sheet(isPresented: $showFilterGuide) {
+            FilterGuide(thumbnails: session.lookThumbnails, selectedID: session.recipe.look) { id in
+                pushUndo()
+                let look = Look.all.first { $0.id == (id ?? "none") } ?? Look.all[0]
+                withAnimation(.snappy) { session.apply(look: look) }
+            }
+            .presentationDetents([.medium, .large])
         }
     }
 

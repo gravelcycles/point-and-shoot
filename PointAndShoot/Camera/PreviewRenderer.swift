@@ -42,6 +42,8 @@ final class PreviewRenderer {
     private var analyzing = false
     private var frameIndex = 0
     private var lastBase: CIImage?
+    /// Latest frame before any filter, for the filter picker's live thumbnails.
+    private var lastClean: CIImage?
 
     private lazy var logCube: Data = Self.makeAppleLogToRec709Cube(dimension: 33)
     private lazy var stripes: CIImage? = {
@@ -156,6 +158,7 @@ final class PreviewRenderer {
         let ty = (size.height - extent.height * scale) / 2
         image = image.transformed(by: CGAffineTransform(translationX: tx, y: ty)).cropped(to: bounds)
 
+        lastClean = image
         if let look = cfg.look {
             image = EditPipeline.apply(look, to: image, developedFromRAW: false, applyCrop: false, animateGrain: true)
                 .cropped(to: bounds)
@@ -199,6 +202,58 @@ final class PreviewRenderer {
             .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -0.6])
             .cropped(to: bounds)
     }
+
+    // MARK: - Filter thumbnails
+
+    /// Square previews of what the camera sees right now through every filter, like the
+    /// filter strip in a social camera. Falls back to a color swatch with no camera frame.
+    func filterThumbnails(side: CGFloat, completion: @escaping ([String: UIImage]) -> Void) {
+        renderQueue.async {
+            let source = self.lastClean ?? Self.sampleSwatch
+            let e = source.extent
+            let edge = min(e.width, e.height)
+            guard edge > 0 else { return }
+            let square = source
+                .cropped(to: CGRect(x: e.midX - edge / 2, y: e.midY - edge / 2, width: edge, height: edge))
+                .transformed(by: CGAffineTransform(translationX: -(e.midX - edge / 2), y: -(e.midY - edge / 2)))
+                .transformed(by: CGAffineTransform(scaleX: side / edge, y: side / edge))
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            var thumbs: [String: UIImage] = [:]
+            for look in Look.all {
+                let img = look.id == "none"
+                    ? square
+                    : EditPipeline.apply(look.recipe, to: square, developedFromRAW: false, applyCrop: false)
+                if let cg = self.context.createCGImage(img, from: rect, format: .RGBA8, colorSpace: self.displayColorSpace) {
+                    thumbs[look.id] = UIImage(cgImage: cg)
+                }
+            }
+            DispatchQueue.main.async { completion(thumbs) }
+        }
+    }
+
+    /// Sky, skin, foliage, reds, yellows and a grey ramp: enough to see what a filter does.
+    static let sampleSwatch: CIImage = {
+        let size: CGFloat = 300
+        let patches: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.35, 0.58, 0.92), (0.93, 0.72, 0.60), (0.30, 0.58, 0.24),
+            (0.86, 0.18, 0.14), (0.96, 0.80, 0.22), (0.55, 0.40, 0.75),
+        ]
+        var image = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: size, height: size))
+        let w = size / 3, h = size * 0.75 / 2
+        for (i, c) in patches.enumerated() {
+            let rect = CGRect(x: CGFloat(i % 3) * w, y: size * 0.25 + CGFloat(i / 3) * h, width: w, height: h)
+            image = CIImage(color: CIColor(red: c.0, green: c.1, blue: c.2)).cropped(to: rect).composited(over: image)
+        }
+        let ramp = CIFilter.linearGradient()
+        ramp.point0 = CGPoint(x: 0, y: 0)
+        ramp.point1 = CGPoint(x: size, y: 0)
+        ramp.color0 = CIColor(red: 0.02, green: 0.02, blue: 0.02)
+        ramp.color1 = CIColor(red: 0.98, green: 0.98, blue: 0.98)
+        if let strip = ramp.outputImage?.cropped(to: CGRect(x: 0, y: 0, width: size, height: size * 0.25)) {
+            image = strip.composited(over: image)
+        }
+        return image
+    }()
 
     // MARK: - Assists
 

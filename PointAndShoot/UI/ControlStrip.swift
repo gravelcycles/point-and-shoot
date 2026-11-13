@@ -24,7 +24,7 @@ struct ControlStrip: View {
                  value: camera.exposureMode == .manual ? Stops.evLabel(camera.meterOffset) : Stops.evLabel(camera.exposureBias),
                  manual: camera.exposureBias != 0, enabled: camera.exposureMode != .manual)
             if camera.settings.mode == .photo {
-                item(.look, title: "LOOK", value: Look.named(camera.settings.captureLook)?.name ?? "Off",
+                item(.look, title: "FILTER", value: Look.named(camera.settings.captureLook)?.name ?? "Off",
                      manual: camera.settings.captureLook != nil, enabled: true)
             }
         }
@@ -69,15 +69,25 @@ struct ControlStrip: View {
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(PressScaleStyle(scale: 0.94))
+        // Double-tap any control to put it back on automatic.
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            camera.resetToAuto(kind)
+            withAnimation(.snappy(duration: 0.2)) { active = nil }
+            camera.haptic(.medium)
+            camera.toast = kind == .look ? "Filter off" : "\(title.capitalized) → Auto"
+        })
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
         .accessibilityIdentifier("strip.\(kind.rawValue)")
+        .accessibilityHint("Double-tap to reset to automatic")
     }
 }
 
 struct DialPanel: View {
     let kind: DialKind
     let camera: CameraController
+    @State private var thumbnails: [String: UIImage] = [:]
+    @State private var showGuide = false
 
     private static let fullISO: Set<Float> = [25, 50, 100, 200, 400, 800, 1600, 3200, 6400, 12800]
     private static let fullShutter: [Double] = [1.0 / 8000, 1.0 / 4000, 1.0 / 2000, 1.0 / 1000, 1.0 / 500, 1.0 / 250,
@@ -111,13 +121,69 @@ struct DialPanel: View {
     }
 
     private func resetToAuto() {
-        switch kind {
-        case .focus: camera.setFocusAuto()
-        case .wb: camera.setWhiteBalance(.auto)
-        case .iso: if camera.exposureMode == .manual { camera.setExposureMode(.shutterPriority) }
-        case .shutter: camera.setExposureMode(.auto)
-        case .ev: camera.setExposureBias(0)
-        case .look: camera.setCaptureLook(nil)
+        camera.haptic(.light)
+        camera.resetToAuto(kind)
+    }
+
+    /// Square live previews of each filter, like a social camera's filter strip, plus a
+    /// guide that explains every filter.
+    private var filterStrip: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Look.all.filter { $0.id != "none" }) { look in
+                        let selected = camera.settings.captureLook == look.id
+                        Button {
+                            camera.haptic(.light)
+                            camera.setCaptureLook(selected ? nil : look.id)
+                        } label: {
+                            VStack(spacing: 4) {
+                                FilterSwatch(image: thumbnails[look.id], selected: selected, side: 50)
+                                Text(look.name)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(selected ? Color.yellow : Color.white)
+                                    .lineLimit(1)
+                            }
+                            .frame(width: 58)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressScaleStyle(scale: 0.94))
+                        .id(look.id)
+                        .accessibilityIdentifier("filter.\(look.id)")
+                        .accessibilityLabel(look.name)
+                    }
+                    Button { showGuide = true } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 20, weight: .medium))
+                                .frame(width: 50, height: 50)
+                                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            Text("About").font(.system(size: 10, weight: .semibold))
+                        }
+                        .frame(width: 58)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressScaleStyle(scale: 0.94))
+                    .accessibilityIdentifier("filter.info")
+                }
+                .padding(.horizontal, 4)
+            }
+            .onAppear {
+                if let id = camera.settings.captureLook { proxy.scrollTo(id, anchor: .center) }
+            }
+        }
+        // Refresh the previews from the live camera every couple of seconds while open.
+        .task {
+            while !Task.isCancelled {
+                camera.renderer.filterThumbnails(side: 120) { thumbnails = $0 }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        .sheet(isPresented: $showGuide) {
+            FilterGuide(thumbnails: thumbnails, selectedID: camera.settings.captureLook) { id in
+                camera.setCaptureLook(id)
+            }
+            .presentationDetents([.medium, .large])
         }
     }
 
@@ -168,31 +234,7 @@ struct DialPanel: View {
                       onChange: { camera.setWhiteBalance(.kelvin(values[$0])) },
                       accent: .orange)
         case .look:
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Look.all.filter { $0.id != "none" }) { look in
-                            let selected = camera.settings.captureLook == look.id
-                            Button {
-                                camera.haptic(.light)
-                                camera.setCaptureLook(selected ? nil : look.id)
-                            } label: {
-                                Text(look.name)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 12).padding(.vertical, 8)
-                                    .foregroundStyle(selected ? Color.black : Color.white)
-                                    .background(selected ? Color.yellow : Color.white.opacity(0.14), in: Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .id(look.id)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-                .onAppear {
-                    if let id = camera.settings.captureLook { proxy.scrollTo(id, anchor: .center) }
-                }
-            }
+            filterStrip
         case .focus:
             ScrubDial(count: 101,
                       index: Int((camera.lensPosition * 100).rounded()),

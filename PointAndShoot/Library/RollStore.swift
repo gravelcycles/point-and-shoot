@@ -24,17 +24,22 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
 
     var isAuthorized: Bool { status == .authorized || status == .limited }
 
-    /// Start quietly if the user already granted access; never prompts. Once started, the
-    /// change observer keeps everything current, so coming back to the app costs nothing.
+    /// Start quietly if the user already granted access; never prompts.
     func activateIfAuthorized() {
         let current = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if current != status { status = current }
-        if isAuthorized && !started { start() }
+        guard isAuthorized else { return }
+        // Refetch on every return to the app (off the main thread). The change observer
+        // covers the normal case; this catches anything it missed while we were away.
+        start()
     }
 
     func requestAccess() async {
-        status = await PhotoLibrary.requestReadWrite()
-        if isAuthorized { start() }
+        let granted = await PhotoLibrary.requestReadWrite()
+        await MainActor.run {
+            status = granted
+            if isAuthorized { start() }
+        }
     }
 
     func contains(_ id: String) -> Bool {
@@ -100,8 +105,8 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
 
     func photoLibraryDidChange(_ changeInstance: PHChange) {
         work.async {
-            guard let current = self.fetchResult,
-                  let details = changeInstance.changeDetails(for: current) else { return }
+            guard let current = self.fetchResult else { return }
+            guard let details = changeInstance.changeDetails(for: current) else { return }
             let updated = details.fetchResultAfterChanges
             self.fetchResult = updated
             self.publish(updated)

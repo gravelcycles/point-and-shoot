@@ -10,18 +10,23 @@ Native SwiftUI + AVFoundation + Core Image on Metal. iPhone, iOS 17+.
 
 | Control | What it does |
 |---|---|
-| **RAW** (`RAW` badge) | Off / **RAW** (Bayer DNG straight off the sensor, with no Apple pipeline) / **ProRAW** (Apple's linear DNG, with fusion) |
+| **RAW** (format pill) | Off / **RAW** (Bayer DNG straight off the sensor, with no Apple pipeline) / **ProRAW** (Apple's linear DNG, with fusion) |
 | **RAW + HEIF** | Saves the DNG and a processed HEIF/JPEG as one pair in Photos, or RAW only |
-| **Processing** (badge) | **Apple**: Deep Fusion / Smart HDR, full pipeline · **Balanced** · **Natural**: lightest ISP touch, less HDR flattening and smoothing · **Zero**: no computational photography. Shoots Bayer RAW and develops it in-app with a neutral, film-like curve (no local tone mapping, no luminance NR, no oversharpening). You can keep the DNG too. |
+| **Processing** (format pill) | **Apple**: Deep Fusion / Smart HDR, full pipeline · **Balanced** · **Natural**: lightest ISP touch, less HDR flattening and smoothing · **Zero**: no computational photography. Shoots Bayer RAW and develops it in-app with a neutral, film-like curve (no local tone mapping, no luminance NR, no oversharpening). You can keep the DNG too. |
 | **Format** | HEIF or JPEG |
 | **Resolution** | 12 MP or the sensor max (48 MP on Pro main cameras) |
 | Flash, self-timer | Off/Auto/On; 3s/10s |
 
 Responsive capture and zero shutter lag are turned on wherever the hardware supports them.
 
-- **Looks at capture time.** Tap **LOOK** and pick Print, Warm 400, Mono 400, Cine, Chrome,
-  Noir or another. You see it live in the viewfinder, and every shot is saved with the look
-  as an *editable edit*. The untouched original stays one tap away in the editor or Photos.
+- **The top bar** has big round buttons for flash, self-timer and settings (⚙︎), each with
+  a haptic click. The **format pill** in the middle ("HEIF · Natural ▾") opens a panel with
+  labelled choices for file type, RAW and processing.
+- **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, FILTER) to put it back on auto.
+- **Filters at capture time.** Tap **FILTER** for live square previews of each filter, and
+  **About** to read what each one does. Pick Print, Warm 400, Mono 400, Cine, Chrome, Noir
+  or another. You see it live in the viewfinder, and every shot is saved with the look as
+  an *editable edit*. The untouched original stays one tap away in the editor or Photos.
 - **Print: film, from the sensor.** The Print look is a real film emulation rather than a
   set of slider moves. It takes the RAW sensor data (with Print selected the camera shoots
   Bayer RAW and keeps the DNG, like Zero) and runs it through a model of a Kodak Vision3
@@ -101,9 +106,9 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
   full-quality source loads.
   - **Swipe ↕ on the photo** to choose a parameter and **↔** to dial it in. A pill shows
     the value, and a haptic ticks when you cross zero. Hold ◧ to compare with the original.
-  - **Looks**: Print (the film emulation above), Natural, Warm 400, Skin, Cool Air, Cine,
-    Chrome, Faded, Punch, Mono 400, Noir, Silver, with live thumbnails. On a photo with a
-    DNG, Print develops from the sensor data.
+  - **Filters** (with an **About** guide explaining each): Print (the film emulation above),
+    Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir, Silver,
+    with live thumbnails. On a photo with a DNG, Print develops from the sensor data.
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.
   - **Details**: structure, sharpening, fade, grain, vignette.

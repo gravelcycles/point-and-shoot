@@ -14,6 +14,10 @@ enum EditError: LocalizedError {
     }
 }
 
+/// Main-actor isolated: in Swift 5 mode a plain class's async methods run on the
+/// background pool, which wrote `recipe` / `isSaving` etc. while SwiftUI read them.
+/// Heavy work stays in the explicit `Task.detached` blocks.
+@MainActor
 @Observable
 final class EditSession {
     let asset: PHAsset
@@ -122,8 +126,12 @@ final class EditSession {
         let side = min(maxPixels, 1400)
         PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: side, height: side),
                                               contentMode: .aspectFit, options: options) { [weak self] image, _ in
-            guard let self, let image, self.isLoading else { return }
-            self.placeholder = CIImage(image: image, options: [.applyOrientationProperty: true])
+            guard let image else { return }
+            let ci = CIImage(image: image, options: [.applyOrientationProperty: true])
+            Task { @MainActor in
+                guard let self, self.isLoading else { return }
+                self.placeholder = ci
+            }
         }
     }
 
