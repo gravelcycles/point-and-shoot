@@ -51,16 +51,30 @@ final class ControlHitTargetTests: XCTestCase {
 
     func testSettingsOpensFromIconEdgeAndTogglesWork() {
         tapOffLabel(app.buttons["topbar.settings"], dx: 0.95, dy: 0.9)
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 3),
-                      "Tapping the settings button's edge didn't open Settings")
+        // The sheet's Done button proves it opened (more robust than the nav bar title on iOS 26).
+        let done = app.buttons["Done"]
+        guard done.waitForExistence(timeout: 4) else {
+            print(app.debugDescription)
+            return XCTFail("Tapping the settings button's edge didn't open Settings")
+        }
+        // Grid lives in Assists, further down the form.
         let grid = app.switches["Grid"]
-        XCTAssertTrue(grid.waitForExistence(timeout: 3))
+        var swipes = 0
+        while !grid.isHittable && swipes < 8 {
+            app.swipeUp()
+            swipes += 1
+        }
+        guard grid.exists else {
+            print(app.debugDescription)
+            return XCTFail("Couldn't find the Grid toggle in Settings")
+        }
         let before = grid.value as? String
-        grid.tap()
+        // Tap the switch itself (trailing edge); tapping the label doesn't toggle on iOS 17+.
+        grid.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         let flipped = NSPredicate(format: "value != %@", before ?? "")
         expectation(for: flipped, evaluatedWith: grid)
         waitForExpectations(timeout: 3)
-        app.buttons["Done"].tap()
+        done.tap()
         XCTAssertTrue(app.buttons["strip.ev"].waitForExistence(timeout: 3))
     }
 
