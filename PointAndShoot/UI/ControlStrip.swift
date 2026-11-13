@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum DialKind: String, CaseIterable, Identifiable {
-    case focus, wb, iso, shutter, ev
+    case focus, wb, iso, shutter, ev, look
     var id: String { rawValue }
 }
 
@@ -23,6 +23,10 @@ struct ControlStrip: View {
             item(.ev, title: camera.exposureMode == .manual ? "METER" : "EV",
                  value: camera.exposureMode == .manual ? Stops.evLabel(camera.meterOffset) : Stops.evLabel(camera.exposureBias),
                  manual: camera.exposureBias != 0, enabled: camera.exposureMode != .manual)
+            if camera.settings.mode == .photo {
+                item(.look, title: "LOOK", value: Look.named(camera.settings.captureLook)?.name ?? "Off",
+                     manual: camera.settings.captureLook != nil, enabled: true)
+            }
         }
         .padding(.horizontal, 10)
     }
@@ -100,6 +104,7 @@ struct DialPanel: View {
         case .iso: camera.exposureMode != .manual
         case .shutter: camera.exposureMode == .auto
         case .ev: camera.exposureBias == 0
+        case .look: camera.settings.captureLook == nil
         }
     }
 
@@ -110,6 +115,7 @@ struct DialPanel: View {
         case .iso: if camera.exposureMode == .manual { camera.setExposureMode(.shutterPriority) }
         case .shutter: camera.setExposureMode(.auto)
         case .ev: camera.setExposureBias(0)
+        case .look: camera.setCaptureLook(nil)
         }
     }
 
@@ -159,6 +165,32 @@ struct DialPanel: View {
                       label: { i in Int(values[i]) % 1000 == 0 ? "\(Int(values[i]) / 1000)K" : nil },
                       onChange: { camera.setWhiteBalance(.kelvin(values[$0])) },
                       accent: .orange)
+        case .look:
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Look.all.filter { $0.id != "none" }) { look in
+                            let selected = camera.settings.captureLook == look.id
+                            Button {
+                                camera.haptic(.light)
+                                camera.setCaptureLook(selected ? nil : look.id)
+                            } label: {
+                                Text(look.name)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .foregroundStyle(selected ? Color.black : Color.white)
+                                    .background(selected ? Color.yellow : Color.white.opacity(0.14), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .id(look.id)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .onAppear {
+                    if let id = camera.settings.captureLook { proxy.scrollTo(id, anchor: .center) }
+                }
+            }
         case .focus:
             ScrubDial(count: 101,
                       index: Int((camera.lensPosition * 100).rounded()),

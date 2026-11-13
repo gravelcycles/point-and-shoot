@@ -269,6 +269,7 @@ final class CameraController: NSObject {
             c.logAssist = s.mode == .video && s.videoColor == .appleLog && s.logViewAssist
             c.mirrored = front
             c.computeHistogram = s.showHistogram
+            c.look = s.mode == .photo ? Look.named(s.captureLook)?.recipe : nil
         }
     }
 
@@ -298,6 +299,9 @@ final class CameraController: NSObject {
     @ObservationIgnored private var lensesCache: [Lens] = []
 
     private func initialLens(for s: CameraSettings) -> Lens? {
+        if let id = s.lastLensID, let remembered = lensesCache.first(where: { $0.id == id }) {
+            return remembered
+        }
         lensesCache.first { $0.position == .back && $0.device.deviceType == .builtInWideAngleCamera && $0.zoom == 1 }
             ?? lensesCache.first
     }
@@ -416,6 +420,10 @@ final class CameraController: NSObject {
             let caps = self.readCapabilities(device: device, settings: s)
             DispatchQueue.main.async {
                 self.currentLens = lens
+                if self.settings.lastLensID != lens.id {
+                    self.settings.lastLensID = lens.id
+                    self.settings.save()
+                }
                 self.zoomFactor = lens.zoom
                 self.apply(capabilities: caps)
                 self.pushRendererConfig()
@@ -637,6 +645,25 @@ final class CameraController: NSObject {
         }
         session.setControlsDelegate(self, queue: sessionQueue)
         session.commitConfiguration()
+    }
+
+    // MARK: - Capture look
+
+    /// Looks are saved as editable edits on top of the original, which needs full Photos
+    /// access — ask for it the first time one is picked.
+    func setCaptureLook(_ id: String?) {
+        guard let id, id != "none" else {
+            update { $0.captureLook = nil }
+            return
+        }
+        Task { @MainActor in
+            let status = await PhotoLibrary.requestReadWrite()
+            if status == .authorized || status == .limited {
+                self.update { $0.captureLook = id }
+            } else {
+                self.toast = "Looks are saved as editable edits — allow full Photos access in Settings"
+            }
+        }
     }
 
     // MARK: - Lens & zoom
@@ -924,6 +951,7 @@ final class CameraController: NSObject {
         haptic(.medium)
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
+        let look = Look.named(s.captureLook)?.recipe
         sessionQueue.async {
             guard let device = self.device, self.session.outputs.contains(self.photoOutput) else {
                 DispatchQueue.main.async { self.captureFinished() }
@@ -935,6 +963,7 @@ final class CameraController: NSObject {
             let (avSettings, basePlan) = self.makePhotoSettings(s, device: device)
             var plan = basePlan
             plan.location = place
+            plan.look = look
             let id = avSettings.uniqueID
             let processor = PhotoCaptureProcessor(
                 plan: plan,

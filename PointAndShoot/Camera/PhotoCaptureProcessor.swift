@@ -13,6 +13,8 @@ struct PhotoPlan {
     var storeRAW = true
     var fallbackNote: String?
     var location: TaggedLocation?
+    /// Capture look to bake on as a non-destructive edit once saved.
+    var look: EditRecipe?
 }
 
 /// Writes GPS (and compass heading) into the photo file's own EXIF.
@@ -103,6 +105,9 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                     return
                 }
                 self.completion(plan.fallbackNote, assetID)
+                if let look = plan.look, let assetID {
+                    try? await RecipeBaker.apply(look, toAssetWithID: assetID)
+                }
             } catch {
                 self.completion("Couldn't save: \(error.localizedDescription)", nil)
             }

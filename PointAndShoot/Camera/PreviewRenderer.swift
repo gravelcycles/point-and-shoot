@@ -20,6 +20,8 @@ final class PreviewRenderer {
         var mirrored = false
         var transitionBlur = false
         var computeHistogram = true
+        /// Capture look, previewed live.
+        var look: EditRecipe?
     }
 
     let device: MTLDevice
@@ -153,6 +155,10 @@ final class PreviewRenderer {
         let tx = (size.width - extent.width * scale) / 2
         let ty = (size.height - extent.height * scale) / 2
         image = image.transformed(by: CGAffineTransform(translationX: tx, y: ty)).cropped(to: bounds)
+
+        if let look = cfg.look {
+            image = EditPipeline.apply(look, to: image, developedFromRAW: false, applyCrop: false).cropped(to: bounds)
+        }
 
         lastBase = image
 

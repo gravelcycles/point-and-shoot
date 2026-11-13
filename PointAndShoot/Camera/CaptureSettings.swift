@@ -240,6 +240,10 @@ struct CameraSettings: Codable, Equatable {
     var flash: FlashSetting = .off
     var resolution: PhotoResolution = .standard
     var selfTimer: SelfTimer = .off
+    /// Look applied live in the viewfinder and baked onto each shot as an editable edit.
+    var captureLook: String?
+    /// Lens to reopen on next launch.
+    var lastLensID: String?
 
     // Video
     var videoResolution: VideoResolution = .uhd4K
