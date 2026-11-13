@@ -4,9 +4,24 @@ import Foundation
 // MARK: - Modes
 
 enum CaptureMode: String, Codable, CaseIterable, Identifiable {
-    case photo, video
+    case photo, print, video
     var id: String { rawValue }
-    var label: String { self == .photo ? "PHOTO" : "VIDEO" }
+    var label: String {
+        switch self {
+        case .photo: "PHOTO"
+        case .print: "PRINT"
+        case .video: "VIDEO"
+        }
+    }
+    /// Photo and Print both take stills through the photo pipeline.
+    var isStill: Bool { self != .video }
+}
+
+/// Where the Print film look lives: its own mode (PHOTO · PRINT · VIDEO) or a filter.
+enum PrintPlacement: String, Codable, CaseIterable, Identifiable {
+    case mode, filter
+    var id: String { rawValue }
+    var label: String { self == .mode ? "Mode" : "Filter" }
 }
 
 /// What container the processed (non-RAW) image goes into.
@@ -242,6 +257,8 @@ struct CameraSettings: Codable, Equatable {
     var selfTimer: SelfTimer = .off
     /// Look applied live in the viewfinder and baked onto each shot as an editable edit.
     var captureLook: String?
+    /// Print as its own mode next to Photo and Video, or as one of the filters.
+    var printPlacement: PrintPlacement = .mode
     /// Lens to reopen on next launch.
     var lastLensID: String?
 
@@ -378,4 +395,32 @@ enum Stops {
         }
         return best
     }
+}
+
+extension CameraSettings {
+    static let printLookID = "print"
+
+    /// The modes the mode picker offers.
+    var availableModes: [CaptureMode] { printPlacement == .mode ? [.photo, .print, .video] : [.photo, .video] }
+
+    /// The filters the camera's FILTER picker offers (Print only when it isn't a mode).
+    var filterLooks: [Look] {
+        Look.all.filter { $0.id != "none" && (printPlacement == .filter || $0.id != Self.printLookID) }
+    }
+
+    /// The filter applied to stills right now: Print in Print mode, otherwise the chosen
+    /// filter (Print counts as a filter only while it isn't a mode).
+    var activeLook: String? {
+        switch mode {
+        case .video: nil
+        case .print: Self.printLookID
+        case .photo: printPlacement == .mode && captureLook == Self.printLookID ? nil : captureLook
+        }
+    }
+
+    /// The active look is a film look, which develops from the sensor's Bayer RAW (like
+    /// Zero processing) so the film model gets real scene light.
+    var captureLookNeedsRAW: Bool { Look.named(activeLook)?.recipe.film != nil }
+    /// We capture Bayer RAW and develop it ourselves: Zero processing, or a film look.
+    var developsBayerRAW: Bool { processing == .zero || captureLookNeedsRAW }
 }

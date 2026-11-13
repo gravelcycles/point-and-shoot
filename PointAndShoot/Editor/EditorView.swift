@@ -65,7 +65,9 @@ struct EditorView: View {
     @State private var showFilterGuide = false
 
     private var adjustments: [Adjustment] {
-        tool == .color ? Adjustment.mixer(colorBand) : tool.adjustments
+        if tool == .color { return Adjustment.mixer(colorBand) }
+        if tool == .details && session.recipe.film != nil { return Adjustment.filmDetails }
+        return tool.adjustments
     }
     private var selectedIndex: Int { min(selection[tool] ?? 0, max(adjustments.count - 1, 0)) }
     private var current: Adjustment? { adjustments.isEmpty ? nil : adjustments[selectedIndex] }
@@ -551,7 +553,9 @@ struct EditorView: View {
     }
 
     private func defaultValue(_ adj: Adjustment) -> Double {
-        EditRecipe()[keyPath: adj.keyPath]
+        // A film look's grain is part of the look; reset to that, not to none.
+        if adj.id == "grain" && session.recipe.film != nil { return FilmRecipe.defaultGrain }
+        return EditRecipe()[keyPath: adj.keyPath]
     }
 
     private func isDefault(_ adj: Adjustment, _ value: Double) -> Bool {

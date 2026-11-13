@@ -15,7 +15,7 @@ struct TopBar: View {
         let s = camera.settings
         let haptics = s.haptics
         HStack(spacing: 8) {
-            if s.mode == .photo {
+            if s.mode.isStill {
                 TopBarButton(symbol: s.flash.symbol, active: s.flash != .off, enabled: camera.supportsFlash,
                              rotation: rotation, haptics: haptics, label: "Flash \(s.flash.rawValue)") {
                     camera.update { $0.flash = cycled(s.flash, in: FlashSetting.allCases) }
@@ -36,7 +36,8 @@ struct TopBar: View {
                             .foregroundStyle(left < 300 ? Color.red : Color.white.opacity(0.6))
                     }
                 }
-            } else {
+            } else if s.mode != .print {
+                // Print mode has nothing to choose here: it always shoots RAW.
                 FormatPill(title: CameraFormat.summary(s),
                            subtitle: s.mode == .video ? camera.recordingTimeLeft.map { CameraFormat.timeLeft($0) + " left" } : nil,
                            highlighted: CameraFormat.isPro(s),
@@ -48,7 +49,7 @@ struct TopBar: View {
 
             Spacer(minLength: 4)
 
-            if s.mode == .photo {
+            if s.mode.isStill {
                 TopBarButton(symbol: "timer", caption: s.selfTimer == .off ? nil : s.selfTimer.label,
                              active: s.selfTimer != .off, rotation: rotation, haptics: haptics, label: "Self-timer") {
                     camera.update { $0.selfTimer = cycled(s.selfTimer, in: SelfTimer.allCases) }
@@ -164,7 +165,9 @@ enum CameraFormat {
         if s.mode == .video {
             return "\(s.videoResolution.label) · \(s.frameRate) · \(s.videoColor.label) · \(s.videoCodec.label)"
         }
-        if s.processing == .zero { return "Zero · RAW" }
+        if s.developsBayerRAW {
+            return s.processing == .zero ? "Zero · RAW" : "\(Look.named(s.activeLook)?.name ?? "Film") · RAW"
+        }
         let file: String
         switch s.rawMode {
         case .off: file = s.photoFormat.label
@@ -179,7 +182,7 @@ enum CameraFormat {
         if s.mode == .video {
             return s.videoColor != .sdr || s.videoCodec == .proRes422HQ || s.videoCodec == .proRes422
         }
-        return s.rawMode != .off || s.processing == .zero
+        return s.rawMode != .off || s.developsBayerRAW
     }
 
     static func timeLeft(_ seconds: TimeInterval) -> String {
@@ -208,7 +211,7 @@ struct CaptureFormatPanel: View {
                 }
                 .pickerStyle(.segmented)
             }
-            .disabled(s.processing == .zero || (s.rawMode != .off && !s.keepProcessedWithRAW))
+            .disabled(s.developsBayerRAW || (s.rawMode != .off && !s.keepProcessedWithRAW))
 
             PanelRow(title: "RAW", note: rawNote(s)) {
                 Picker("RAW", selection: camera.binding(\.rawMode)) {
@@ -216,9 +219,9 @@ struct CaptureFormatPanel: View {
                 }
                 .pickerStyle(.segmented)
             }
-            .disabled(s.processing == .zero || rawOptions.count < 2)
+            .disabled(s.developsBayerRAW || rawOptions.count < 2)
 
-            if s.rawMode != .off && s.processing != .zero {
+            if s.rawMode != .off && !s.developsBayerRAW {
                 Toggle("Also save \(s.photoFormat.label)", isOn: camera.binding(\.keepProcessedWithRAW))
                     .font(.system(size: 14, weight: .semibold))
                     .tint(.yellow)
@@ -251,6 +254,7 @@ struct CaptureFormatPanel: View {
 
     private func rawNote(_ s: CameraSettings) -> String {
         if s.processing == .zero { return "Zero always shoots RAW." }
+        if s.developsBayerRAW { return "The \(Look.named(s.activeLook)?.name ?? "film") filter develops from RAW, so it always shoots RAW." }
         if rawOptions.count < 2 { return "This lens doesn't offer RAW." }
         switch s.rawMode {
         case .off: return "Off: just the processed photo."

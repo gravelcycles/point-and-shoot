@@ -79,13 +79,13 @@ struct CameraView: View {
                 .frame(height: 50)
                 .sheet(isPresented: $showFormat) {
                     Group {
-                        if camera.settings.mode == .photo {
+                        if camera.settings.mode.isStill {
                             CaptureFormatPanel(camera: camera)
                         } else {
                             VideoFormatPanel(camera: camera)
                         }
                     }
-                    .presentationDetents([.height(camera.settings.mode == .photo ? 430 : 420)])
+                    .presentationDetents([.height(camera.settings.mode.isStill ? 430 : 420)])
                     .presentationDragIndicator(.visible)
                 }
             ZStack(alignment: .bottom) {
@@ -158,7 +158,7 @@ struct CameraView: View {
                 Spacer()
                 if camera.exposureMode == .manual {
                     LiveExposureMeter(camera: camera)
-                        .padding(.bottom, s.mode == .photo ? 10 : 260)
+                        .padding(.bottom, s.mode.isStill ? 10 : 260)
                 }
             }
             .allowsHitTesting(false)
@@ -180,7 +180,7 @@ struct CameraView: View {
                     .transition(.opacity)
             }
         }
-        .aspectRatio(s.mode == .photo ? 3.0 / 4.0 : 9.0 / 16.0, contentMode: .fit)
+        .aspectRatio(s.mode.isStill ? 3.0 / 4.0 : 9.0 / 16.0, contentMode: .fit)
         .clipped()
         .animation(.smooth(duration: 0.35), value: s.mode)
     }
@@ -201,7 +201,8 @@ struct CameraView: View {
 
             ControlStrip(camera: camera, active: $activeDial)
 
-            ModePicker(mode: camera.settings.mode, disabled: camera.isRecording) { mode in
+            ModePicker(modes: camera.settings.availableModes, mode: camera.settings.mode,
+                       disabled: camera.isRecording) { mode in
                 withAnimation(.smooth) { activeDial = nil }
                 camera.update { $0.mode = mode }
             }
@@ -289,7 +290,10 @@ struct CameraView: View {
         default:
             if panAxis == .horizontal, !camera.isRecording,
                abs(t.x) > 50 || abs(velocity.x) > 500 {
-                let target: CaptureMode = t.x < 0 ? .video : .photo
+                // Swipe left → the next mode to the right (Photo → Print → Video), right → back.
+                let modes = camera.settings.availableModes
+                let i = modes.firstIndex(of: camera.settings.mode) ?? 0
+                let target = modes[t.x < 0 ? min(i + 1, modes.count - 1) : max(i - 1, 0)]
                 if target != camera.settings.mode {
                     camera.haptic(.light)
                     withAnimation(.smooth) { activeDial = nil }
@@ -443,13 +447,14 @@ struct LensPicker: View {
 }
 
 struct ModePicker: View {
+    var modes: [CaptureMode] = CaptureMode.allCases
     let mode: CaptureMode
     let disabled: Bool
     let select: (CaptureMode) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(CaptureMode.allCases) { m in
+            ForEach(modes) { m in
                 Button { select(m) } label: {
                     Text(m.label)
                         .font(.system(size: 13, weight: .semibold))
@@ -489,7 +494,7 @@ struct ShutterButton: View {
             Circle()
                 .stroke(bursting ? Color.yellow : Color.white, lineWidth: 4)
                 .frame(width: 78, height: 78)
-            if mode == .photo {
+            if mode.isStill {
                 Circle()
                     .fill(countingDown ? Color.yellow : Color.white)
                     .frame(width: 64, height: 64)
@@ -520,6 +525,7 @@ struct ShutterButton: View {
                 .onChanged { _ in
                     guard !pressed else { return }
                     pressed = true
+                    // Burst is Photo-only: Print always shoots RAW, which can't burst.
                     guard mode == .photo, !countingDown else { return }
                     holdTask = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(380))
@@ -555,7 +561,7 @@ struct ShutterButton: View {
             }
         }
         .accessibilityElement()
-        .accessibilityLabel(mode == .photo ? "Take photo" : (isRecording ? "Stop recording" : "Start recording"))
+        .accessibilityLabel(mode.isStill ? "Take photo" : (isRecording ? "Stop recording" : "Start recording"))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onTap() }
     }

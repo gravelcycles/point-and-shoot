@@ -68,6 +68,17 @@ struct SettingsView: View {
             Picker("Flash", selection: camera.binding(\.flash)) {
                 ForEach(FlashSetting.allCases) { Text($0.rawValue.capitalized).tag($0) }
             }
+
+            Picker("Print film look", selection: camera.binding(\.printPlacement)) {
+                ForEach(PrintPlacement.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("settings.printPlacement")
+            Text(s.printPlacement == .mode
+                 ? "PHOTO · PRINT · VIDEO: Print is its own mode. It always shoots RAW, so it has no format or filter controls."
+                 : "Print is one of the filters under FILTER, alongside Warm 400, Cine and the rest.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             Picker("Self-timer", selection: camera.binding(\.selfTimer)) {
                 ForEach(SelfTimer.allCases) { Text($0.label).tag($0) }
             }

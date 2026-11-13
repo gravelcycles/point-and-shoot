@@ -7,6 +7,8 @@ struct RAWDefaults {
     var noiseReduction: Float = 0.5
     var localTone: Float = 0.5
     var boost: Float = 1
+    var sharpness: Float = 0
+    var detail: Float = 0
 }
 
 /// The whole edit as a Core Image graph. Building the graph is cheap; Core Image fuses it
@@ -28,7 +30,9 @@ enum EditPipeline {
             tint: raw.neutralTint,
             noiseReduction: raw.isLuminanceNoiseReductionSupported ? raw.luminanceNoiseReductionAmount : 0,
             localTone: raw.isLocalToneMapSupported ? raw.localToneMapAmount : 0,
-            boost: raw.boostAmount)
+            boost: raw.boostAmount,
+            sharpness: raw.isSharpnessSupported ? raw.sharpnessAmount : 0,
+            detail: raw.isDetailSupported ? raw.detailAmount : 0)
     }
 
     static func configure(_ raw: CIRAWFilter, recipe r: EditRecipe, defaults d: RAWDefaults) {
@@ -36,8 +40,19 @@ enum EditPipeline {
         raw.neutralTemperature = max(2000, min(50000, d.temperature + Float(r.warmth) * 40))
         raw.neutralTint = max(-150, min(150, d.tint + Float(r.tint) * 1.2))
         if raw.isLuminanceNoiseReductionSupported { raw.luminanceNoiseReductionAmount = Float(r.rawNoiseReduction / 100) }
-        if raw.isLocalToneMapSupported { raw.localToneMapAmount = Float(r.rawLocalTone / 100) }
-        raw.boostAmount = Float(r.rawBoost / 100)
+        if r.film != nil {
+            // The film look needs plain scene light: no tone curve, no local tone mapping
+            // and no sharpening (the film model supplies the tone and texture).
+            if raw.isLocalToneMapSupported { raw.localToneMapAmount = 0 }
+            raw.boostAmount = 0
+            if raw.isSharpnessSupported { raw.sharpnessAmount = 0 }
+            if raw.isDetailSupported { raw.detailAmount = 0 }
+        } else {
+            if raw.isLocalToneMapSupported { raw.localToneMapAmount = Float(r.rawLocalTone / 100) }
+            raw.boostAmount = Float(r.rawBoost / 100)
+            if raw.isSharpnessSupported { raw.sharpnessAmount = d.sharpness }
+            if raw.isDetailSupported { raw.detailAmount = d.detail }
+        }
     }
 
     // MARK: Geometry
@@ -81,7 +96,9 @@ enum EditPipeline {
 
     // MARK: Full graph
 
-    static func apply(_ r: EditRecipe, to base: CIImage, developedFromRAW: Bool, applyCrop: Bool = true) -> CIImage {
+    /// `animateGrain`: move film grain every call (the live viewfinder).
+    static func apply(_ r: EditRecipe, to base: CIImage, developedFromRAW: Bool, applyCrop: Bool = true,
+                      animateGrain: Bool = false) -> CIImage {
         var image = orient(base, recipe: r)
         if applyCrop && r.crop != CGRect(x: 0, y: 0, width: 1, height: 1) {
             image = crop(image, to: r.crop)
@@ -90,7 +107,7 @@ enum EditPipeline {
         // Radii are relative to image size so preview and export look the same.
         let unit = max(bounds.width, bounds.height) / 1000
 
-        if !developedFromRAW && r.exposure != 0 {
+        if !developedFromRAW && r.exposure != 0 && r.film == nil {
             image = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: r.exposure / 50])
         }
         if !developedFromRAW && (r.warmth != 0 || r.tint != 0) {
@@ -100,8 +117,25 @@ enum EditPipeline {
             ])
         }
 
-        // Local highlight recovery / shadow lift.
-        if r.highlights < 0 || r.shadows > 0 {
+        // Tone: either the film model, or local highlight/shadow + a global curve.
+        var curveRecipe = r
+        if let film = r.film {
+            var fs = FilmPipeline.Settings()
+            fs.source = developedFromRAW ? .sceneLinear : .displayReferred
+            fs.exposure = developedFromRAW ? 0 : r.exposure / 50   // RAW: already in the develop
+            fs.halation = film.halation / 50
+            fs.grain = r.grain / 50
+            fs.controls = FilmControls(contrast: r.contrast / 100, saturation: r.saturation / 100,
+                                       crossover: film.crossover / 100,
+                                       highlights: r.highlights / 100, shadows: r.shadows / 100)
+            fs.animateGrain = animateGrain
+            image = FilmPipeline.apply(image, settings: fs, unit: unit)
+            // Whites, blacks and fade still apply on top, as a curve.
+            curveRecipe.contrast = 0
+            curveRecipe.highlights = 0
+            curveRecipe.shadows = 0
+        } else if r.highlights < 0 || r.shadows > 0 {
+            // Local highlight recovery / shadow lift.
             image = image.applyingFilter("CIHighlightShadowAdjust", parameters: [
                 "inputHighlightAmount": 1 + min(0, r.highlights) / 100 * 0.85,
                 "inputShadowAmount": max(0, r.shadows) / 100 * 0.9,
@@ -110,7 +144,7 @@ enum EditPipeline {
         }
 
         // Global tone curve, applied in perceptual (gamma) space.
-        let points = curvePoints(r)
+        let points = curvePoints(curveRecipe)
         if points != identityCurve {
             image = image
                 .applyingFilter("CILinearToSRGBToneCurve")
@@ -145,7 +179,7 @@ enum EditPipeline {
                 "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
                 "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 0),
             ])
-        } else if r.saturation != 0 {
+        } else if r.saturation != 0 && r.film == nil {
             image = image.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1 + r.saturation / 100])
         }
 
@@ -171,7 +205,7 @@ enum EditPipeline {
             ])
         }
 
-        if r.grain > 0 { image = addGrain(image, amount: r.grain / 100, unit: unit) }
+        if r.grain > 0 && r.film == nil { image = addGrain(image, amount: r.grain / 100, unit: unit) }
 
         return image.cropped(to: bounds)
     }

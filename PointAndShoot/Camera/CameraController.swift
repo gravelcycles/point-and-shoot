@@ -243,6 +243,8 @@ final class CameraController: NSObject {
         var s = input
         // H.264 is 8-bit only; Log/HDR in 8 bits bands. Force HEVC.
         if s.videoColor.isTenBit && s.videoCodec == .h264 { s.videoCodec = .hevc }
+        // Print moved back into the filters: leave Print mode.
+        if !s.availableModes.contains(s.mode) { s.mode = .photo }
         return s
     }
 
@@ -255,13 +257,19 @@ final class CameraController: NSObject {
 
         let videoFormatChanged = old.videoResolution != s.videoResolution || old.frameRate != s.frameRate
             || old.videoColor != s.videoColor || old.recordAudio != s.recordAudio || old.stabilization != s.stabilization
+        // A film look shoots Bayer RAW per shot; the session itself only changes when that
+        // has to switch ProRAW off (or back on).
         let photoPipelineChanged = old.rawMode != s.rawMode || old.processing != s.processing
+            || Self.proRAWActive(old) != Self.proRAWActive(s)
+        // Photo ↔ Print share the photo pipeline: switch instantly, no session rebuild.
+        let stillSwap = old.mode.isStill && s.mode.isStill
+        if old.mode != s.mode && s.mode == .print { ensurePhotosAccessForLooks() }
 
-        if old.mode != s.mode {
+        if old.mode != s.mode && !stillSwap {
             // Entering video with a 180° shutter: classic cinematographer default.
             if s.mode == .video && s.shutterAngleLock && supportsCustomExposure {
                 setExposureMode(.shutterPriority, shutter: 1.0 / Double(2 * s.frameRate))
-            } else if s.mode == .photo && exposureMode == .shutterPriority && old.shutterAngleLock {
+            } else if s.mode.isStill && exposureMode == .shutterPriority && old.shutterAngleLock {
                 setExposureMode(.auto)
             }
             reconfigure(s, lens: currentLens)
@@ -270,7 +278,7 @@ final class CameraController: NSObject {
                 shutter = 1.0 / Double(2 * s.frameRate)
             }
             reconfigure(s, lens: currentLens)
-        } else if s.mode == .photo && photoPipelineChanged {
+        } else if s.mode.isStill && photoPipelineChanged {
             reconfigure(s, lens: currentLens)
         } else if old.shutterAngleLock != s.shutterAngleLock && s.mode == .video && s.shutterAngleLock {
             setExposureMode(.shutterPriority, shutter: 1.0 / Double(2 * s.frameRate))
@@ -290,7 +298,7 @@ final class CameraController: NSObject {
             c.logAssist = s.mode == .video && s.videoColor == .appleLog && s.logViewAssist
             c.mirrored = front
             c.computeHistogram = !hot && s.showHistogram
-            c.look = s.mode == .photo ? Look.named(s.captureLook)?.recipe : nil
+            c.look = Look.named(s.activeLook)?.recipe
         }
     }
 
@@ -413,7 +421,7 @@ final class CameraController: NSObject {
             }
 
             var fallbackMessage: String?
-            if s.mode == .photo {
+            if s.mode.isStill {
                 if !self.session.outputs.contains(self.photoOutput), self.session.canAddOutput(self.photoOutput) {
                     self.session.addOutput(self.photoOutput)
                 }
@@ -488,7 +496,7 @@ final class CameraController: NSObject {
         }
         // Only turn ProRAW on when it's wanted — it changes how the output allocates buffers.
         if photoOutput.isAppleProRAWSupported {
-            photoOutput.isAppleProRAWEnabled = s.rawMode == .proRAW && s.processing != .zero
+            photoOutput.isAppleProRAWEnabled = Self.proRAWActive(s)
         }
         if photoOutput.isZeroShutterLagSupported { photoOutput.isZeroShutterLagEnabled = true }
         if photoOutput.isResponsiveCaptureSupported { photoOutput.isResponsiveCaptureEnabled = true }
@@ -587,7 +595,7 @@ final class CameraController: NSObject {
             videoDataOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: format]
         }
         // Recording must never drop frames; photo preview should never lag.
-        videoDataOutput.alwaysDiscardsLateVideoFrames = s.mode == .photo
+        videoDataOutput.alwaysDiscardsLateVideoFrames = s.mode.isStill
         if let connection = videoDataOutput.connection(with: .video), connection.isVideoStabilizationSupported {
             let mode = s.mode == .video ? s.stabilization.avMode : .off
             connection.preferredVideoStabilizationMode = mode
@@ -607,7 +615,7 @@ final class CameraController: NSObject {
 
     private func readCapabilities(device: AVCaptureDevice, settings s: CameraSettings) -> Capabilities {
         var c = Capabilities()
-        if s.mode == .photo {
+        if s.mode.isStill {
             c.bayer = photoOutput.availableRawPhotoPixelFormatTypes.contains { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
             c.proRAW = photoOutput.isAppleProRAWSupported
             c.maxRes = Self.hasHighResSensor(device)
@@ -695,6 +703,22 @@ final class CameraController: NSObject {
     }
 
     // MARK: - Capture look
+
+    /// ProRAW is switched on in the photo output only while it's what we'll capture.
+    static func proRAWActive(_ s: CameraSettings) -> Bool {
+        s.rawMode == .proRAW && !s.developsBayerRAW
+    }
+
+    /// Print mode bakes its look on as an editable edit, which needs full Photos access.
+    private func ensurePhotosAccessForLooks() {
+        guard !TestHooks.isUITest else { return }
+        Task { @MainActor in
+            let status = await PhotoLibrary.requestReadWrite()
+            if status != .authorized && status != .limited {
+                self.toast = "Print saves its look as an editable edit — allow full Photos access in Settings"
+            }
+        }
+    }
 
     /// Looks are saved as editable edits on top of the original, which needs full Photos
     /// access — ask for it the first time one is picked.
@@ -1117,7 +1141,7 @@ final class CameraController: NSObject {
         haptic(burst ? .soft : .medium)
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
-        let look = Look.named(s.captureLook)?.recipe
+        let look = Look.named(s.activeLook)?.recipe
         sessionQueue.async {
             guard let device = self.device, self.session.outputs.contains(self.photoOutput) else {
                 DispatchQueue.main.async { self.captureFinished() }
@@ -1155,7 +1179,8 @@ final class CameraController: NSObject {
     private func makePhotoSettings(_ s: CameraSettings, device: AVCaptureDevice,
                                    burst: Bool = false) -> (AVCapturePhotoSettings, PhotoPlan) {
         // Bursts trade RAW and heavy processing for speed.
-        let wantsZero = s.processing == .zero && !burst
+        // Zero processing and film looks develop the Bayer RAW themselves.
+        let wantsZero = s.developsBayerRAW && !burst
         let rawMode: RawMode = burst ? .off : (wantsZero ? .bayer : s.rawMode)
         let rawTypes = photoOutput.availableRawPhotoPixelFormatTypes
         var rawType: OSType?
@@ -1173,7 +1198,8 @@ final class CameraController: NSObject {
         if let rawType {
             plan.expectsRAW = true
             plan.zeroDevelop = wantsZero
-            plan.storeRAW = wantsZero ? s.zeroKeepsDNG : true
+            // A film look's edit re-develops from the DNG, so it's always kept.
+            plan.storeRAW = wantsZero ? (s.zeroKeepsDNG || s.captureLookNeedsRAW) : true
             plan.zeroAsHEIF = codec == .hevc
             if wantsZero || !s.keepProcessedWithRAW {
                 photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType)
@@ -1184,7 +1210,11 @@ final class CameraController: NSObject {
         } else {
             photoSettings = AVCapturePhotoSettings(format: processedFormat)
             plan.expectsProcessed = true
-            if wantsZero { plan.fallbackNote = "Zero needs Bayer RAW — this lens used Natural" }
+            if wantsZero {
+                plan.fallbackNote = s.processing == .zero
+                    ? "Zero needs Bayer RAW — this lens used Natural"
+                    : "No Bayer RAW on this lens — Print look applied to the processed photo"
+            }
         }
 
         // Bayer RAW can't go through multi-frame fusion; ask for the honest single frame.

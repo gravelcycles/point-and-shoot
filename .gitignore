@@ -6,6 +6,7 @@ build/
 *.ipa
 *.dSYM.zip
 *.dSYM
+__pycache__/
 
 # Claude Code agent worktrees
 .claude/worktrees/

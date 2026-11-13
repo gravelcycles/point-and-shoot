@@ -27,7 +27,8 @@ Team `D5STMWZ849`) and installed all three targets on the owner's iPhone 12 Pro 
 fix PR per problem. Expect runtime issues even though it builds cleanly; see §8.
 
 Git history: PRs #1 (whole app), #2 (color mixer) and #3 (Lock Screen camera + Control
-Center) are merged into `main`.
+Center) are merged into `main`. The Print look (film emulation, §4 "Print look") is on
+`claude/print-look`.
 
 ---
 
@@ -124,7 +125,10 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/EditPipeline.swift       the edit as a Core Image graph (geometry → tone → color → detail → fx)
   Editor/EditRecipe.swift         Codable recipe, Adjustment lists, Looks, ColorBand, CropAspect
   Editor/ColorMixer.swift         8-band HSL → cached 32³ color cube
-  Editor/RecipeBaker.swift        applies a recipe to a library asset (capture Looks)
+  Editor/RecipeBaker.swift        applies a recipe to a library asset (capture Looks; film looks from the DNG)
+  Editor/FilmModel.swift          Print look math: film curves, LUT builders (Foundation only, testable anywhere)
+  Editor/FilmStock+Print.swift    GENERATED numbers for the Print look (from scripts/print-stock.json)
+  Editor/FilmPipeline.swift       Print look in Core Image: halation, neg cube, grain, print cube
   Editor/CropOverlay.swift, MetalImageView.swift
 PointAndShootUITests/             simulator UI tests (tap targets, tap-through); run with -uitest
 Shared/CameraCaptureIntent.swift  CameraCaptureIntent (compiled into app + both extensions)
@@ -136,6 +140,9 @@ Config/*-Info.plist               NSExtension dicts for the two extensions (merg
 .github/workflows/build.yml       unsigned compile on every push + PRs (free: repo is public)
 .github/workflows/testflight.yml  sign + upload to TestFlight on push (skips until secrets exist)
 codemagic.yaml                    optional alternative CI
+scripts/print-look.py             Print look tools: preview on DNGs, fit to reference pairs, export-swift, parity
+scripts/filmmodel.py              reference (numpy) implementation of FilmModel/FilmPipeline
+scripts/print-stock.json          the Print look's parameters (source of truth)
 CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 ```
 
@@ -202,6 +209,70 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   for the viewer, the grid and the camera thumbnail. Views key image caches on
   `PHAsset.revisionKey` (localIdentifier + modificationDate), so edits refresh everywhere.
 
+### Print look (film emulation)
+- **Signal path:** scene-linear light → exposure → halation → shaper → negative cube →
+  + grain → print cube → Display P3. See the header of `FilmModel.swift`.
+  - Halation and grain are spatial, so they sit outside the two 3D LUTs.
+  - Grain is added in *negative density*, so the print curve shapes it the way a real
+    print does.
+- **Source of truth:** `scripts/print-stock.json`.
+  - `FilmStock+Print.swift` is generated from it: `scripts/print-look.py export-swift`.
+  - `scripts/filmmodel.py` mirrors the Swift math exactly.
+  - After touching either side, run `scripts/print-look.py parity`. It compiles
+    FilmModel.swift with `swiftc`, works on Linux too, and fails on any difference
+    above 1e-5.
+- **Where the numbers come from:**
+  - Negative curve: Kodak Vision3 5219 datasheet.
+  - Dye crosstalk: Kodak 2383 dye densities.
+  - Print curve: derived so the neutral scale matches Chromagraph Camera's tone response,
+    recovered from its in-app exposure sweep (a near power law, slope ≈ 1.44, into a
+    shoulder capped at 0.83 white).
+  - Printer-light balance, crossover and interlayer saturation: fitted to public
+    Chromagraph samples (neutral-axis tint vs. lightness, ColorChecker chroma ≈ 0.85×).
+  - Grain (mostly monochrome, ~0.5 px) and halation: matched by eye/measurement to the
+    same samples.
+- **Tables:**
+  - The negative cube (48³, 1.8 MB) is fixed per source and built once (~15 ms;
+    prewarmed at launch).
+  - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
+    highlights, shadows) and is cached. It rebuilds in ~3 ms, so editor sliders never
+    hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
+    are linear in density), with a 1-D table for highlights/shadows and a √-space table
+    for the sRGB encode.
+  - Don't shrink below 48³: at 40³ the grey ramp stops being monotone (banding).
+  - The interpolation error of the two-table path vs. direct math is < 0.007 ΔE (Oklab)
+    on the grey scale.
+- **Sources:**
+  - `.sceneLinear` is a RAW develop with `boostAmount = 0`, no local tone mapping and no
+    sharpening (`EditPipeline.configure` does this whenever `recipe.film != nil`).
+  - `.displayReferred` (viewfinder, processed HEIFs) first undoes a generic phone tone
+    curve inside the negative cube.
+- **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
+  "Print film look".
+  - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
+    (`isStill`), so it uses the photo pipeline.
+    - It drops the controls that don't apply: no format pill (always RAW), no FILTER
+      cell (Print *is* the filter), and no burst (RAW can't burst).
+    - Photo ↔ Print switches without rebuilding the session. Only a ProRAW on/off change
+      reconfigures (`CameraController.proRAWActive`).
+    - Print is left out of the FILTER list.
+  - **Filter:** Print is the first item under FILTER, and there is no Print mode.
+  - `CameraSettings.activeLook` is what actually gets applied: Print in Print mode,
+    otherwise the chosen filter.
+  - The editor's Filters tab always includes Print.
+- **Capture:** the Print mode (or the Print filter) makes the camera shoot Bayer RAW and
+  keep the DNG (`CameraSettings.developsBayerRAW`). `RecipeBaker` then renders the edit
+  from the in-memory DNG.
+- **Recipe:** `EditRecipe.film` (optional, so old edits decode).
+  - Tune's exposure, contrast, highlights, shadows and saturation act inside the film
+    model; grain is the film grain.
+  - Halation and crossover are `FilmRecipe` fields.
+- **Refit to real pairs** (most accurate):
+  1. Put `NAME.dng` (from Point & Shoot) and `NAME.jpg/heic` (the reference) in a folder.
+  2. Run `scripts/print-look.py fit DIR`. Add `--same-raw` if both come from the same DNG,
+     which also fits the grey placement.
+  3. Run `scripts/print-look.py export-swift` and then `scripts/print-look.py parity`.
+
 ### Tunables that are educated guesses (tune on device)
 | What | Where | Value |
 |---|---|---|
@@ -214,6 +285,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Zero develop NR / sharpening | `ZeroDeveloper.configureNeutral` | chroma NR 0.3, sharpness 0.1 |
 | Storage reserve / auto-stop | `updateStorage` | 1 GB reserve / stop under 600 MB |
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
+| Print: where 18% grey lands | `print-stock.json` `exposure` (0) + RAW baseline exposure | grey → ~11.5% display; assumes CIRAWFilter with boost 0 gives grey ≈ 0.18 |
+| Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
+| Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.012 D at 4032 px, 0.13 ‰, 15% color |
+| Print: viewfinder inverse tone curve | `FilmLUT.sceneFromDisplay` | display = 1.333·s/(1+1.11·s) |
 
 ---
 
@@ -390,7 +465,23 @@ to be wrong.
     - ⚠️ Whether the extension can write to Photos directly. If not, shots should appear
       after opening the app (`LockedCaptureImporter`).
     - "Full app" hands off after Face ID.
-15. **Robustness:**
+15. **Print look**
+    - Tap PRINT (or swipe from PHOTO). It switches instantly with no session blur, and the
+      viewfinder shows the look live with moving grain at full frame rate.
+    - Print mode shows no format pill, no FILTER cell, and doesn't burst. Flash, timer and
+      exposure controls are still there.
+    - Settings → Print film look → Filter: PRINT leaves the mode picker and appears under
+      FILTER. The format pill then reads "Print · RAW" when it's picked.
+    - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ Overall
+      brightness: is 18% grey (or a typical daylight scene) about as dark as intended?
+      If everything is too dark or bright, change `exposure` in `print-stock.json`, then
+      run export-swift.
+    - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
+      there is no banding in skies or shadow gradients.
+    - Editor: Print from the Filters tab. Details → Grain/Halation/Crossover respond;
+      Tune sliders behave. Revert in Photos gives the neutral Zero develop.
+    - Switch the look back to Natural: sharpening and the RAW tab's tone sliders return.
+16. **Robustness:**
     - Background/foreground while recording; incoming call; low storage.
     - Deny each permission (camera, mic, photos, location) and confirm graceful messages.
 
@@ -408,3 +499,11 @@ to be wrong.
 - App Store submission workflow (unlisted distribution). Apps installed from the App Store
   keep working even if the developer membership lapses.
 - Localization; accessibility pass (VoiceOver labels on all controls); iPad layout.
+- Print look:
+  - Multi-frame highlight-retention capture (bracket and merge, ~2 stops) so halation and
+    the shoulder see real highlights.
+  - A contrast pivot.
+  - A Print-mode default exposure placement tuned on device.
+  - An "optical" (white bloom) halation mode.
+  - Grain amplitude that varies with density.
+  - Fitting against real reference pairs (see §4).

@@ -106,7 +106,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                 }
                 self.completion(plan.fallbackNote, assetID)
                 if let look = plan.look, let assetID {
-                    try? await RecipeBaker.apply(look, toAssetWithID: assetID)
+                    try? await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw)
                 }
             } catch {
                 self.completion("Couldn't save: \(error.localizedDescription)", nil)
