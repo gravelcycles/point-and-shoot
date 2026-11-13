@@ -18,7 +18,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Cheap Linux check so a Mac runner is only taken when there's something to ship.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.secrets.outputs.ready }}
+    steps:
+      - name: Check Apple secrets
+        id: secrets
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
+        run: |
+          missing=""
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 TEAM_ID BUNDLE_ID; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::TestFlight is not set up yet (missing:$missing). See CLOUD_BUILD.md. Skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
   ship:
+    needs: check
+    if: needs.check.outputs.ready == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -29,29 +57,14 @@ jobs:
       BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
       BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
     steps:
-      - name: Check Apple secrets
-        id: check
-        run: |
-          missing=""
-          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 TEAM_ID BUNDLE_ID; do
-            [ -z "${!v}" ] && missing="$missing $v"
-          done
-          if [ -n "$missing" ]; then
-            echo "::notice::TestFlight is not set up yet (missing:$missing). See CLOUD_BUILD.md. Skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v4
-        if: steps.check.outputs.skip != 'true'
 
       - name: Pick newest Xcode
-        if: steps.check.outputs.skip != 'true'
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           xcodebuild -version
 
       - name: Prepare API key and export options
-        if: steps.check.outputs.skip != 'true'
         run: |
           KEY="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
           printf '%s\n' "$ASC_KEY_P8" > "$KEY"
@@ -72,7 +85,6 @@ jobs:
           EOF
 
       - name: Archive (signed automatically with your API key)
-        if: steps.check.outputs.skip != 'true'
         run: |
           set -o pipefail
           xcodebuild archive \
@@ -93,7 +105,6 @@ jobs:
           grep -q "ARCHIVE SUCCEEDED" archive.log
 
       - name: Upload to TestFlight
-        if: steps.check.outputs.skip != 'true'
         run: |
           set -o pipefail
           xcodebuild -exportArchive \
