@@ -39,6 +39,7 @@ struct CameraView: View {
             camera.start()
             motion.start()
             consumeLaunchRequest()
+            Task { await LockedCaptureImporter.importPending() }
         }
         .onReceive(NotificationCenter.default.publisher(for: LaunchRequests.notification)) { _ in
             consumeLaunchRequest()
@@ -49,6 +50,7 @@ struct CameraView: View {
                 camera.start()
                 motion.start()
                 roll.activateIfAuthorized()
+                Task { await LockedCaptureImporter.importPending() }
             case .background:
                 camera.stop()
                 motion.stop()
