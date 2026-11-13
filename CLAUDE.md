@@ -124,6 +124,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/ColorMixer.swift         8-band HSL → cached 32³ color cube
   Editor/RecipeBaker.swift        applies a recipe to a library asset (capture Looks)
   Editor/CropOverlay.swift, MetalImageView.swift
+PointAndShootUITests/             simulator UI tests (tap targets, tap-through); run with -uitest
 Shared/CameraCaptureIntent.swift  CameraCaptureIntent (compiled into app + both extensions)
 Shared/OpenVideoControlIntent.swift  "Record Video" control's intent (opens the app in Video mode)
 PointAndShootWidgets/             ControlWidget extension: Camera + Record Video controls (Control Center /
@@ -264,7 +265,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 ## 6. CI/CD
 
 - **`build.yml`:** unsigned `xcodebuild build -target PointAndShoot -sdk iphoneos` on every
-  push (to app paths) and on PRs, using the newest Xcode on `macos-15`. When it fails, the
+  push (to app paths) and on PRs, using the newest Xcode on `macos-15`. A second job,
+  `ui-tests`, runs `xcodebuild test` on the newest iPhone simulator
+  (`.github/scripts/pick-simulator.py`). When it fails, the
   errors appear in the run summary. The `build-log` artifact holds the full log; grep it for
   `SwiftCompile` / `in target '…'` to confirm what was actually built.
 - **`testflight.yml`:** on push to `main` or `claude/**`, it archives with automatic signing
@@ -295,6 +298,25 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **Style:** small views, `PressScaleStyle` for tappable controls, yellow as the accent for
   "you're in control", haptics on meaningful events, springs for motion. Never block the
   main thread.
+- **Tap targets (learned the hard way on device):** SwiftUI hit-tests only what's drawn, so
+  transparent padding inside a button is dead space. Taps there fall through to the
+  viewfinder's UIKit recognizers and trigger focus.
+  - Every custom button needs a full-frame `contentShape` and at least a ~36–44 pt target.
+    `PressScaleStyle` adds `contentShape(Rectangle())` automatically; `.plain` buttons must
+    add their own.
+  - The bottom controls have a near-invisible hit-testable background so gaps between
+    controls never reach the viewfinder.
+- **Re-render discipline:** values that change several times a second (histogram, meter
+  offset, audio level, ISO/shutter in auto) must be read inside small leaf views, e.g.
+  `LiveHistogram(camera:)`, never in `CameraView`'s body. Reading them there re-renders the
+  whole screen on every tick and makes controls feel sticky.
+- **UI tests:** `PointAndShootUITests` runs in the simulator with the `-uitest` launch
+  argument (`TestHooks.isUITest`). That mode skips the camera session, permission prompts
+  and the tour, and loads default settings.
+  - Tests find controls by accessibility identifiers (`strip.*`, `badge.*`, `topbar.*`,
+    `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`).
+  - New controls should get an identifier and, if they're custom, an off-center tap test.
+  - CI runs them in the `ui-tests` job.
 
 ---
 

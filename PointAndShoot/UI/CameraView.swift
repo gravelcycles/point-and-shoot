@@ -138,9 +138,9 @@ struct CameraView: View {
 
             VStack {
                 HStack(alignment: .top) {
-                    if s.showHistogram { HistogramView(histogram: camera.histogram) }
+                    if s.showHistogram { LiveHistogram(camera: camera) }
                     Spacer()
-                    if s.mode == .video && s.recordAudio { AudioMeter(level: camera.audioLevel) }
+                    if s.mode == .video && s.recordAudio { LiveAudioMeter(camera: camera) }
                 }
                 .padding(10)
                 if let toast = camera.toast {
@@ -150,7 +150,7 @@ struct CameraView: View {
                 }
                 Spacer()
                 if camera.exposureMode == .manual {
-                    ExposureMeter(offset: camera.meterOffset)
+                    LiveExposureMeter(camera: camera)
                         .padding(.bottom, s.mode == .photo ? 10 : 260)
                 }
             }
@@ -228,6 +228,9 @@ struct CameraView: View {
             .padding(.bottom, 6)
         }
         .foregroundStyle(.white)
+        // Taps in the gaps between controls belong to the controls, not to tap-to-focus on
+        // the viewfinder underneath.
+        .background(Color.black.opacity(0.001))
         .padding(.top, 26)
         .background(
             LinearGradient(stops: [
@@ -527,6 +530,8 @@ struct Badge: View {
                 )
                 .rotationEffect(rotation)
                 .contentTransition(.interpolate)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 2)
         }
         .buttonStyle(PressScaleStyle())
         .animation(.snappy(duration: 0.2), value: text)
@@ -594,13 +599,16 @@ struct ModePicker: View {
     let select: (CaptureMode) -> Void
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 6) {
             ForEach(CaptureMode.allCases) { m in
                 Button { select(m) } label: {
                     Text(m.label)
                         .font(.system(size: 13, weight: .semibold))
                         .tracking(1.2)
                         .foregroundStyle(m == mode ? Color.yellow : Color.white.opacity(0.7))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("mode.\(m.rawValue)")
@@ -722,6 +730,9 @@ struct PressScaleStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            // The whole frame is tappable, not just the glyphs: transparent padding is
+            // otherwise ignored by hit testing and taps fall through to the viewfinder.
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? scale : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.6), value: configuration.isPressed)
     }
