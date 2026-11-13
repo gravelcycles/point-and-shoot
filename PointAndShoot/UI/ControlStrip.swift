@@ -128,6 +128,40 @@ struct DialPanel: View {
     /// Square live previews of each filter, like a social camera's filter strip, plus a
     /// guide that explains every filter.
     private var filterStrip: some View {
+        HStack(spacing: 6) {
+            filterCards
+            // Always visible (not scrolled away at the end of the strip).
+            Button { showGuide = true } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 20, weight: .medium))
+                        .frame(width: 44, height: 50)
+                        .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Text("About").font(.system(size: 10, weight: .semibold))
+                }
+                .frame(width: 48)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressScaleStyle(scale: 0.94))
+            .accessibilityIdentifier("filter.info")
+            .accessibilityLabel("About filters")
+        }
+        // Refresh the previews from the live camera every couple of seconds while open.
+        .task {
+            while !Task.isCancelled {
+                camera.renderer.filterThumbnails(side: 120) { thumbnails = $0 }
+                try? await Task.sleep(for: .seconds(TestHooks.isUITest ? 3600 : 2))
+            }
+        }
+        .sheet(isPresented: $showGuide) {
+            FilterGuide(thumbnails: thumbnails, selectedID: camera.settings.captureLook) { id in
+                camera.setCaptureLook(id)
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var filterCards: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
@@ -152,38 +186,12 @@ struct DialPanel: View {
                         .accessibilityIdentifier("filter.\(look.id)")
                         .accessibilityLabel(look.name)
                     }
-                    Button { showGuide = true } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 20, weight: .medium))
-                                .frame(width: 50, height: 50)
-                                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            Text("About").font(.system(size: 10, weight: .semibold))
-                        }
-                        .frame(width: 58)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PressScaleStyle(scale: 0.94))
-                    .accessibilityIdentifier("filter.info")
                 }
                 .padding(.horizontal, 4)
             }
             .onAppear {
                 if let id = camera.settings.captureLook { proxy.scrollTo(id, anchor: .center) }
             }
-        }
-        // Refresh the previews from the live camera every couple of seconds while open.
-        .task {
-            while !Task.isCancelled {
-                camera.renderer.filterThumbnails(side: 120) { thumbnails = $0 }
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
-        .sheet(isPresented: $showGuide) {
-            FilterGuide(thumbnails: thumbnails, selectedID: camera.settings.captureLook) { id in
-                camera.setCaptureLook(id)
-            }
-            .presentationDetents([.medium, .large])
         }
     }
 

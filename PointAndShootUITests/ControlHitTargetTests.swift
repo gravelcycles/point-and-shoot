@@ -108,7 +108,6 @@ final class ControlHitTargetTests: XCTestCase {
         tapOffLabel(app.buttons["strip.look"], dx: 0.1)
         let info = app.buttons["filter.info"]
         XCTAssertTrue(info.waitForExistence(timeout: 3))
-        if !info.isHittable { app.buttons["filter.warm400"].swipeLeft() }
         info.tap()
         let cine = app.buttons["guide.cine"]
         XCTAssertTrue(cine.waitForExistence(timeout: 3), "Filter guide didn't open")

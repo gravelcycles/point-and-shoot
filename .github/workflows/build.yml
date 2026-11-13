@@ -39,6 +39,14 @@ jobs:
           XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
+          echo "XCODE_VERSION=$(xcodebuild -version | head -1 | awk '{print $2}')" >> "$GITHUB_ENV"
+
+      # Boot now so it's ready by the time the tests need it (it boots while we compile).
+      - name: Boot simulator
+        run: |
+          SIM=$(python3 .github/scripts/pick-simulator.py)
+          echo "SIM=$SIM" >> "$GITHUB_ENV"
+          xcrun simctl boot "$SIM" || true
 
       - name: Build for iPhone (unsigned)
         run: |
@@ -63,21 +71,46 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           grep -E "error:" build.log | sed "s|$GITHUB_WORKSPACE/||" | sort -u | head -100
 
+      # Xcode 26 compilation cache (content-addressed, so fresh-checkout timestamps don't
+      # force a full rebuild), persisted between runs with GitHub's standard cache action.
+      - uses: actions/cache@v4
+        with:
+          path: build/ui/CompilationCache.noindex
+          key: xcc-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ github.sha }}
+          restore-keys: xcc-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+
+      - name: Build for simulator tests
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project PointAndShoot.xcodeproj \
+            -scheme PointAndShoot \
+            -destination "id=$SIM" \
+            -derivedDataPath build/ui \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            -showBuildTimingSummary \
+            2>&1 | tee uibuild.log | grep -E --line-buffered "error:|(TEST )?BUILD (SUCCEEDED|FAILED)" || true
+          grep -qE "(TEST )?BUILD SUCCEEDED" uibuild.log
+          echo "## Simulator build timing" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sed -n '/Build Timing Summary/,$p' uibuild.log | head -40 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          du -sh build/ui/CompilationCache.noindex 2>/dev/null || echo "no compilation cache dir"
+
       # Drives the real UI in the iOS Simulator (no camera there; `-uitest` skips the session)
       # and taps every kind of control off-center to catch dead tap areas and tap-through.
       - name: UI tests (simulator)
         run: |
           set -o pipefail
-          SIM=$(python3 .github/scripts/pick-simulator.py)
-          xcodebuild test \
+          xcodebuild test-without-building \
             -project PointAndShoot.xcodeproj \
             -scheme PointAndShoot \
             -destination "id=$SIM" \
             -derivedDataPath build/ui \
             -resultBundlePath build/UITests.xcresult \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee uitest.log | grep -E "error:|Test [Cc]ase .*(passed|failed)|TEST (SUCCEEDED|FAILED)" || true
-          grep -q "TEST SUCCEEDED" uitest.log
+            2>&1 | tee uitest.log | grep -E --line-buffered "error:|Test [Cc]ase .*(passed|failed)|TEST (EXECUTE )?(SUCCEEDED|FAILED)" || true
+          grep -qE "TEST (EXECUTE )?SUCCEEDED" uitest.log
 
       - name: Test summary
         if: always()
@@ -85,7 +118,7 @@ jobs:
           [ -f uitest.log ] || exit 0
           echo "## UI tests" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -E "Test [Cc]ase .*(passed|failed)|error:|TEST (SUCCEEDED|FAILED)" uitest.log | sed "s|$GITHUB_WORKSPACE/||" | head -80 >> "$GITHUB_STEP_SUMMARY" || true
+          grep -E "Test [Cc]ase .*(passed|failed)|error:|TEST (EXECUTE )?(SUCCEEDED|FAILED)" uitest.log | sed "s|$GITHUB_WORKSPACE/||" | head -80 >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
