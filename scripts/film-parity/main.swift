@@ -24,16 +24,18 @@ let t2 = Date()
 let pc = FilmLUT.printCube(stock: s, controls: FilmControls())
 let t3 = Date()
 let pcCtl = FilmLUT.printCube(stock: s, controls: ctl)
-out["timing_ms"] = [t1.timeIntervalSince(t0) * 1000, t2.timeIntervalSince(t1) * 1000, t3.timeIntervalSince(t2) * 1000]
+let t4 = Date()
+out["timing_ms"] = [t1.timeIntervalSince(t0) * 1000, t2.timeIntervalSince(t1) * 1000, t3.timeIntervalSince(t2) * 1000,
+                    t4.timeIntervalSince(t3) * 1000]
 func sample(_ cube: [Float], _ n: Int, _ idx: [(Int, Int, Int)]) -> [[Double]] {
     idx.map { (r, g, b) in let o = ((b * n + g) * n + r) * 4; return [Double(cube[o]), Double(cube[o + 1]), Double(cube[o + 2])] }
 }
-let idx64 = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (63, 63, 63), (50, 12, 33), (21, 22, 23), (5, 60, 31)]
+let idxNeg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
 let idx48 = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23)]
-out["neg"] = sample(neg, 64, idx64)
-out["negD"] = sample(negD, 64, idx64)
-out["print"] = sample(pc, 48, idx48)
-out["print_ctl"] = sample(pcCtl, 48, idx48)
+out["neg"] = sample(neg, FilmLUT.negativeDimension, idxNeg)
+out["negD"] = sample(negD, FilmLUT.negativeDimension, idxNeg)
+out["print"] = sample(pc, FilmLUT.printDimension, idx48)
+out["print_ctl"] = sample(pcCtl, FilmLUT.printDimension, idx48)
 let data = try! JSONSerialization.data(withJSONObject: out)
 _ = FileManager.default.createFile(atPath: CommandLine.arguments[1], contents: data)
-print("cube build ms (negative, negative display, print):", out["timing_ms"]!)
+print("cube build ms (negative, negative display, print, print with all sliders moved):", out["timing_ms"]!)

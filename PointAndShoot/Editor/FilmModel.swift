@@ -97,6 +97,14 @@ enum FilmMath {
         return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1 / 2.4) - 0.055
     }
 
+    /// encodeSRGB(t²) sampled at t = 0…1: the sRGB curve is smooth in √ space, so linear
+    /// interpolation in this table is accurate to < 1e-7.
+    static let encodeTableSize = 4096
+    static let encodeTable: [Double] = (0...encodeTableSize).map { i in
+        let t = Double(i) / Double(encodeTableSize)
+        return encodeSRGB(t * t)
+    }
+
     /// Linear sRGB → linear Rec.2020 (both D65).
     static let sRGBToRec2020: [Double] = [
         0.627404, 0.329283, 0.043313,
@@ -169,13 +177,13 @@ struct FilmControls: Hashable {
 /// Builds the two lookup tables the Core Image pipeline uses.
 enum FilmLUT {
     /// Negative cube input: linear Rec.2020 divided by `shaperScale`, clamped to 0…1, then
-    /// raised to 1/`shaperPower` (log-like spacing: ~3 cube steps per stop around grey).
+    /// raised to 1/`shaperPower` (log-like spacing: ~2.5 cube steps per stop around grey).
     /// 16 = 6.5 stops of headroom over 18% grey.
     static let shaperScale = 16.0
     static let shaperPower = 4.0
     /// Negative density is stored divided by this, so it fits the print cube's 0…1 input.
     static let densityScale = 4.0
-    static let negativeDimension = 64
+    static let negativeDimension = 48
     static let printDimension = 48
 
     enum Source: Hashable {
@@ -290,29 +298,108 @@ enum FilmLUT {
     /// RGBA float cube, red fastest. Input: negative density / densityScale. Output:
     /// Display P3 encoded with the sRGB transfer curve (so interpolation happens in a
     /// perceptual space).
-    static func printCube(stock: FilmStock, controls: FilmControls) -> [Float] {
+    ///
+    /// Rebuilt whenever an editor slider that lives in the film changes, so it has to be
+    /// fast (~1 ms, not ~10). It's the same math as `display(negative:)`, factored:
+    /// printing is per channel, and the density each channel sees is *linear* in the
+    /// three print densities (dye crosstalk, then saturation about the mean), so
+    /// transmittance = 10^base · Π_j 10^(−a_ij·dp_j): a product of per-axis terms, no
+    /// exp per cell. Highlights/shadows depend only on the mean density (also linear), so
+    /// they're a 1-D table. The sRGB encode is a table in √ space (error < 1e-7).
+    static func printCube(stock: FilmStock, controls c: FilmControls) -> [Float] {
         let n = printDimension
         let step = densityScale / Double(n - 1)
-        let curves = printCurves(stock: stock, controls: controls)
+        let curves = printCurves(stock: stock, controls: c)
         let grey = stock.greyNegativeDensity
-        // Printing is per channel, so do the curve lookups once per axis.
-        var dp = [[Double]](repeating: [Double](repeating: 0, count: n), count: 3)
-        for c in 0..<3 {
+        let ln10 = log(10.0)
+
+        // Print density along each axis.
+        var dp = [Double](repeating: 0, count: 3 * n)
+        for ch in 0..<3 {
             for i in 0..<n {
-                dp[c][i] = printDensity(Double(i) * step, channel: c, stock: stock, curves: curves, grey: grey)
+                dp[ch * n + i] = printDensity(Double(i) * step, channel: ch, stock: stock, curves: curves, grey: grey)
             }
         }
+        // Density mixing: crosstalk, then saturation about the mean (S = k·I + (1−k)/3·1).
+        let x = stock.crosstalk
+        var a = x
+        if c.saturation != 0 {
+            let k = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
+            let m = (1 - k) / 3
+            for i in 0..<3 {
+                for j in 0..<3 {
+                    a[i * 3 + j] = k * x[i * 3 + j] + m * (x[j] + x[3 + j] + x[6 + j])
+                }
+            }
+        }
+        let base = FilmMath.mul(x, (curves[0].y[0], curves[1].y[0], curves[2].y[0]))
+        // f[(i*3 + j)*n + k] = 10^(−a_ij · dp_j[k])
+        var f = [Double](repeating: 0, count: 9 * n)
+        for i in 0..<3 {
+            for j in 0..<3 {
+                for k in 0..<n { f[(i * 3 + j) * n + k] = exp(-a[i * 3 + j] * dp[j * n + k] * ln10) }
+            }
+        }
+        let b = (exp(base.0 * ln10), exp(base.1 * ln10), exp(base.2 * ln10))
+        // Mean density = Σ_j w_j·dp_j (saturation keeps the mean). Highlights/shadows scale
+        // transmittance by a smooth function of it, tabulated over the range it spans.
+        let tone = c.highlights != 0 || c.shadows != 0
+        var nw = [Double](repeating: 0, count: 3 * n)
+        var toneTable = [Double](), toneLo = 0.0, toneScale = 0.0
+        let toneSize = 2048
+        if tone {
+            var lo = 0.0, hi = 0.0
+            for j in 0..<3 {
+                let w = (x[j] + x[3 + j] + x[6 + j]) / 3
+                for k in 0..<n { nw[j * n + k] = w * dp[j * n + k] }
+                let col = nw[(j * n)..<(j * n + n)]
+                lo += col.min() ?? 0
+                hi += col.max() ?? 0
+            }
+            toneLo = lo
+            toneScale = Double(toneSize) / max(hi - lo, 1e-9)
+            toneTable = (0...toneSize).map { i in
+                let neutral = lo + Double(i) / toneScale
+                let wh = exp(-pow((neutral - 0.25) / 0.45, 2))
+                let ws = FilmMath.smoothstep(0.9, 2.4, neutral)
+                return exp((0.22 * c.highlights * wh + 0.45 * c.shadows * ws) * ln10)
+            }
+        }
+        let d = stock.display
+        let encode = FilmMath.encodeTable
+        let last = Double(FilmMath.encodeTableSize)
+        @inline(__always) func enc(_ v: Double) -> Float {
+            let t = min(max(v, 0), 1).squareRoot() * last
+            let i = min(Int(t), FilmMath.encodeTableSize - 1)
+            let frac = t - Double(i)
+            return Float(encode[i] + (encode[i + 1] - encode[i]) * frac)
+        }
+
         var cube = [Float](repeating: 1, count: n * n * n * 4)
-        var o = 0
-        for b in 0..<n {
-            for g in 0..<n {
-                for r in 0..<n {
-                    let rgb = display(print: (dp[0][r], dp[1][g], dp[2][b]), stock: stock, curves: curves,
-                                      controls: controls)
-                    cube[o] = Float(FilmMath.encodeSRGB(rgb.0))
-                    cube[o + 1] = Float(FilmMath.encodeSRGB(rgb.1))
-                    cube[o + 2] = Float(FilmMath.encodeSRGB(rgb.2))
-                    o += 4
+        cube.withUnsafeMutableBufferPointer { out in
+            f.withUnsafeBufferPointer { f in
+                var o = 0
+                for bi in 0..<n {
+                    for gi in 0..<n {
+                        // Everything but the red axis, once per row.
+                        let p0 = b.0 * f[1 * n + gi] * f[2 * n + bi]
+                        let p1 = b.1 * f[4 * n + gi] * f[5 * n + bi]
+                        let p2 = b.2 * f[7 * n + gi] * f[8 * n + bi]
+                        let rowNeutral = tone ? nw[n + gi] + nw[2 * n + bi] : 0
+                        for ri in 0..<n {
+                            var t0 = p0 * f[ri], t1 = p1 * f[3 * n + ri], t2 = p2 * f[6 * n + ri]
+                            if tone {
+                                let u = min(max((rowNeutral + nw[ri] - toneLo) * toneScale, 0), Double(toneSize))
+                                let i = min(Int(u), toneSize - 1)
+                                let h = toneTable[i] + (toneTable[i + 1] - toneTable[i]) * (u - Double(i))
+                                t0 *= h; t1 *= h; t2 *= h
+                            }
+                            out[o] = enc(d[0] * t0 + d[1] * t1 + d[2] * t2)
+                            out[o + 1] = enc(d[3] * t0 + d[4] * t1 + d[5] * t2)
+                            out[o + 2] = enc(d[6] * t0 + d[7] * t1 + d[8] * t2)
+                            o += 4
+                        }
+                    }
                 }
             }
         }

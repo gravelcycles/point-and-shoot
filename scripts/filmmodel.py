@@ -142,7 +142,7 @@ def neutral_response(stops, stock, controls=None):
 
 # --- Cubes (what the app generates), for parity tests ---------------------------------
 
-def negative_cube(stock, source="sceneLinear", n=64):
+def negative_cube(stock, source="sceneLinear", n=48):
     u = np.arange(n) / (n - 1)
     x = SHAPER_SCALE * u ** SHAPER_POWER
     lin = x if source == "sceneLinear" else scene_from_display(x)

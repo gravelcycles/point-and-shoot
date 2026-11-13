@@ -319,9 +319,9 @@ def parity():
     st = F.load_stock(STOCK)
     stops = np.arange(-6, 6.01, 0.5)
     ctl = dict(contrast=0.4, saturation=0.5, crossover=-0.5, highlights=0.3, shadows=-0.4)
-    neg, negd = F.negative_cube(st, "sceneLinear", 64), F.negative_cube(st, "displayReferred", 64)
+    neg, negd = F.negative_cube(st, "sceneLinear", 48), F.negative_cube(st, "displayReferred", 48)
     pc, pcc = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48)
-    i64 = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (63, 63, 63), (50, 12, 33), (21, 22, 23), (5, 60, 31)]
+    i64 = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
     i48 = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23)]
     checks = {
         "neutral": (sw["neutral"], F.neutral_response(stops, st)),
