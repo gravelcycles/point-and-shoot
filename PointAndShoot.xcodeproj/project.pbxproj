@@ -197,6 +197,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos and record video.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Point & Shoot tags your photos and videos with where they were taken. Works offline.";
@@ -236,6 +237,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos and record video.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Point & Shoot tags your photos and videos with where they were taken. Works offline.";

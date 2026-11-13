@@ -1,12 +1,8 @@
 name: Build
 
-# Compiles the iOS app on a cloud Mac (no signing needed) so every push is checked.
+# Compiles the iOS app on a cloud Mac (no signing needed).
+# Manual only (Actions tab → Build → Run workflow) — day-to-day builds run on Codemagic.
 on:
-  push:
-    paths:
-      - "PointAndShoot/**"
-      - "PointAndShoot.xcodeproj/**"
-      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 concurrency:

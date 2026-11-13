@@ -1,0 +1,80 @@
+# Codemagic cloud builds — free tier: 500 macOS (M2) minutes/month on a personal account.
+# Setup steps: see CLOUD_BUILD.md.
+
+workflows:
+  # Compiles the app on every push. No Apple account needed.
+  build-check:
+    name: Build check
+    instance_type: mac_mini_m2
+    max_build_duration: 20
+    environment:
+      xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: "*"
+          include: true
+      cancel_previous_builds: true
+    when:
+      changeset:
+        includes:
+          - "PointAndShoot/**"
+          - "PointAndShoot.xcodeproj/**"
+          - "codemagic.yaml"
+    scripts:
+      - name: Compile for iPhone (unsigned)
+        script: |
+          set -o pipefail
+          xcodebuild build \
+            -project PointAndShoot.xcodeproj \
+            -target PointAndShoot \
+            -sdk iphoneos \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log
+    artifacts:
+      - build.log
+
+  # Builds, signs and uploads to TestFlight. Start it manually from the Codemagic
+  # dashboard. Needs a paid Apple Developer account (see CLOUD_BUILD.md).
+  testflight:
+    name: TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+      groups:
+        # Variable group you create in Codemagic: APP_STORE_CONNECT_ISSUER_ID,
+        # APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY,
+        # CERTIFICATE_PRIVATE_KEY, BUNDLE_ID
+        - app_store
+    scripts:
+      - name: Use your bundle ID and a fresh build number
+        script: |
+          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = com.pointandshoot.camera;/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/g" \
+            PointAndShoot.xcodeproj/project.pbxproj
+          sed -i '' "s/CURRENT_PROJECT_VERSION = 1;/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/g" \
+            PointAndShoot.xcodeproj/project.pbxproj
+      - name: Signing (certificates + profile are created automatically)
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project PointAndShoot.xcodeproj \
+            --scheme PointAndShoot
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true

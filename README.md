@@ -101,6 +101,9 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
    change the bundle ID if you need to).
 3. Run on a real iPhone. The simulator has no camera.
 
+**No Mac?** Cloud builds and TestFlight delivery run on Codemagic's free tier. See
+[CLOUD_BUILD.md](CLOUD_BUILD.md).
+
 The project uses Xcode's synchronized folders, so new files in `PointAndShoot/` are picked
 up automatically.
 
