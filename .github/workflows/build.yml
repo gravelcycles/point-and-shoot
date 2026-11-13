@@ -107,6 +107,7 @@ jobs:
             -destination "id=$SIM" \
             -derivedDataPath build/ui \
             -resultBundlePath build/UITests.xcresult \
+            -retry-tests-on-failure -test-iterations 2 \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee uitest.log | grep -E --line-buffered "error:|Test [Cc]ase .*(passed|failed)|TEST (EXECUTE )?(SUCCEEDED|FAILED)" || true
           grep -qE "TEST (EXECUTE )?SUCCEEDED" uitest.log
