@@ -3,7 +3,10 @@ name: Build
 # Compiles the iOS app on a cloud Mac (no signing needed) on every push.
 # Free and unlimited because the repo is public.
 on:
+  # Feature branches are built through their PR (one run per change, not two);
+  # pushes to main are built directly.
   push:
+    branches: [main]
     paths:
       - "PointAndShoot/**"
       - "PointAndShootWidgets/**"
