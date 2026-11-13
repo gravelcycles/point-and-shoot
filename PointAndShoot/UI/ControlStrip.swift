@@ -71,6 +71,7 @@ struct ControlStrip: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
+        .accessibilityIdentifier("strip.\(kind.rawValue)")
     }
 }
 
@@ -92,6 +93,7 @@ struct DialPanel: View {
                     .foregroundStyle(isAuto ? Color.black : Color.white)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("dial.auto")
             dial
         }
         .padding(.horizontal, 12)

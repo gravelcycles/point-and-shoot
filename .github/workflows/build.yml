@@ -10,8 +10,10 @@ on:
       - "PointAndShootLockedCapture/**"
       - "Shared/**"
       - "Config/**"
+      - "PointAndShootUITests/**"
       - "PointAndShoot.xcodeproj/**"
       - ".github/workflows/build.yml"
+      - ".github/scripts/**"
   pull_request:
   workflow_dispatch:
 
@@ -60,3 +62,49 @@ jobs:
         with:
           name: build-log
           path: build.log
+
+  # Drives the real UI in the iOS Simulator (no camera there; `-uitest` skips the session)
+  # and taps every kind of control off-center to catch dead tap areas and tap-through.
+  ui-tests:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Pick a simulator
+        run: echo "SIM=$(python3 .github/scripts/pick-simulator.py)" >> "$GITHUB_ENV"
+
+      - name: Run UI tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project PointAndShoot.xcodeproj \
+            -scheme PointAndShoot \
+            -destination "id=$SIM" \
+            -derivedDataPath build/ui \
+            -resultBundlePath build/UITests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee uitest.log | grep -E "error:|Test [Cc]ase .*(passed|failed)|TEST (SUCCEEDED|FAILED)|XCTAssert" || true
+          grep -q "TEST SUCCEEDED" uitest.log
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## UI tests" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "Test [Cc]ase .*(passed|failed)|error:|TEST (SUCCEEDED|FAILED)" uitest.log | sed "s|$GITHUB_WORKSPACE/||" | head -80 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ui-test-results
+          path: |
+            uitest.log
+            build/UITests.xcresult

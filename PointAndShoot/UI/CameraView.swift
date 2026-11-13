@@ -168,7 +168,7 @@ struct CameraView: View {
 
             Color.black.opacity(blink ? 0.85 : 0).allowsHitTesting(false)
 
-            if !hintsSeen {
+            if !hintsSeen && !TestHooks.isUITest {
                 GestureHints { withAnimation(.easeOut(duration: 0.25)) { hintsSeen = true } }
                     .transition(.opacity)
             }
@@ -335,22 +335,27 @@ struct TopBar: View {
                 iconButton(s.flash.symbol, active: s.flash != .off) {
                     camera.update { $0.flash = cycled(s.flash, in: FlashSetting.allCases) }
                 }
+                .accessibilityIdentifier("topbar.flash")
                 .opacity(camera.supportsFlash ? 1 : 0.25)
                 .disabled(!camera.supportsFlash)
                 Spacer(minLength: 4)
                 Badge(text: rawLabel, active: rawActive, rotation: rotation) { cycleRAW() }
+                    .accessibilityIdentifier("badge.raw")
                 if !(rawActive && (!s.keepProcessedWithRAW || s.processing == .zero)) {
                     Badge(text: s.photoFormat.label, active: false, rotation: rotation) {
                         camera.update { $0.photoFormat = s.photoFormat == .heif ? .jpeg : .heif }
                     }
+                    .accessibilityIdentifier("badge.format")
                 }
                 Badge(text: s.processing.label.uppercased(), active: s.processing == .zero || s.processing == .natural,
                       rotation: rotation) { cycleProcessing() }
+                    .accessibilityIdentifier("badge.processing")
                 Spacer(minLength: 4)
                 iconButton("timer", active: s.selfTimer != .off,
                            caption: s.selfTimer == .off ? nil : s.selfTimer.label) {
                     camera.update { $0.selfTimer = cycled(s.selfTimer, in: SelfTimer.allCases) }
                 }
+                .accessibilityIdentifier("topbar.timer")
             } else if camera.isRecording, let start = camera.recordingStart {
                 Spacer()
                 RecordingClock(start: start)
@@ -365,6 +370,7 @@ struct TopBar: View {
                 Badge(text: s.videoResolution.label, active: false, rotation: rotation) {
                     camera.update { $0.videoResolution = s.videoResolution == .uhd4K ? .hd1080 : .uhd4K }
                 }
+                .accessibilityIdentifier("badge.resolution")
                 Badge(text: "\(s.frameRate)", active: false, rotation: rotation) {
                     camera.update { $0.frameRate = cycled(s.frameRate, in: camera.supportedFrameRates) }
                 }
@@ -390,6 +396,7 @@ struct TopBar: View {
             }
             iconButton("slider.horizontal.3", active: false) { showSettings = true }
                 .disabled(camera.isRecording)
+                .accessibilityIdentifier("topbar.settings")
         }
         .foregroundStyle(.white)
     }
@@ -596,6 +603,7 @@ struct ModePicker: View {
                         .foregroundStyle(m == mode ? Color.yellow : Color.white.opacity(0.7))
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("mode.\(m.rawValue)")
             }
         }
         .disabled(disabled)

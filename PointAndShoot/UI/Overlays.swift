@@ -204,6 +204,8 @@ struct FocusReticle: View {
         .opacity(appeared ? 1 : 0)
         .onAppear { withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { appeared = true } }
         .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("focus.reticle")
     }
 }
 

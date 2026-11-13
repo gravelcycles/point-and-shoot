@@ -126,6 +126,10 @@ final class CameraController: NSObject {
     // MARK: - Lifecycle
 
     func start() {
+        if TestHooks.isUITest {
+            authorization = .authorized
+            return
+        }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             authorization = .authorized

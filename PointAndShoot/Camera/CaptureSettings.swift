@@ -276,6 +276,7 @@ struct CameraSettings: Codable, Equatable {
     /// Loads saved settings, filling any options added since they were saved with defaults
     /// (so an app update never wipes your setup).
     static func load() -> CameraSettings {
+        if TestHooks.isUITest { return CameraSettings() }
         guard let data = UserDefaults.standard.data(forKey: storageKey),
               let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let defaultsData = try? JSONEncoder().encode(CameraSettings()),
