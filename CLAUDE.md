@@ -304,6 +304,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     access).
   - Hold the shutter for **burst**.
 - **Controls:**
+  - Progressive disclosure: the strip shows EV + FILTER; **PRO** (`strip.pro`,
+    `settings.proControls`, default off, persisted) reveals FOCUS/WB/ISO/SHUTTER. A yellow
+    dot on PRO flags a hidden control left on manual.
   - Scrub dials for ISO (⅓ stops), shutter (⅓ stops), EV, Kelvin WB and manual focus.
   - Tap to focus/meter, hold to lock AE/AF, drag ↕ for EV, swipe ↔ for Photo/Video, pinch
     to zoom.
@@ -314,7 +317,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Stabilization modes, 180° shutter lock, Log view assist.
   - Audio meter, recording time left with auto-stop when storage is low, thermal pause of
     the assists.
-- **Assists:** peaking (4 colors), zebras, RGB+luma histogram, level, grid, frame lines
+- **Assists:** peaking (4 colors), zebras, RGB+luma histogram (default off), level (shown
+  only within ~12° of level), grid, frame lines
   (1:1, 4:5, 16:9, 1.85, 2.39). Frame lines follow the phone's held orientation.
 - **Hardware:**
   - Volume buttons fire the shutter (`AVCaptureEventInteraction`).
@@ -378,7 +382,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **Commit messages:** a short imperative subject, plus a bullet body explaining what
   changed and why. Don't put model names in commits or PRs.
 - **Style:** small views, `PressScaleStyle` for tappable controls, yellow as the accent for
-  "you're in control", haptics on meaningful events, springs for motion. Never block the
+  "you're in control", haptics on meaningful events (through `Haptics` / `camera.haptic`, which reuse
+  pre-warmed generators; don't allocate feedback generators per tap), springs for motion.
+  Keep the default screen uncluttered: power features go behind PRO, the format pill or
+  Settings, and every hidden state should be visible at a glance (e.g. PRO's dot). Never block the
   main thread.
 - **Tap targets (learned the hard way on device):** SwiftUI hit-tests only what's drawn, so
   transparent padding inside a button is dead space. Taps there fall through to the
@@ -399,7 +406,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **UI tests:** `PointAndShootUITests` runs in the simulator with the `-uitest` launch
   argument (`TestHooks.isUITest`). That mode skips the camera session, permission prompts
   and the tour, and loads default settings.
-  - Tests find controls by accessibility identifiers (`strip.*`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`,
+  - Tests find controls by accessibility identifiers (`strip.*` incl. `strip.pro`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`,
     `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`).
   - New controls should get an identifier and, if they're custom, an off-center tap test.
   - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass

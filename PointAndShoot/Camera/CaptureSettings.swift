@@ -277,7 +277,9 @@ struct CameraSettings: Codable, Equatable {
     // Assists
     var showGrid: Bool = true
     var showLevel: Bool = true
-    var showHistogram: Bool = true
+    var showHistogram: Bool = false
+    /// Show FOCUS / WB / ISO / SHUTTER in the control strip (EV and FILTER are always there).
+    var proControls: Bool = false
     var focusPeaking: Bool = true
     var peakingColor: PeakingColor = .red
     var zebras: Bool = false

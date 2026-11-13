@@ -1372,7 +1372,7 @@ final class CameraController: NSObject {
 
     func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
         guard settings.haptics else { return }
-        UIImpactFeedbackGenerator(style: style).impactOccurred()
+        Haptics.impact(style)
     }
 }
 

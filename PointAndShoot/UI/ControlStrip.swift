@@ -10,16 +10,24 @@ struct ControlStrip: View {
     let camera: CameraController
     @Binding var active: DialKind?
 
+    /// Any pro control currently off automatic (shown as a dot on PRO when collapsed).
+    private var manualActive: Bool {
+        camera.focusMode != .auto || camera.whiteBalance != .auto || camera.exposureMode != .auto
+    }
+
     var body: some View {
+        let pro = camera.settings.proControls
         HStack(spacing: 2) {
-            item(.focus, title: "FOCUS", value: focusText,
-                 manual: camera.focusMode != .auto, enabled: camera.supportsManualFocus)
-            item(.wb, title: "WB", value: wbText,
-                 manual: camera.whiteBalance != .auto, enabled: camera.supportsCustomWB)
-            item(.iso, title: "ISO", value: "\(Int(camera.iso.rounded()))",
-                 manual: camera.exposureMode == .manual, enabled: camera.supportsCustomExposure)
-            item(.shutter, title: "SHUTTER", value: Stops.shutterLabel(camera.shutter),
-                 manual: camera.exposureMode != .auto, enabled: camera.supportsCustomExposure)
+            if pro {
+                item(.focus, title: "FOCUS", value: focusText,
+                     manual: camera.focusMode != .auto, enabled: camera.supportsManualFocus)
+                item(.wb, title: "WB", value: wbText,
+                     manual: camera.whiteBalance != .auto, enabled: camera.supportsCustomWB)
+                item(.iso, title: "ISO", value: "\(Int(camera.iso.rounded()))",
+                     manual: camera.exposureMode == .manual, enabled: camera.supportsCustomExposure)
+                item(.shutter, title: "SHUTTER", value: Stops.shutterLabel(camera.shutter),
+                     manual: camera.exposureMode != .auto, enabled: camera.supportsCustomExposure)
+            }
             item(.ev, title: camera.exposureMode == .manual ? "METER" : "EV",
                  value: camera.exposureMode == .manual ? Stops.evLabel(camera.meterOffset) : Stops.evLabel(camera.exposureBias),
                  manual: camera.exposureBias != 0, enabled: camera.exposureMode != .manual)
@@ -27,8 +35,41 @@ struct ControlStrip: View {
                 item(.look, title: "FILTER", value: Look.named(camera.settings.activeLook)?.name ?? "Off",
                      manual: camera.settings.activeLook != nil, enabled: true)
             }
+            proToggle(expanded: pro)
         }
         .padding(.horizontal, 10)
+        .animation(.snappy(duration: 0.25), value: pro)
+    }
+
+    /// Progressive disclosure: the manual controls are one tap away, not always in the way.
+    private func proToggle(expanded: Bool) -> some View {
+        Button {
+            camera.haptic(.light)
+            withAnimation(.snappy(duration: 0.25)) {
+                if expanded, let kind = active, [.focus, .wb, .iso, .shutter].contains(kind) { active = nil }
+                camera.update { $0.proControls.toggle() }
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Text("PRO")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(expanded ? Color.yellow : .white.opacity(0.5))
+                Image(systemName: expanded ? "chevron.right" : "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(expanded || manualActive ? Color.yellow : Color.white)
+            }
+            .frame(width: 44, height: 44)
+            .overlay(alignment: .topTrailing) {
+                if !expanded && manualActive {
+                    Circle().fill(Color.yellow).frame(width: 6, height: 6).offset(x: -6, y: 6)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressScaleStyle(scale: 0.9))
+        .accessibilityIdentifier("strip.pro")
+        .accessibilityLabel(expanded ? "Hide pro controls" : "Show pro controls")
     }
 
     private var focusText: String {
