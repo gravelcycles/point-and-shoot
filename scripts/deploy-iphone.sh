@@ -39,18 +39,22 @@ say "Xcode $XCV"
 # --- Team ID -------------------------------------------------------------------------------------
 if [ -z "${TEAM:-}" ]; then
   # Teams of the Apple IDs added in Xcode → Settings → Accounts (prefers a paid team).
-  TEAM=$(defaults export com.apple.dt.Xcode - 2>/dev/null | python3 -c '
-import plistlib, sys
-try:
-    prefs = plistlib.loads(sys.stdin.buffer.read())
-except Exception:
-    sys.exit()
+  TEAM=$(python3 -c '
+import plistlib, subprocess
 teams = []
-for key in ("IDEProvisioningTeamByIdentifier", "IDEProvisioningTeams"):
-    for account in (prefs.get(key) or {}).values():
-        teams += [t for t in account if isinstance(t, dict) and t.get("teamID")]
+# Xcode caches account teams in its prefs; xcodebuild caches them in com.apple.dt.xcodebuild,
+# sometimes only there.
+for domain in ("com.apple.dt.Xcode", "com.apple.dt.xcodebuild"):
+    try:
+        out = subprocess.run(["defaults", "export", domain, "-"], capture_output=True).stdout
+        prefs = plistlib.loads(out)
+    except Exception:
+        continue
+    for key in ("IDEProvisioningTeamByIdentifier", "IDEProvisioningTeams"):
+        for account in (prefs.get(key) or {}).values():
+            teams += [t for t in account if isinstance(t, dict) and t.get("teamID")]
 teams.sort(key=lambda t: bool(t.get("isFreeProvisioningTeam")))
-print(teams[0]["teamID"] if teams else "")' || true)
+print(teams[0]["teamID"] if teams else "")' 2>/dev/null || true)
 fi
 if [ -z "${TEAM:-}" ]; then
   # Fallback: the OU field of an "Apple Development" certificate is the team ID.

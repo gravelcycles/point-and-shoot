@@ -20,9 +20,11 @@ cinematographer.
 - GPS that works in airplane mode.
 - Updates that land on the phone with no effort (TestFlight).
 
-**Status:** feature-complete first version. **It compiles in CI (Xcode 26.3, unsigned) but
-has never run on a real iPhone.** The next phase is device testing, with one fix PR per
-problem. Expect runtime issues even though it builds cleanly; see §8.
+**Status:** feature-complete first version. It compiles in CI (Xcode 26.3, unsigned). On
+2026-11-13 `scripts/deploy-iphone.sh` built, signed (Xcode 26.6, the owner's free Personal
+Team `D5STMWZ849`) and installed all three targets on the owner's iPhone 12 Pro (iOS 18.7.3).
+**Nothing has been exercised on the device yet.** The next phase is device testing, with one
+fix PR per problem. Expect runtime issues even though it builds cleanly; see §8.
 
 Git history: PRs #1 (whole app), #2 (color mixer) and #3 (Lock Screen camera + Control
 Center) are merged into `main`.
