@@ -89,9 +89,30 @@ enum PhotoLibrary {
 
     /// iOS shows its own "Delete Photo?" confirmation.
     static func delete(_ asset: PHAsset) async throws {
+        try await delete([asset])
+    }
+
+    /// One system "Delete N Photos?" confirmation for the whole batch.
+    static func delete(_ assets: [PHAsset]) async throws {
+        guard !assets.isEmpty else { return }
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+            PHAssetChangeRequest.deleteAssets(assets as NSArray)
         }
+    }
+
+    /// The user tapping "Don't Allow"/"Cancel" on the system confirmation isn't an error.
+    static func isUserCancel(_ error: Error) -> Bool {
+        let ns = error as NSError
+        return ns.domain == PHPhotosErrorDomain && ns.code == PHPhotosError.userCancelled.rawValue
+    }
+
+    /// Exports originals for several assets (for one share sheet).
+    static func exportForSharing(_ assets: [PHAsset]) async -> [URL] {
+        var urls: [URL] = []
+        for asset in assets {
+            if let url = await exportForSharing(asset) { urls.append(url) }
+        }
+        return urls
     }
 
     static func hasRAW(_ asset: PHAsset) -> Bool {

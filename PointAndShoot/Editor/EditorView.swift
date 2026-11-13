@@ -6,7 +6,7 @@ enum EditorTool: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .looks: "Looks"
+        case .looks: "Filters"
         case .tune: "Tune"
         case .details: "Details"
         case .color: "Color"

@@ -33,13 +33,20 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping the edge of LOOK didn't open the look picker")
     }
 
-    func testOutlinedBadgeRespondsInsideItsBorder() {
-        let format = app.buttons["badge.format"]
-        XCTAssertTrue(format.waitForExistence(timeout: 3))
-        let before = format.label
-        tapOffLabel(format, dx: 0.94)
-        let changed = NSPredicate(format: "label != %@", before)
-        expectation(for: changed, evaluatedWith: format)
+    func testFormatPillOpensPanelAndChangesFileType() {
+        let pill = app.buttons["topbar.format"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 3))
+        XCTAssertTrue(pill.label.contains("HEIF"), "unexpected default format: \(pill.label)")
+        tapOffLabel(pill, dx: 0.95)
+        let jpeg = app.buttons["JPEG"]
+        guard jpeg.waitForExistence(timeout: 3) else {
+            print(app.debugDescription)
+            return XCTFail("Tapping the format pill's edge didn't open the format panel")
+        }
+        jpeg.tap()
+        app.buttons["format.done"].tap()
+        let changed = NSPredicate(format: "label CONTAINS 'JPEG'")
+        expectation(for: changed, evaluatedWith: pill)
         waitForExpectations(timeout: 3)
     }
 
@@ -80,7 +87,7 @@ final class ControlHitTargetTests: XCTestCase {
 
     func testModePickerSwitchesToVideo() {
         tapOffLabel(app.buttons["mode.video"], dx: 0.5, dy: 0.95)
-        XCTAssertTrue(app.buttons["badge.resolution"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.buttons["topbar.videoformat"].waitForExistence(timeout: 3),
                       "Tapping VIDEO didn't switch to video mode")
     }
 

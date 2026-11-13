@@ -24,7 +24,7 @@ struct ControlStrip: View {
                  value: camera.exposureMode == .manual ? Stops.evLabel(camera.meterOffset) : Stops.evLabel(camera.exposureBias),
                  manual: camera.exposureBias != 0, enabled: camera.exposureMode != .manual)
             if camera.settings.mode == .photo {
-                item(.look, title: "LOOK", value: Look.named(camera.settings.captureLook)?.name ?? "Off",
+                item(.look, title: "FILTER", value: Look.named(camera.settings.captureLook)?.name ?? "Off",
                      manual: camera.settings.captureLook != nil, enabled: true)
             }
         }

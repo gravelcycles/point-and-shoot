@@ -8,6 +8,7 @@ struct CameraView: View {
     @State private var motion = MotionManager()
     @State private var activeDial: DialKind?
     @State private var showSettings = false
+    @State private var showFormat = false
     @State private var showLibrary = false
     @State private var reticle: CGPoint?
     @State private var reticleLocked = false
@@ -78,9 +79,20 @@ struct CameraView: View {
 
     private var cameraUI: some View {
         VStack(spacing: 0) {
-            TopBar(camera: camera, rotation: motion.iconRotation, showSettings: $showSettings)
-                .padding(.horizontal, 14)
-                .frame(height: 46)
+            TopBar(camera: camera, rotation: motion.iconRotation, showSettings: $showSettings, showFormat: $showFormat)
+                .padding(.horizontal, 12)
+                .frame(height: 50)
+                .sheet(isPresented: $showFormat) {
+                    Group {
+                        if camera.settings.mode == .photo {
+                            CaptureFormatPanel(camera: camera)
+                        } else {
+                            VideoFormatPanel(camera: camera)
+                        }
+                    }
+                    .presentationDetents([.height(camera.settings.mode == .photo ? 430 : 420)])
+                    .presentationDragIndicator(.visible)
+                }
             ZStack(alignment: .bottom) {
                 previewArea
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -324,136 +336,6 @@ struct CameraView: View {
     }
 }
 
-// MARK: - Top bar
-
-struct TopBar: View {
-    let camera: CameraController
-    let rotation: Angle
-    @Binding var showSettings: Bool
-
-    var body: some View {
-        let s = camera.settings
-        HStack(spacing: 8) {
-            if s.mode == .photo {
-                iconButton(s.flash.symbol, active: s.flash != .off) {
-                    camera.update { $0.flash = cycled(s.flash, in: FlashSetting.allCases) }
-                }
-                .accessibilityIdentifier("topbar.flash")
-                .opacity(camera.supportsFlash ? 1 : 0.25)
-                .disabled(!camera.supportsFlash)
-                Spacer(minLength: 4)
-                Badge(text: rawLabel, active: rawActive, rotation: rotation) { cycleRAW() }
-                    .accessibilityIdentifier("badge.raw")
-                if !(rawActive && (!s.keepProcessedWithRAW || s.processing == .zero)) {
-                    Badge(text: s.photoFormat.label, active: false, rotation: rotation) {
-                        camera.update { $0.photoFormat = s.photoFormat == .heif ? .jpeg : .heif }
-                    }
-                    .accessibilityIdentifier("badge.format")
-                }
-                Badge(text: s.processing.label.uppercased(), active: s.processing == .zero || s.processing == .natural,
-                      rotation: rotation) { cycleProcessing() }
-                    .accessibilityIdentifier("badge.processing")
-                Spacer(minLength: 4)
-                iconButton("timer", active: s.selfTimer != .off,
-                           caption: s.selfTimer == .off ? nil : s.selfTimer.label) {
-                    camera.update { $0.selfTimer = cycled(s.selfTimer, in: SelfTimer.allCases) }
-                }
-                .accessibilityIdentifier("topbar.timer")
-            } else if camera.isRecording, let start = camera.recordingStart {
-                Spacer()
-                RecordingClock(start: start)
-                if let left = camera.recordingTimeLeft {
-                    Text(Self.timeLeft(left) + " left")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(left < 300 ? Color.red : Color.white.opacity(0.6))
-                }
-                Spacer()
-            } else {
-                Spacer(minLength: 0)
-                Badge(text: s.videoResolution.label, active: false, rotation: rotation) {
-                    camera.update { $0.videoResolution = s.videoResolution == .uhd4K ? .hd1080 : .uhd4K }
-                }
-                .accessibilityIdentifier("badge.resolution")
-                Badge(text: "\(s.frameRate)", active: false, rotation: rotation) {
-                    camera.update { $0.frameRate = cycled(s.frameRate, in: camera.supportedFrameRates) }
-                }
-                Badge(text: s.videoColor.label, active: s.videoColor != .sdr, rotation: rotation) {
-                    camera.update { $0.videoColor = cycled(s.videoColor, in: camera.supportedColors) }
-                }
-                Badge(text: s.videoCodec.label.uppercased(), active: s.videoCodec == .proRes422HQ || s.videoCodec == .proRes422,
-                      rotation: rotation) {
-                    let options = camera.supportedCodecs.filter { !(s.videoColor.isTenBit && $0 == .h264) }
-                    camera.update { $0.videoCodec = cycled(s.videoCodec, in: options) }
-                }
-                if let left = camera.recordingTimeLeft {
-                    Text(Self.timeLeft(left))
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(left < 300 ? Color.red : Color.white.opacity(0.55))
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-                Spacer(minLength: 0)
-            }
-            GPSIndicator(tagger: camera.location, rotation: rotation) {
-                camera.toast = camera.location.statusText
-            }
-            iconButton("slider.horizontal.3", active: false) { showSettings = true }
-                .disabled(camera.isRecording)
-                .accessibilityIdentifier("topbar.settings")
-        }
-        .foregroundStyle(.white)
-    }
-
-    static func timeLeft(_ seconds: TimeInterval) -> String {
-        let m = Int(seconds / 60)
-        if m >= 60 { return "\(m / 60)h \(m % 60)m" }
-        return m < 1 ? "<1 min" : "\(m) min"
-    }
-
-    private var rawActive: Bool { camera.settings.rawMode != .off || camera.settings.processing == .zero }
-    private var rawLabel: String {
-        if camera.settings.processing == .zero { return "RAW" }
-        return camera.settings.rawMode.badge
-    }
-
-    private func cycleRAW() {
-        var options: [RawMode] = [.off]
-        if camera.supportsBayerRAW { options.append(.bayer) }
-        if camera.supportsProRAW { options.append(.proRAW) }
-        guard options.count > 1 else {
-            camera.toast = "RAW isn't available on this lens"
-            return
-        }
-        camera.update {
-            $0.rawMode = cycled($0.rawMode, in: options)
-            if $0.processing == .zero && $0.rawMode != .bayer { $0.processing = .natural }
-        }
-    }
-
-    private func cycleProcessing() {
-        var options: [ProcessingLevel] = [.apple, .balanced, .natural]
-        if camera.supportsBayerRAW { options.append(.zero) }
-        camera.update { $0.processing = cycled($0.processing, in: options) }
-        camera.toast = camera.settings.processing.detail
-    }
-
-    private func iconButton(_ symbol: String, active: Bool, caption: String? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 2) {
-                Image(systemName: symbol)
-                    .font(.system(size: 16, weight: .semibold))
-                if let caption {
-                    Text(caption).font(.system(size: 11, weight: .bold, design: .rounded))
-                }
-            }
-            .foregroundStyle(active ? Color.yellow : Color.white)
-            .frame(minWidth: 36, minHeight: 36)
-            .rotationEffect(rotation)
-        }
-        .buttonStyle(PressScaleStyle())
-    }
-}
-
 func cycled<T: Equatable>(_ value: T, in options: [T]) -> T {
     guard !options.isEmpty else { return value }
     guard let i = options.firstIndex(of: value) else { return options[0] }
@@ -473,7 +355,7 @@ struct GPSIndicator: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(color)
                 .opacity(isSearching && pulse ? 0.35 : 1)
-                .frame(width: 26, height: 36)
+                .frame(width: 30, height: 44)
                 .rotationEffect(rotation)
         }
         .buttonStyle(PressScaleStyle())
@@ -503,39 +385,6 @@ struct GPSIndicator: View {
         case .rough: .yellow
         case .good: .green
         }
-    }
-}
-
-struct Badge: View {
-    let text: String
-    let active: Bool
-    let rotation: Angle
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(text)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .tracking(0.4)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .foregroundStyle(active ? Color.black : Color.white)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(active ? Color.yellow : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(active ? Color.clear : Color.white.opacity(0.6), lineWidth: 1)
-                )
-                .rotationEffect(rotation)
-                .contentTransition(.interpolate)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 2)
-        }
-        .buttonStyle(PressScaleStyle())
-        .animation(.snappy(duration: 0.2), value: text)
-        .animation(.snappy(duration: 0.2), value: active)
     }
 }
 
@@ -748,7 +597,8 @@ struct GestureHints: View {
         ("arrow.left.and.right", "Swipe for Photo / Video"),
         ("arrow.up.left.and.arrow.down.right", "Pinch to zoom"),
         ("circle.inset.filled", "Hold the shutter for burst"),
-        ("slider.horizontal.3", "Tap ISO, shutter, WB, focus or LOOK to dial them in"),
+        ("slider.horizontal.3", "Tap ISO, shutter, WB, focus or FILTER to dial them in"),
+        ("chevron.down.circle", "Tap the format pill up top for HEIF/JPEG, RAW and processing"),
     ]
 
     var body: some View {

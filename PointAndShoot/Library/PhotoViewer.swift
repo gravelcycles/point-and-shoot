@@ -111,7 +111,7 @@ struct PhotoViewer: View {
             }
         }
         .sheet(item: $shareURL) { item in
-            ActivityView(items: [item.url])
+            ActivityView(items: item.urls)
                 .presentationDetents([.medium, .large])
                 .ignoresSafeArea()
         }
@@ -258,7 +258,13 @@ struct PhotoViewer: View {
             Spacer()
             barButton("trash") {
                 guard let asset else { return }
-                Task { try? await PhotoLibrary.delete(asset) }
+                Task {
+                    do {
+                        try await PhotoLibrary.delete(asset)
+                    } catch where !PhotoLibrary.isUserCancel(error) {
+                        show(banner: "Couldn't delete: \(error.localizedDescription)")
+                    } catch {}
+                }
             }
             .disabled(asset == nil)
             Spacer()
@@ -329,8 +335,10 @@ struct PhotoViewer: View {
 }
 
 struct ShareItem: Identifiable {
-    let url: URL
-    var id: String { url.absoluteString }
+    let urls: [URL]
+    let id = UUID()
+    init(url: URL) { urls = [url] }
+    init(urls: [URL]) { self.urls = urls }
 }
 
 // MARK: - Pages
