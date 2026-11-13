@@ -463,7 +463,11 @@ private struct VideoPage: View {
     var body: some View {
         ZStack {
             if let player {
+                // Keep the player's own scrubber and buttons clear of the viewer's top and
+                // bottom bars (the pager ignores the safe area), so both stay tappable.
                 VideoPlayer(player: player)
+                    .padding(.top, 96)
+                    .padding(.bottom, 120)
             } else {
                 ProgressView().tint(.white)
             }
