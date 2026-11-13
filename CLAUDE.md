@@ -57,6 +57,7 @@ Center) are merged into `main`.
 
 ### Command-line equivalents (Claude can run these)
 ```sh
+scripts/ui-tests.sh             # simulator UI tests, same as CI, no queue
 scripts/deploy-iphone.sh        # finds team + phone, builds Release, signs, installs, launches
                                 # overrides: TEAM=… DEVICE=<udid> BUNDLE_ID=… CONFIG=Debug
 ```
@@ -264,13 +265,17 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 
 ## 6. CI/CD
 
-- **`build.yml`:** unsigned `xcodebuild build -target PointAndShoot -sdk iphoneos` on every
-  push (to app paths) and on PRs, using the newest Xcode on `macos-15`. A second job,
-  `ui-tests`, runs `xcodebuild test` on the newest iPhone simulator
-  (`.github/scripts/pick-simulator.py`). When it fails, the
+- **`build.yml`:** unsigned `xcodebuild build -target PointAndShoot -sdk iphoneos` on PRs and
+  on pushes to `main` (feature branches build only through their PR: one run per change),
+  using the newest Xcode on `macos-15`. The same job (one Mac, one queue wait) then runs
+  `xcodebuild test` on the newest iPhone simulator (`.github/scripts/pick-simulator.py`). When it fails, the
   errors appear in the run summary. The `build-log` artifact holds the full log; grep it for
   `SwiftCompile` / `in target '…'` to confirm what was actually built.
-- **`testflight.yml`:** on push to `main` or `claude/**`, it archives with automatic signing
+- **macOS runners are scarce on the free plan** (a few concurrent Mac jobs per account).
+  Don't add Mac jobs that could run on Linux, and cancel superseded runs; queued Mac jobs
+  can wait many minutes.
+- **`testflight.yml`:** a tiny Linux job checks for the Apple secrets first; the Mac job
+  runs only when they exist. On push to `main` or `claude/**`, it archives with automatic signing
   through an App Store Connect API key and uploads to TestFlight. The build number is
   `run_number.run_attempt`.
   - **It skips cleanly until these repo secrets exist:** `ASC_KEY_ID`, `ASC_ISSUER_ID`,
@@ -316,7 +321,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Tests find controls by accessibility identifiers (`strip.*`, `badge.*`, `topbar.*`,
     `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`).
   - New controls should get an identifier and, if they're custom, an off-center tap test.
-  - CI runs them in the `ui-tests` job.
+  - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass
+    `-only-testing:PointAndShootUITests/<Class>/<test>` to run a single test. CI runs the
+    same tests after the device build.
 
 ---
 
