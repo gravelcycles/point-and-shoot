@@ -118,11 +118,23 @@ final class ControlHitTargetTests: XCTestCase {
         waitForExpectations(timeout: 3)
     }
 
+    /// Manual controls stay out of the way until PRO is tapped, and fold away again.
+    func testProRevealsAndHidesManualControls() {
+        XCTAssertFalse(app.buttons["strip.iso"].exists, "Pro controls should start collapsed")
+        let pro = app.buttons["strip.pro"]
+        tapOffLabel(pro, dx: 0.9, dy: 0.9)
+        XCTAssertTrue(app.buttons["strip.iso"].waitForExistence(timeout: 3), "PRO didn't reveal the manual controls")
+        XCTAssertTrue(app.buttons["strip.focus"].exists && app.buttons["strip.wb"].exists && app.buttons["strip.shutter"].exists)
+        tapOffLabel(pro, dx: 0.1, dy: 0.1)
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["strip.iso"])
+        waitForExpectations(timeout: 3)
+    }
+
     /// The empty strip above the controls overlaps the bottom of the viewfinder. Taps there
     /// belong to the controls area and must not trigger tap-to-focus.
     func testTapsInControlsAreaDoNotFallThroughToViewfinder() {
-        let focusCell = app.buttons["strip.focus"]
-        focusCell.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: -0.9)).tap()
+        let evCell = app.buttons["strip.ev"]
+        evCell.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: -0.9)).tap()
         XCTAssertFalse(app.otherElements["focus.reticle"].waitForExistence(timeout: 1.5),
                        "A tap in the controls area went through to the viewfinder and focused")
     }

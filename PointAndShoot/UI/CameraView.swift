@@ -278,7 +278,7 @@ struct CameraView: View {
             let snapped = (max(-3, min(3, raw)) * 3).rounded() / 3
             if snapped != camera.exposureBias {
                 camera.setExposureBias(snapped)
-                UISelectionFeedbackGenerator().selectionChanged()
+                Haptics.selectionChanged()
             }
             evHideTask?.cancel()
             withAnimation(.easeOut(duration: 0.12)) { evIndicator = snapped }
@@ -615,7 +615,8 @@ struct GestureHints: View {
         ("arrow.left.and.right", "Swipe for Photo / Video"),
         ("arrow.up.left.and.arrow.down.right", "Pinch to zoom"),
         ("circle.inset.filled", "Hold the shutter for burst"),
-        ("slider.horizontal.3", "Tap ISO, shutter, WB, focus or FILTER to dial them in"),
+        ("slider.horizontal.3", "PRO reveals focus, WB, ISO and shutter dials"),
+        ("arrow.counterclockwise", "Double-tap any control to put it back on auto"),
         ("chevron.down.circle", "Tap the format pill up top for HEIF/JPEG, RAW and processing"),
     ]
 

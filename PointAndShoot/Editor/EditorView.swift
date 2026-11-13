@@ -187,7 +187,7 @@ struct EditorView: View {
     }
 
     private func finish(_ message: String) {
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Haptics.success()
         onSaved(message)
         dismiss()
     }

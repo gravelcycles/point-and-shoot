@@ -52,8 +52,12 @@ struct LevelOverlay: View {
     let motion: MotionManager
 
     var body: some View {
-        let tilt = motion.tiltDegrees
+        // Wrap into ±180° so upside-down / landscape buckets compare correctly.
+        let tilt = (motion.tiltDegrees + 540).truncatingRemainder(dividingBy: 360) - 180
         let level = abs(tilt) < 0.8
+        // Only shows up when you're trying to be level (within ~12°), so a deliberate
+        // Dutch angle or a casual snap isn't nagged by a line across the frame.
+        let near = abs(tilt) < 12
         ZStack {
             // Fixed reference (the camera)
             HStack(spacing: 80) {
@@ -69,7 +73,8 @@ struct LevelOverlay: View {
                 .rotationEffect(.radians(motion.angle))
         }
         .animation(.easeOut(duration: 0.15), value: level)
-        .opacity(motion.isFlat ? 0 : 1)
+        .opacity(motion.isFlat || !near ? 0 : 1)
+        .animation(.easeInOut(duration: 0.25), value: near)
         .allowsHitTesting(false)
     }
 }
