@@ -106,9 +106,13 @@ struct EditorView: View {
                 if session.hasChanges { confirmDiscard = true } else { dismiss() }
             } label: {
                 Image(systemName: "xmark").font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             Button(action: undo) {
                 Image(systemName: "arrow.uturn.backward").font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(undoStack.isEmpty)
             .opacity(undoStack.isEmpty ? 0.35 : 1)
@@ -152,7 +156,8 @@ struct EditorView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle").font(.system(size: 19, weight: .semibold))
-                    .frame(width: 36, height: 44)
+                    .frame(width: 40, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(session.isLoading || session.isSaving)
 
@@ -500,8 +505,9 @@ struct EditorView: View {
                         Image(systemName: t.symbol).font(.system(size: 18, weight: .medium))
                         Text(t.label).font(.system(size: 10, weight: .semibold))
                     }
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .foregroundStyle(tool == t ? Color.yellow : Color.white.opacity(0.75))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }

@@ -17,6 +17,9 @@ struct PreviewView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PreviewMetalView {
         let view = PreviewMetalView()
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "viewfinder"
+        view.accessibilityLabel = "Viewfinder"
         view.renderer = renderer
         view.backgroundColor = .black
         renderer.attach(layer: view.metalLayer)

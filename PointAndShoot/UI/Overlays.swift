@@ -74,6 +74,24 @@ struct LevelOverlay: View {
     }
 }
 
+/// These wrappers read the fast-changing values inside their own bodies, so a histogram
+/// update (≈6×/s) or meter tick (15×/s) redraws just the readout — not the whole camera
+/// screen, which kept the main thread busy and made the controls feel sticky.
+struct LiveHistogram: View {
+    let camera: CameraController
+    var body: some View { HistogramView(histogram: camera.histogram) }
+}
+
+struct LiveAudioMeter: View {
+    let camera: CameraController
+    var body: some View { AudioMeter(level: camera.audioLevel) }
+}
+
+struct LiveExposureMeter: View {
+    let camera: CameraController
+    var body: some View { ExposureMeter(offset: camera.meterOffset) }
+}
+
 struct HistogramView: View {
     let histogram: Histogram
 
@@ -204,6 +222,8 @@ struct FocusReticle: View {
         .opacity(appeared ? 1 : 0)
         .onAppear { withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { appeared = true } }
         .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("focus.reticle")
     }
 }
 

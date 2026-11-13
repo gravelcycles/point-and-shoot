@@ -126,6 +126,10 @@ final class CameraController: NSObject {
     // MARK: - Lifecycle
 
     func start() {
+        if TestHooks.isUITest {
+            authorization = .authorized
+            return
+        }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             authorization = .authorized
@@ -951,15 +955,23 @@ final class CameraController: NSObject {
             if recordingTimeLeft != nil { recordingTimeLeft = nil }
             return
         }
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        guard let free = (try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
-            .volumeAvailableCapacityForImportantUsage else { return }
-        // Keep ~1 GB back: Photos needs room to take the file when recording stops.
-        let usable = max(0, Double(free) - 1_000_000_000)
-        recordingTimeLeft = usable / (Self.estimatedBitrate(settings) / 8)
-        if isRecording && free < 600_000_000 {
-            stopRecording()
-            toast = "Storage almost full — recording stopped and saved"
+        // The "important usage" free-space query can take hundreds of ms (it accounts for
+        // purgeable space), so never run it on the main thread.
+        let bytesPerSecond = Self.estimatedBitrate(settings) / 8
+        DispatchQueue.global(qos: .utility).async {
+            let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            guard let free = (try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+                .volumeAvailableCapacityForImportantUsage else { return }
+            // Keep ~1 GB back: Photos needs room to take the file when recording stops.
+            let left = max(0, Double(free) - 1_000_000_000) / bytesPerSecond
+            DispatchQueue.main.async {
+                guard self.settings.mode == .video else { return }
+                if abs((self.recordingTimeLeft ?? -1) - left) > 30 { self.recordingTimeLeft = left }
+                if self.isRecording && free < 600_000_000 {
+                    self.stopRecording()
+                    self.toast = "Storage almost full — recording stopped and saved"
+                }
+            }
         }
     }
 

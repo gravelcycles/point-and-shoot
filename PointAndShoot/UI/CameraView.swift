@@ -138,9 +138,9 @@ struct CameraView: View {
 
             VStack {
                 HStack(alignment: .top) {
-                    if s.showHistogram { HistogramView(histogram: camera.histogram) }
+                    if s.showHistogram { LiveHistogram(camera: camera) }
                     Spacer()
-                    if s.mode == .video && s.recordAudio { AudioMeter(level: camera.audioLevel) }
+                    if s.mode == .video && s.recordAudio { LiveAudioMeter(camera: camera) }
                 }
                 .padding(10)
                 if let toast = camera.toast {
@@ -150,7 +150,7 @@ struct CameraView: View {
                 }
                 Spacer()
                 if camera.exposureMode == .manual {
-                    ExposureMeter(offset: camera.meterOffset)
+                    LiveExposureMeter(camera: camera)
                         .padding(.bottom, s.mode == .photo ? 10 : 260)
                 }
             }
@@ -168,7 +168,7 @@ struct CameraView: View {
 
             Color.black.opacity(blink ? 0.85 : 0).allowsHitTesting(false)
 
-            if !hintsSeen {
+            if !hintsSeen && !TestHooks.isUITest {
                 GestureHints { withAnimation(.easeOut(duration: 0.25)) { hintsSeen = true } }
                     .transition(.opacity)
             }
@@ -228,6 +228,9 @@ struct CameraView: View {
             .padding(.bottom, 6)
         }
         .foregroundStyle(.white)
+        // Taps in the gaps between controls belong to the controls, not to tap-to-focus on
+        // the viewfinder underneath.
+        .background(Color.black.opacity(0.001))
         .padding(.top, 26)
         .background(
             LinearGradient(stops: [
@@ -335,22 +338,27 @@ struct TopBar: View {
                 iconButton(s.flash.symbol, active: s.flash != .off) {
                     camera.update { $0.flash = cycled(s.flash, in: FlashSetting.allCases) }
                 }
+                .accessibilityIdentifier("topbar.flash")
                 .opacity(camera.supportsFlash ? 1 : 0.25)
                 .disabled(!camera.supportsFlash)
                 Spacer(minLength: 4)
                 Badge(text: rawLabel, active: rawActive, rotation: rotation) { cycleRAW() }
+                    .accessibilityIdentifier("badge.raw")
                 if !(rawActive && (!s.keepProcessedWithRAW || s.processing == .zero)) {
                     Badge(text: s.photoFormat.label, active: false, rotation: rotation) {
                         camera.update { $0.photoFormat = s.photoFormat == .heif ? .jpeg : .heif }
                     }
+                    .accessibilityIdentifier("badge.format")
                 }
                 Badge(text: s.processing.label.uppercased(), active: s.processing == .zero || s.processing == .natural,
                       rotation: rotation) { cycleProcessing() }
+                    .accessibilityIdentifier("badge.processing")
                 Spacer(minLength: 4)
                 iconButton("timer", active: s.selfTimer != .off,
                            caption: s.selfTimer == .off ? nil : s.selfTimer.label) {
                     camera.update { $0.selfTimer = cycled(s.selfTimer, in: SelfTimer.allCases) }
                 }
+                .accessibilityIdentifier("topbar.timer")
             } else if camera.isRecording, let start = camera.recordingStart {
                 Spacer()
                 RecordingClock(start: start)
@@ -365,6 +373,7 @@ struct TopBar: View {
                 Badge(text: s.videoResolution.label, active: false, rotation: rotation) {
                     camera.update { $0.videoResolution = s.videoResolution == .uhd4K ? .hd1080 : .uhd4K }
                 }
+                .accessibilityIdentifier("badge.resolution")
                 Badge(text: "\(s.frameRate)", active: false, rotation: rotation) {
                     camera.update { $0.frameRate = cycled(s.frameRate, in: camera.supportedFrameRates) }
                 }
@@ -390,6 +399,7 @@ struct TopBar: View {
             }
             iconButton("slider.horizontal.3", active: false) { showSettings = true }
                 .disabled(camera.isRecording)
+                .accessibilityIdentifier("topbar.settings")
         }
         .foregroundStyle(.white)
     }
@@ -520,6 +530,8 @@ struct Badge: View {
                 )
                 .rotationEffect(rotation)
                 .contentTransition(.interpolate)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 2)
         }
         .buttonStyle(PressScaleStyle())
         .animation(.snappy(duration: 0.2), value: text)
@@ -587,15 +599,19 @@ struct ModePicker: View {
     let select: (CaptureMode) -> Void
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 6) {
             ForEach(CaptureMode.allCases) { m in
                 Button { select(m) } label: {
                     Text(m.label)
                         .font(.system(size: 13, weight: .semibold))
                         .tracking(1.2)
                         .foregroundStyle(m == mode ? Color.yellow : Color.white.opacity(0.7))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("mode.\(m.rawValue)")
             }
         }
         .disabled(disabled)
@@ -714,6 +730,9 @@ struct PressScaleStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            // The whole frame is tappable, not just the glyphs: transparent padding is
+            // otherwise ignored by hit testing and taps fall through to the viewfinder.
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? scale : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.6), value: configuration.isPressed)
     }

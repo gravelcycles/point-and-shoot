@@ -63,14 +63,15 @@ struct ControlStrip: View {
                     .foregroundStyle(manual ? Color.yellow : Color.white)
                     .contentTransition(.numericText())
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .background(active == kind ? Color.white.opacity(0.14) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleStyle(scale: 0.94))
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
+        .accessibilityIdentifier("strip.\(kind.rawValue)")
     }
 }
 
@@ -92,6 +93,7 @@ struct DialPanel: View {
                     .foregroundStyle(isAuto ? Color.black : Color.white)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("dial.auto")
             dial
         }
         .padding(.horizontal, 12)

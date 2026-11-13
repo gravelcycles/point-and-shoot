@@ -17,14 +17,19 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
 
     @ObservationIgnored private var fetchResult: PHFetchResult<PHAsset>?
     @ObservationIgnored private var registered = false
+    @ObservationIgnored private var started = false
+    /// Fetching and walking up to 2000 assets happens here, never on the main thread.
+    @ObservationIgnored private let work = DispatchQueue(label: "roll.store", qos: .userInitiated)
     @ObservationIgnored private var latestKey: String?
 
     var isAuthorized: Bool { status == .authorized || status == .limited }
 
-    /// Start quietly if the user already granted access; never prompts.
+    /// Start quietly if the user already granted access; never prompts. Once started, the
+    /// change observer keeps everything current, so coming back to the app costs nothing.
     func activateIfAuthorized() {
-        status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if isAuthorized { start() }
+        let current = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if current != status { status = current }
+        if isAuthorized && !started { start() }
     }
 
     func requestAccess() async {
@@ -41,27 +46,33 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
     }
 
     private func start() {
+        started = true
         if !registered {
             PHPhotoLibrary.shared().register(self)
             registered = true
         }
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.predicate = NSPredicate(format: "mediaType == %d || mediaType == %d",
-                                        PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue)
-        // Recent history is what a camera roll is for; keeps every update instant.
-        options.fetchLimit = 2000
-        let result = PHAsset.fetchAssets(with: options)
-        fetchResult = result
-        publish(result)
+        work.async {
+            let options = PHFetchOptions()
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            options.predicate = NSPredicate(format: "mediaType == %d || mediaType == %d",
+                                            PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue)
+            // Recent history is what a camera roll is for; keeps every update instant.
+            options.fetchLimit = 2000
+            let result = PHAsset.fetchAssets(with: options)
+            self.fetchResult = result
+            self.publish(result)
+        }
     }
 
+    /// Call on `work`. Walks the fetch result off the main thread, then hands the array over.
     private func publish(_ result: PHFetchResult<PHAsset>) {
         var list: [PHAsset] = []
         list.reserveCapacity(result.count)
         result.enumerateObjects { asset, _, _ in list.append(asset) }
-        assets = list
-        refreshLatestThumbnail()
+        DispatchQueue.main.async {
+            self.assets = list
+            self.refreshLatestThumbnail()
+        }
     }
 
     private func refreshLatestThumbnail() {
@@ -88,7 +99,7 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
     }
 
     func photoLibraryDidChange(_ changeInstance: PHChange) {
-        DispatchQueue.main.async {
+        work.async {
             guard let current = self.fetchResult,
                   let details = changeInstance.changeDetails(for: current) else { return }
             let updated = details.fetchResultAfterChanges
