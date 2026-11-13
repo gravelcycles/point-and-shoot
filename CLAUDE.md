@@ -232,18 +232,35 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Grain (mostly monochrome, ~0.5 px) and halation: matched by eye/measurement to the
     same samples.
 - **Tables:**
-  - The negative cube (64³) is fixed per source and built once (~30 ms; prewarmed at
-    launch).
+  - The negative cube (48³, 1.8 MB) is fixed per source and built once (~15 ms;
+    prewarmed at launch).
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
-    highlights, shadows), rebuilds in ~8 ms and is cached.
-  - The interpolation error of the two-table path vs. direct math is < 0.005 ΔE (Oklab)
+    highlights, shadows) and is cached. It rebuilds in ~3 ms, so editor sliders never
+    hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
+    are linear in density), with a 1-D table for highlights/shadows and a √-space table
+    for the sRGB encode.
+  - Don't shrink below 48³: at 40³ the grey ramp stops being monotone (banding).
+  - The interpolation error of the two-table path vs. direct math is < 0.007 ΔE (Oklab)
     on the grey scale.
 - **Sources:**
   - `.sceneLinear` is a RAW develop with `boostAmount = 0`, no local tone mapping and no
     sharpening (`EditPipeline.configure` does this whenever `recipe.film != nil`).
   - `.displayReferred` (viewfinder, processed HEIFs) first undoes a generic phone tone
     curve inside the negative cube.
-- **Capture:** selecting Print as the capture look makes the camera shoot Bayer RAW and
+- **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
+  "Print film look".
+  - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
+    (`isStill`), so it uses the photo pipeline.
+    - It drops the controls that don't apply: no format pill (always RAW), no FILTER
+      cell (Print *is* the filter), and no burst (RAW can't burst).
+    - Photo ↔ Print switches without rebuilding the session. Only a ProRAW on/off change
+      reconfigures (`CameraController.proRAWActive`).
+    - Print is left out of the FILTER list.
+  - **Filter:** Print is the first item under FILTER, and there is no Print mode.
+  - `CameraSettings.activeLook` is what actually gets applied: Print in Print mode,
+    otherwise the chosen filter.
+  - The editor's Filters tab always includes Print.
+- **Capture:** the Print mode (or the Print filter) makes the camera shoot Bayer RAW and
   keep the DNG (`CameraSettings.developsBayerRAW`). `RecipeBaker` then renders the edit
   from the in-memory DNG.
 - **Recipe:** `EditRecipe.film` (optional, so old edits decode).
@@ -449,15 +466,19 @@ to be wrong.
       after opening the app (`LockedCaptureImporter`).
     - "Full app" hands off after Face ID.
 15. **Print look**
-    - Pick Print in LOOK. The viewfinder shows it live with moving grain, the RAW badge
-      lights, and the frame rate stays smooth.
+    - Tap PRINT (or swipe from PHOTO). It switches instantly with no session blur, and the
+      viewfinder shows the look live with moving grain at full frame rate.
+    - Print mode shows no format pill, no FILTER cell, and doesn't burst. Flash, timer and
+      exposure controls are still there.
+    - Settings → Print film look → Filter: PRINT leaves the mode picker and appears under
+      FILTER. The format pill then reads "Print · RAW" when it's picked.
     - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ Overall
       brightness: is 18% grey (or a typical daylight scene) about as dark as intended?
       If everything is too dark or bright, change `exposure` in `print-stock.json`, then
       run export-swift.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.
-    - Editor: Print from the Looks strip. Details → Grain/Halation/Crossover respond;
+    - Editor: Print from the Filters tab. Details → Grain/Halation/Crossover respond;
       Tune sliders behave. Revert in Photos gives the neutral Zero develop.
     - Switch the look back to Natural: sharpening and the RAW tab's tone sliders return.
 16. **Robustness:**
@@ -482,6 +503,7 @@ to be wrong.
   - Multi-frame highlight-retention capture (bracket and merge, ~2 stops) so halation and
     the shoulder see real highlights.
   - A contrast pivot.
+  - A Print-mode default exposure placement tuned on device.
   - An "optical" (white bloom) halation mode.
   - Grain amplitude that varies with density.
   - Fitting against real reference pairs (see §4).

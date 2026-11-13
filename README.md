@@ -27,19 +27,23 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   **About** to read what each one does. Pick Print, Warm 400, Mono 400, Cine, Chrome, Noir
   or another. You see it live in the viewfinder, and every shot is saved with the look as
   an *editable edit*. The untouched original stays one tap away in the editor or Photos.
-- **Print: film, from the sensor.** The Print look is a real film emulation rather than a
-  set of slider moves. It takes the RAW sensor data (with Print selected the camera shoots
-  Bayer RAW and keeps the DNG, like Zero) and runs it through a model of a Kodak Vision3
-  negative printed to print film:
-  - dense blacks with a long, soft toe
-  - a highlight shoulder that never clips harshly
-  - warm highlights over cool shadows (color crossover)
-  - film color, where rich colors get darker rather than louder and reds lean orange
-  - a red-orange halation glow around bright lights
-  - fine film grain that lives in the mid-tones
-
-  In the editor, Tune's sliders work inside the film model, and Details adds **Grain**,
-  **Halation** and **Crossover**.
+- **Print: film, from the sensor.** Print is a real film emulation rather than a set of
+  slider moves.
+  - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.
+  - **It's single-purpose:** Print mode always shoots RAW, so there's no format or filter
+    to fiddle with. Flash, timer and exposure stay.
+  - **Or make it a filter:** Settings → Photo → **Print film look** → Filter puts it in the
+    FILTER list instead.
+  - **How it works:** the camera shoots Bayer RAW and keeps the DNG, like Zero. Print runs
+    the sensor data through a model of a Kodak Vision3 negative printed to print film:
+    - dense blacks with a long, soft toe
+    - a highlight shoulder that never clips harshly
+    - warm highlights over cool shadows (color crossover)
+    - film color, where rich colors get darker rather than louder and reds lean orange
+    - a red-orange halation glow around bright lights
+    - fine film grain that lives in the mid-tones
+  - **In the editor:** Tune's sliders work inside the film model, and Details adds
+    **Grain**, **Halation** and **Crossover**.
 - **Hold the shutter for burst.** Shots fire as fast as the camera keeps up, with a
   counter on the button. Burst frames skip RAW so they stay fast.
 - The app reopens on the lens you used last.

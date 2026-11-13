@@ -5,13 +5,15 @@ import SwiftUI
 struct FilterGuide: View {
     let thumbnails: [String: UIImage]
     let selectedID: String?
+    /// The filters to list (the camera leaves Print out while it's a mode).
+    var looks: [Look] = Look.all
     let onPick: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(Look.all) { look in
+                ForEach(looks) { look in
                     let selected = (selectedID ?? "none") == look.id
                     Button {
                         onPick(look.id == "none" ? nil : look.id)

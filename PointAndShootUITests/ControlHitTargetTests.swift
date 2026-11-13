@@ -91,6 +91,23 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping VIDEO didn't switch to video mode")
     }
 
+    /// Print mode always shoots RAW and *is* the filter, so the format pill and the FILTER
+    /// cell go away; the photo controls stay. Back in Photo they return.
+    func testPrintModeDropsFormatAndFilterControls() {
+        tapOffLabel(app.buttons["mode.print"], dx: 0.5, dy: 0.95)
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.buttons["topbar.format"])
+        expectation(for: gone, evaluatedWith: app.buttons["strip.look"])
+        waitForExpectations(timeout: 3)
+        XCTAssertTrue(app.buttons["topbar.timer"].exists, "Print mode should keep the self-timer")
+        XCTAssertTrue(app.buttons["strip.ev"].exists, "Print mode should keep exposure controls")
+
+        tapOffLabel(app.buttons["mode.photo"], dx: 0.5, dy: 0.95)
+        XCTAssertTrue(app.buttons["topbar.format"].waitForExistence(timeout: 3),
+                      "Back in Photo, the format pill should return")
+        XCTAssertTrue(app.buttons["strip.look"].exists, "Back in Photo, FILTER should return")
+    }
+
     func testFilterCardsSelectAndDoubleTapResets() {
         let strip = app.buttons["strip.look"]
         tapOffLabel(strip, dx: 0.1)

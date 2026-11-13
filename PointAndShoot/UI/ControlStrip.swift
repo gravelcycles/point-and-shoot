@@ -24,8 +24,8 @@ struct ControlStrip: View {
                  value: camera.exposureMode == .manual ? Stops.evLabel(camera.meterOffset) : Stops.evLabel(camera.exposureBias),
                  manual: camera.exposureBias != 0, enabled: camera.exposureMode != .manual)
             if camera.settings.mode == .photo {
-                item(.look, title: "FILTER", value: Look.named(camera.settings.captureLook)?.name ?? "Off",
-                     manual: camera.settings.captureLook != nil, enabled: true)
+                item(.look, title: "FILTER", value: Look.named(camera.settings.activeLook)?.name ?? "Off",
+                     manual: camera.settings.activeLook != nil, enabled: true)
             }
         }
         .padding(.horizontal, 10)
@@ -154,7 +154,8 @@ struct DialPanel: View {
             }
         }
         .sheet(isPresented: $showGuide) {
-            FilterGuide(thumbnails: thumbnails, selectedID: camera.settings.captureLook) { id in
+            FilterGuide(thumbnails: thumbnails, selectedID: camera.settings.activeLook,
+                        looks: [Look.all[0]] + camera.settings.filterLooks) { id in
                 camera.setCaptureLook(id)
             }
             .presentationDetents([.medium, .large])
@@ -165,8 +166,8 @@ struct DialPanel: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(Look.all.filter { $0.id != "none" }) { look in
-                        let selected = camera.settings.captureLook == look.id
+                    ForEach(camera.settings.filterLooks) { look in
+                        let selected = camera.settings.activeLook == look.id
                         Button {
                             camera.haptic(.light)
                             camera.setCaptureLook(selected ? nil : look.id)
