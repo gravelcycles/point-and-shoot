@@ -93,6 +93,9 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.
   - **Details**: structure, sharpening, fade, grain, vignette.
+  - **Color**: an 8-band mixer (red, orange, yellow, green, aqua, blue, purple,
+    magenta), each with hue, saturation and luminance. Greys stay neutral. In B&W looks it
+    works like darkroom colour filters, e.g. drag Blue Luminance down for dramatic skies.
   - **Crop**: free or locked aspect, straighten dial, rotate, flip.
   - **RAW**: if the photo has a DNG, the edit develops from the sensor data. You get real
     white balance and exposure, plus Apple's noise reduction and local tone mapping as

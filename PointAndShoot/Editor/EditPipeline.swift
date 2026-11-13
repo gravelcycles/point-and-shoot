@@ -124,6 +124,15 @@ enum EditPipeline {
                 .applyingFilter("CISRGBToneCurveToLinear")
         }
 
+        // Color mixer before mono, so in B&W it works like darkroom color filters.
+        if let mixer = r.mixer, mixer.contains(where: { $0 != 0 }) {
+            image = image.applyingFilter("CIColorCubeWithColorSpace", parameters: [
+                "inputCubeDimension": ColorMixer.size,
+                "inputCubeData": ColorMixer.cube(for: mixer),
+                "inputColorSpace": ColorMixer.colorSpace,
+            ])
+        }
+
         if r.vibrance != 0 {
             image = image.applyingFilter("CIVibrance", parameters: ["inputAmount": r.vibrance / 100])
         }
