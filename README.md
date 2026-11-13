@@ -129,6 +129,10 @@ they're held safely and imported the next time you open the app.
 To set it up: long-press Control Center → **Add a Control** → Point & Shoot. On the Lock
 Screen: long-press → Customize → Lock Screen → tap the camera button → Point & Shoot.
 
+A second control, **Record Video**, opens the full app straight into Video mode (after Face
+ID if the phone is locked). Put it in Control Center, on the other Lock Screen button, or on
+the Action button (Settings → Action Button → Controls).
+
 ## Shortcuts & the Action button
 
 **Take a Photo** and **Record a Video** appear in the Shortcuts app, Siri ("Take a photo
@@ -143,9 +147,16 @@ Start a local session from there.
 
 ## Build
 
+**Quickest:** plug in the iPhone and run `scripts/deploy-iphone.sh`. It finds your team and
+phone, builds, signs, installs and launches. If the bundle ID is taken:
+`BUNDLE_ID=com.yourname.pointandshoot scripts/deploy-iphone.sh`.
+
+**Or in Xcode:**
 1. Open `PointAndShoot.xcodeproj` in **Xcode 16 or newer**.
-2. Select the *PointAndShoot* target → *Signing & Capabilities* → choose your team (and
-   change the bundle ID if you need to).
+2. Choose your team under *Signing & Capabilities* for all three targets (*PointAndShoot*,
+   *PointAndShootWidgets*, *PointAndShootLockedCapture*). To change the bundle ID, edit the
+   project's `APP_BUNDLE_ID` build setting (default `io.github.gravelcycles.pointandshoot`);
+   the extensions follow it.
 3. Run on a real iPhone. The simulator has no camera.
 
 **No Mac?** Every change can build itself and auto-install on your iPhone via TestFlight. See

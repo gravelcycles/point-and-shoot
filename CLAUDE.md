@@ -42,10 +42,10 @@ Center) are merged into `main`.
   installs expire after 7 days. The paid Apple Developer Program enables TestFlight.
 
 ### One-time project setup
-1. **Make the bundle ID unique.** `com.pointandshoot.camera` is probably taken. All three
-   targets derive from one setting:
-   - Project → Build Settings → *User-Defined* → `APP_BUNDLE_ID`. Set it to e.g.
-     `com.<you>.pointandshoot`.
+1. **Bundle ID.** The default is `io.github.gravelcycles.pointandshoot` (was the likely-taken
+   `com.pointandshoot.camera`). All three targets derive from one setting:
+   - Project → Build Settings → *User-Defined* → `APP_BUNDLE_ID`. Change it only if Xcode says
+     the ID is unavailable, e.g. to `com.<you>.pointandshoot`.
    - The extensions automatically become `$(APP_BUNDLE_ID).widgets` and
      `$(APP_BUNDLE_ID).lockedcapture`.
 2. **Signing & Capabilities:** pick the team for **all three targets**: `PointAndShoot`,
@@ -54,6 +54,10 @@ Center) are merged into `main`.
 3. Select your iPhone as the destination → **Run**.
 
 ### Command-line equivalents (Claude can run these)
+```sh
+scripts/deploy-iphone.sh        # finds team + phone, builds Release, signs, installs, launches
+                                # overrides: TEAM=… DEVICE=<udid> BUNDLE_ID=… CONFIG=Debug
+```
 ```sh
 # Exactly what CI runs: compile everything, no signing
 xcodebuild build -project PointAndShoot.xcodeproj -target PointAndShoot -sdk iphoneos \
@@ -119,7 +123,9 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/RecipeBaker.swift        applies a recipe to a library asset (capture Looks)
   Editor/CropOverlay.swift, MetalImageView.swift
 Shared/CameraCaptureIntent.swift  CameraCaptureIntent (compiled into app + both extensions)
-PointAndShootWidgets/             ControlWidget extension (Control Center / Lock Screen / Action button)
+Shared/OpenVideoControlIntent.swift  "Record Video" control's intent (opens the app in Video mode)
+PointAndShootWidgets/             ControlWidget extension: Camera + Record Video controls (Control Center /
+                                  Lock Screen / Action button)
 PointAndShootLockedCapture/       LockedCameraCapture extension: lean Lock Screen camera
 Config/*-Info.plist               NSExtension dicts for the two extensions (merged with generated plist)
 .github/workflows/build.yml       unsigned compile on every push + PRs (free: repo is public)
@@ -181,6 +187,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **Bundle IDs:** the project-level `APP_BUNDLE_ID` drives the app and both extensions.
   CI overrides `APP_BUNDLE_ID`. Never override `PRODUCT_BUNDLE_IDENTIFIER` on the command
   line: that would give the extensions the app's ID.
+- **`APP_EXTENSION` compile condition** is set on both extension targets. Code in `Shared/`
+  that touches app-only types (e.g. `LaunchRequests`) must sit inside `#if !APP_EXTENSION`.
 - **Project file:** `PBXFileSystemSynchronizedRootGroup` folders. Adding a Swift file to
   `PointAndShoot/`, `Shared/` or an extension folder needs no `.pbxproj` edit. Info.plists
   live in `Config/` (outside the synced folders) to avoid "multiple commands produce

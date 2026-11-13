@@ -6,6 +6,10 @@ on:
   push:
     paths:
       - "PointAndShoot/**"
+      - "PointAndShootWidgets/**"
+      - "PointAndShootLockedCapture/**"
+      - "Shared/**"
+      - "Config/**"
       - "PointAndShoot.xcodeproj/**"
       - ".github/workflows/build.yml"
   pull_request:

@@ -6,6 +6,20 @@ import WidgetKit
 struct PointAndShootWidgets: WidgetBundle {
     var body: some Widget {
         CameraControl()
+        VideoControl()
+    }
+}
+
+/// Opens the full app in Video mode (asks for Face ID when locked).
+struct VideoControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "com.pointandshoot.camera.video") {
+            ControlWidgetButton(action: OpenVideoControlIntent()) {
+                Label("Record Video", systemImage: "video.fill")
+            }
+        }
+        .displayName("Record Video")
+        .description("Open Point & Shoot ready to record video.")
     }
 }
 

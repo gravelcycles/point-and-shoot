@@ -55,7 +55,7 @@ workflows:
     scripts:
       - name: Use your bundle ID and a fresh build number
         script: |
-          sed -i '' "s/APP_BUNDLE_ID = com.pointandshoot.camera;/APP_BUNDLE_ID = $BUNDLE_ID;/g" \
+          sed -i '' "s/APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot;/APP_BUNDLE_ID = $BUNDLE_ID;/g" \
             PointAndShoot.xcodeproj/project.pbxproj
           sed -i '' "s/CURRENT_PROJECT_VERSION = 1;/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/g" \
             PointAndShoot.xcodeproj/project.pbxproj
