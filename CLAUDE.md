@@ -307,6 +307,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     add their own.
   - The bottom controls have a near-invisible hit-testable background so gaps between
     controls never reach the viewfinder.
+- **One presentation per view:** never chain several `.sheet` / `.fullScreenCover` modifiers
+  on the same view. On iOS 26 that silently stopped the Settings sheet from appearing.
+  Attach each one to its own anchor: the button that opens it, or a `Color.clear` in a
+  `.background { … }` (see `PhotoViewer`).
 - **Re-render discipline:** values that change several times a second (histogram, meter
   offset, audio level, ISO/shutter in auto) must be read inside small leaf views, e.g.
   `LiveHistogram(camera:)`, never in `CameraView`'s body. Reading them there re-renders the

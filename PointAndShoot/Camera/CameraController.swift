@@ -663,6 +663,20 @@ final class CameraController: NSObject {
         session.commitConfiguration()
     }
 
+    // MARK: - Reset
+
+    /// Puts one control back on automatic (the dial's "A", or double-tapping its cell).
+    func resetToAuto(_ kind: DialKind) {
+        switch kind {
+        case .focus: setFocusAuto()
+        case .wb: setWhiteBalance(.auto)
+        case .iso: if exposureMode == .manual { setExposureMode(.shutterPriority) }
+        case .shutter: setExposureMode(.auto)
+        case .ev: setExposureBias(0)
+        case .look: setCaptureLook(nil)
+        }
+    }
+
     // MARK: - Capture look
 
     /// Looks are saved as editable edits on top of the original, which needs full Photos
@@ -670,6 +684,10 @@ final class CameraController: NSObject {
     func setCaptureLook(_ id: String?) {
         guard let id, id != "none" else {
             update { $0.captureLook = nil }
+            return
+        }
+        if TestHooks.isUITest {
+            update { $0.captureLook = id }
             return
         }
         Task { @MainActor in

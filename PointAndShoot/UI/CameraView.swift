@@ -64,11 +64,6 @@ struct CameraView: View {
             // developing has been saved.
             if open { camera.suspendForBrowsing() } else { camera.resumeAfterBrowsing() }
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView(camera: camera)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
         .fullScreenCover(isPresented: $showLibrary) {
             PhotoViewer(roll: roll, camera: camera)
         }
@@ -201,7 +196,8 @@ struct CameraView: View {
                         .transition(.opacity)
                 }
             }
-            .frame(height: 48)
+            .frame(height: activeDial == .look ? 78 : 48)
+            .animation(.snappy(duration: 0.25), value: activeDial)
 
             ControlStrip(camera: camera, active: $activeDial)
 

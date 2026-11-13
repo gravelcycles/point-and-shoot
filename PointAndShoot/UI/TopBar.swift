@@ -64,6 +64,13 @@ struct TopBar: View {
                 showSettings = true
             }
             .accessibilityIdentifier("topbar.settings")
+            // Each presentation hangs off its own view: stacking a sheet and the photo
+            // viewer's full-screen cover on one view kept Settings from ever appearing.
+            .sheet(isPresented: $showSettings) {
+                SettingsView(camera: camera)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
         }
         .foregroundStyle(.white)
     }

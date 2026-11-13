@@ -15,6 +15,8 @@ struct PhotoViewer: View {
     @State private var dragY: CGFloat = 0
     @State private var editing: AssetItem?
     @State private var showGrid = false
+    /// The photo was opened from the grid, so swiping down goes back to the grid.
+    @State private var cameFromGrid = false
     @State private var infoAsset: AssetItem?
     @State private var shareURL: ShareItem?
     @State private var preparingShare = false
@@ -94,26 +96,35 @@ struct PhotoViewer: View {
                 assetHasRAW = false
             }
         }
-        .fullScreenCover(item: $editing) { item in
-            EditorView(asset: item.asset) { message in
-                show(banner: message)
-            }
-        }
-        .sheet(item: $infoAsset) { item in
-            PhotoInfoSheet(asset: item.asset)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showGrid) {
-            RollGrid(roll: roll) { asset in
-                selectedID = asset.localIdentifier
-                showGrid = false
-            }
-        }
-        .sheet(item: $shareURL) { item in
-            ActivityView(items: item.urls)
-                .presentationDetents([.medium, .large])
-                .ignoresSafeArea()
+        // One presentation per anchor view: several sheets/covers chained on the same view
+        // is unreliable (it's what kept Settings from opening on the camera screen).
+        .background {
+            Color.clear
+                .fullScreenCover(item: $editing) { item in
+                    EditorView(asset: item.asset) { message in
+                        show(banner: message)
+                    }
+                }
+            Color.clear
+                .sheet(item: $infoAsset) { item in
+                    PhotoInfoSheet(asset: item.asset)
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                }
+            Color.clear
+                .sheet(isPresented: $showGrid) {
+                    RollGrid(roll: roll) { asset in
+                        selectedID = asset.localIdentifier
+                        cameFromGrid = true
+                        showGrid = false
+                    }
+                }
+            Color.clear
+                .sheet(item: $shareURL) { item in
+                    ActivityView(items: item.urls)
+                        .presentationDetents([.medium, .large])
+                        .ignoresSafeArea()
+                }
         }
     }
 
@@ -151,7 +162,14 @@ struct PhotoViewer: View {
                 }
                 .onEnded { v in
                     if dragY > 130 || v.predictedEndTranslation.height > 420 && dragY > 40 {
-                        dismiss()
+                        // Back to wherever the photo was opened from: the grid or the camera.
+                        if cameFromGrid {
+                            cameFromGrid = false
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { dragY = 0 }
+                            showGrid = true
+                        } else {
+                            dismiss()
+                        }
                     } else {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
                     }

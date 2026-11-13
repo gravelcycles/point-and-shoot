@@ -91,6 +91,32 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping VIDEO didn't switch to video mode")
     }
 
+    func testFilterCardsSelectAndDoubleTapResets() {
+        let strip = app.buttons["strip.look"]
+        tapOffLabel(strip, dx: 0.1)
+        let warm = app.buttons["filter.warm400"]
+        XCTAssertTrue(warm.waitForExistence(timeout: 3), "Filter cards didn't appear")
+        warm.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Warm 400'"), evaluatedWith: strip)
+        waitForExpectations(timeout: 3)
+        strip.doubleTap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Off'"), evaluatedWith: strip)
+        waitForExpectations(timeout: 3)
+    }
+
+    func testFilterGuideExplainsAndPicks() {
+        tapOffLabel(app.buttons["strip.look"], dx: 0.1)
+        let info = app.buttons["filter.info"]
+        XCTAssertTrue(info.waitForExistence(timeout: 3))
+        if !info.isHittable { app.buttons["filter.warm400"].swipeLeft() }
+        info.tap()
+        let cine = app.buttons["guide.cine"]
+        XCTAssertTrue(cine.waitForExistence(timeout: 3), "Filter guide didn't open")
+        cine.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Cine'"), evaluatedWith: app.buttons["strip.look"])
+        waitForExpectations(timeout: 3)
+    }
+
     /// The empty strip above the controls overlaps the bottom of the viewfinder. Taps there
     /// belong to the controls area and must not trigger tap-to-focus.
     func testTapsInControlsAreaDoNotFallThroughToViewfinder() {
