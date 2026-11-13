@@ -126,10 +126,12 @@ final class ControlHitTargetTests: XCTestCase {
         let info = app.buttons["filter.info"]
         XCTAssertTrue(info.waitForExistence(timeout: 3))
         info.tap()
-        let cine = app.buttons["guide.cine"]
-        XCTAssertTrue(cine.waitForExistence(timeout: 3), "Filter guide didn't open")
-        cine.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Cine'"), evaluatedWith: app.buttons["strip.look"])
+        // The guide opens at half height and its List is lazy: only the first few rows
+        // exist until scrolled, so pick one near the top.
+        let warm = app.buttons["guide.warm400"]
+        XCTAssertTrue(warm.waitForExistence(timeout: 4), "Filter guide didn't open")
+        warm.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Warm 400'"), evaluatedWith: app.buttons["strip.look"])
         waitForExpectations(timeout: 3)
     }
 
