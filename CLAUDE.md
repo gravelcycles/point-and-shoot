@@ -26,9 +26,10 @@ Team `D5STMWZ849`) and installed all three targets on the owner's iPhone 12 Pro 
 **Nothing has been exercised on the device yet.** The next phase is device testing, with one
 fix PR per problem. Expect runtime issues even though it builds cleanly; see §8.
 
-Git history: PRs #1 (whole app), #2 (color mixer) and #3 (Lock Screen camera + Control
-Center) are merged into `main`. The Print look (film emulation, §4 "Print look") is on
-`claude/print-look`.
+Git history: merged into `main` so far: PRs #1 (whole app), #2 (color mixer), #3 (Lock
+Screen camera + Control Center), #8 (tap targets + simulator UI tests), #10 (CI runner
+usage), #11 (top-bar redesign, filters, multi-select) and #9 (the Print look and Print
+mode, §4 "Print look").
 
 ---
 
