@@ -43,11 +43,12 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
         XCTAssertFalse(PhotoLibrary.hasRAW(a))
     }
 
-    func testTestDNGIsAValidRAW() throws {
-        let dng = TestDNG.make()
-        let raw = try XCTUnwrap(CIRAWFilter(imageData: dng, identifierHint: "com.adobe.raw-image"),
-                                "CIRAWFilter can't read the generated DNG")
-        XCTAssertNotNil(raw.outputImage)
+    func testTestDNGsAreValidRAWs() throws {
+        for bayer in [true, false] {
+            let raw = try XCTUnwrap(CIRAWFilter(imageData: TestDNG.make(bayer: bayer), identifierHint: "com.adobe.raw-image"),
+                                    "CIRAWFilter can't read the generated \(bayer ? "Bayer" : "linear") DNG")
+            XCTAssertNotNil(raw.outputImage)
+        }
     }
 
     /// The device failure: Photos refused the RAW companion when it was added as Data.
@@ -61,9 +62,24 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
         XCTAssertTrue(PhotoLibrary.hasRAW(a), "RAW not recognised; resource types: \(utis)")
     }
 
+    /// Pinpoints which step of the Zero develop fails, for each kind of DNG.
+    func testZeroDevelopStepByStep() throws {
+        for bayer in [true, false] {
+            let kind = bayer ? "Bayer" : "linear"
+            let dng = TestDNG.make(bayer: bayer)
+            let raw = try XCTUnwrap(CIRAWFilter(imageData: dng, identifierHint: "com.adobe.raw-image"), "\(kind): not decodable")
+            XCTAssertNotNil(raw.outputImage, "\(kind): no image before configuring")
+            ZeroDeveloper.configureNeutral(raw)
+            XCTAssertNotNil(raw.outputImage, "\(kind): configureNeutral killed the image")
+            raw.orientation = .up
+            XCTAssertNotNil(raw.outputImage, "\(kind): orientation .up killed the image")
+        }
+    }
+
+    /// The camera's Bayer RAW (what Zero and Print develop) keeps sensor pixels + its tag.
     func testZeroDevelopKeepsSensorPixelsAndTheOrientationTag() throws {
         for orientation: UInt16 in [1, 6] {
-            let dng = TestDNG.make(orientation: orientation)
+            let dng = TestDNG.make(orientation: orientation, bayer: true)
             let developed = try XCTUnwrap(ZeroDeveloper.developImage(dng: dng), "orientation \(orientation): the develop produced no image")
             XCTAssertEqual(developed.image.extent.size, CGSize(width: 64, height: 48), "sensor pixels, not rotated")
             let data = try XCTUnwrap(ZeroDeveloper.develop(dng: dng, asHEIF: false), "orientation \(orientation): encoding the develop failed")
@@ -77,7 +93,7 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
     }
 
     func testZeroDevelopPairsWithItsDNG() async throws {
-        let dng = TestDNG.make(orientation: 6)
+        let dng = TestDNG.make(orientation: 6, bayer: true)
         let developed = try XCTUnwrap(ZeroDeveloper.develop(dng: dng, asHEIF: true), "HEIF develop failed")
         let id = try await PhotoLibrary.savePhoto(primary: developed, rawCompanion: dng)
         let types = PHAssetResource.assetResources(for: try asset(id)).map(\.type)
