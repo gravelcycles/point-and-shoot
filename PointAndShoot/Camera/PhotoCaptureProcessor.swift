@@ -93,18 +93,27 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                     if primary == nil { alternate = nil; primary = raw }
                 }
 
-                let assetID: String?
+                var assetID: String?
+                var note = plan.fallbackNote
                 let where_ = plan.location?.location
                 if let primary {
-                    assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: primary == raw ? nil : alternate,
-                                                               location: where_)
+                    let companion = primary == raw ? nil : alternate
+                    do {
+                        assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: companion, location: where_)
+                    } catch where companion != nil {
+                        // Never lose the shot because Photos refused the RAW pairing: keep the
+                        // photo, and the DNG as its own asset so nothing is thrown away.
+                        assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: nil, location: where_)
+                        if let companion { _ = try? await PhotoLibrary.savePhoto(primary: companion, rawCompanion: nil, location: where_) }
+                        note = "RAW saved as a separate photo (Photos error \((error as NSError).code))"
+                    }
                 } else if let raw {
                     assetID = try await PhotoLibrary.savePhoto(primary: raw, rawCompanion: nil, location: where_)
                 } else {
                     self.completion("Nothing was captured", nil)
                     return
                 }
-                self.completion(plan.fallbackNote, assetID)
+                self.completion(note, assetID)
                 if let look = plan.look, let assetID {
                     try? await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw)
                 }
