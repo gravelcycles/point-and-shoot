@@ -170,7 +170,12 @@ struct RollGrid: View {
         working = true
         Task {
             defer { working = false }
-            switch await PhotoLibrary.deleteReporting(assets) {
+            let outcome = await PhotoLibrary.deleteReporting(assets) {
+                errorMessage = roll.status == .limited
+                    ? "iOS isn't answering the delete. With Limited Photos access this can get stuck: allow Full Access in Settings, then force-quit Point & Shoot."
+                    : "iOS isn't answering the delete. If photos stop loading, force-quit Point & Shoot."
+            }
+            switch outcome {
             case .deleted:
                 withAnimation(.snappy(duration: 0.2)) {
                     selected.removeAll()
@@ -236,8 +241,11 @@ struct AssetThumbnail: View {
         options.isNetworkAccessAllowed = true
         options.resizeMode = .fast
         let target = CGSize(width: max(size.width, 100) * displayScale, height: max(size.height, 100) * displayScale)
-        requestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFill, options: options) { img, _ in
+        requestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFill, options: options) { img, info in
             if let img { withAnimation(.easeOut(duration: 0.15)) { image = img } }
+            else if let err = info?[PHImageErrorKey] as? Error {
+                Diag.error(.roll, "thumbnail \(asset.localIdentifier.prefix(8)) didn't load", err)
+            }
         }
     }
 }

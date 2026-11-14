@@ -224,6 +224,18 @@ struct PhotoViewer: View {
                     if selectedAsset?.hasAdjustments == true { tag("EDITED") }
                 }
                 .padding(.top, 2)
+                if roll.status == .limited {
+                    // Limited access hides photos and can make deletes hang (seen on device).
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    } label: {
+                        Text("Limited Photos access · Allow all")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.yellow)
+                            .padding(.top, 2)
+                    }
+                    .accessibilityIdentifier("viewer.limitedAccess")
+                }
             }
             Spacer()
             Button { showGrid = true } label: {
@@ -293,7 +305,13 @@ struct PhotoViewer: View {
                     return
                 }
                 Task {
-                    switch await PhotoLibrary.deleteReporting([asset]) {
+                    let outcome = await PhotoLibrary.deleteReporting([asset]) {
+                        show(banner: roll.status == .limited
+                             ? "iOS isn't answering the delete. With Limited Photos access this can get stuck: allow Full Access in Settings, then force-quit Point & Shoot."
+                             : "iOS isn't answering the delete. If photos stop loading, force-quit Point & Shoot.",
+                             seconds: 10)
+                    }
+                    switch outcome {
                     case .deleted:
                         // The change observer moves the viewer to the neighbour; say so if not.
                         try? await Task.sleep(for: .seconds(2))
@@ -488,10 +506,20 @@ private struct PhotoPage: View {
         options.isNetworkAccessAllowed = true
         options.version = .current
         let target = CGSize(width: size.width * displayScale * 1.5, height: size.height * displayScale * 1.5)
+        let id = String(asset.localIdentifier.prefix(8))
         requestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFit, options: options) { img, info in
+            if img == nil, let err = info?[PHImageErrorKey] as? Error {
+                Diag.error(.viewer, "photo \(id) didn't load", err)
+            }
             guard wantedKey == key, let img else { return }
             if (info?[PHImageCancelledKey] as? Bool) == true { return }
             image = img
+        }
+        // "None of the photos are loading" on device: say so in the log when one stalls.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+            if image == nil, wantedKey == key {
+                Diag.error(.viewer, "photo \(id) still hasn't loaded after 6 s · \(Diag.permissionSummary())")
+            }
         }
     }
 }
