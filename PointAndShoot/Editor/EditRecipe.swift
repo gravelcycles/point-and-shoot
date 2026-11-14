@@ -80,11 +80,30 @@ struct EditRecipe: Codable, Equatable {
     static func decodeSaved(_ data: Data) -> EditRecipe? {
         TolerantJSON.decode(EditRecipe.self, from: data, defaults: EditRecipe()) { saved in
             var saved = saved
-            if let film = saved["film"] as? [String: Any], let base = TolerantJSON.object(FilmRecipe()) {
+            if var film = saved["film"] as? [String: Any], let base = TolerantJSON.object(FilmRecipe()) {
+                // A pinned tuning from an older app version may lack fields stocks gained
+                // since: take those from the current stock of the same id.
+                if let tuning = film["tuning"] as? [String: Any],
+                   let current = TolerantJSON.object(FilmStock.named((tuning["id"] as? String) ?? (film["stock"] as? String))) {
+                    film["tuning"] = TolerantJSON.merging(tuning, over: current)
+                }
                 saved["film"] = TolerantJSON.merging(film, over: base)
             }
             return saved
         }
+    }
+
+    /// Pins the film stock's current tuning into the recipe (no-op if already pinned or
+    /// not a film look). Called when an edit is baked or saved.
+    mutating func freezeFilmTuning() {
+        guard var f = film, f.tuning == nil else { return }
+        f.tuning = FilmStock.named(f.stock)
+        film = f
+    }
+
+    /// The tuning to render with: the pinned one, else the stock's current tuning.
+    var filmStock: FilmStock? {
+        film.map { $0.tuning ?? FilmStock.named($0.stock) }
     }
 
     var isGeometryIdentity: Bool {
@@ -129,6 +148,13 @@ struct EditRecipe: Codable, Equatable {
 struct FilmRecipe: Codable, Equatable {
     /// Which film stock (`FilmStock.all`). nil = Print (edits saved before stocks existed).
     var stock: String?
+    /// The stock's full tuning as it was when this edit was baked or saved (a few KB).
+    /// Rendering uses it instead of the stock's current tuning in code, so retuning a look
+    /// later never changes an older photo, even when it's reopened in the editor.
+    /// nil = use the current tuning (edits from before this existed, or a look just picked
+    /// in the editor and not yet saved). Picking the look again drops it: that's how a
+    /// photo moves to the newest tuning.
+    var tuning: FilmStock?
     /// 0…100; 50 = the look as designed.
     var halation: Double = 50
     /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),

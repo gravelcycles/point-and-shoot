@@ -128,6 +128,7 @@ enum EditPipeline {
         if let film = r.film {
             var fs = FilmPipeline.Settings()
             fs.stockID = film.stock ?? FilmStock.printLook.id
+            fs.tuning = film.tuning
             fs.source = developedFromRAW ? .sceneLinear : .displayReferred
             fs.exposure = developedFromRAW ? 0 : r.exposure / 50   // RAW: already in the develop
             fs.halation = film.halation / 50
@@ -180,7 +181,7 @@ enum EditPipeline {
         if r.mono {
             // Panchromatic-ish channel mix, a little red-sensitive like classic B&W stock,
             // toned by the film stock when there is one (Noir cool, Silver warm).
-            let tone = r.film.map { FilmStock.named($0.stock).monoTone }.map { $0.map { CGFloat($0) } } ?? [1, 1, 1]
+            let tone = r.filmStock.map { $0.monoTone.map { CGFloat($0) } } ?? [1, 1, 1]
             image = image.applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: 0.34 * tone[0], y: 0.56 * tone[0], z: 0.10 * tone[0], w: 0),
                 "inputGVector": CIVector(x: 0.34 * tone[1], y: 0.56 * tone[1], z: 0.10 * tone[1], w: 0),

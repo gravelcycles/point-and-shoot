@@ -406,6 +406,19 @@ is the only source of truth for what exists. Everything else reacts to it.
       switching looks keeps it.
     - Flash shots, and shots with no recent viewfinder key, match the processed photo
       instead.
+- **Photos keep the tuning they were made with.** `FilmRecipe.tuning` stores the whole
+  `FilmStock` (~4.2 KB) when a look is baked at capture (`RecipeBaker`) or an edit is saved
+  (`EditSession.save`), via `EditRecipe.freezeFilmTuning()`. Rendering uses the pinned
+  tuning, so retuning a stock in code (or regenerating `FilmStock+Stocks.swift`) never
+  changes an older photo, even when it's reopened and re-saved in the editor.
+  - Edits from before this have no tuning and render with the current stock.
+  - Picking the look again in the editor drops the pinned tuning: that's how a photo moves
+    to the newest version.
+  - Table caches key pinned tunings by id + value hash (`FilmPipeline.cacheKey`), so they
+    never share LUTs with the current stock.
+  - A pinned tuning missing fields that stocks gained later decodes with those fields taken
+    from the current stock (`EditRecipe.decodeSaved`). Give new `FilmStock` fields values
+    that keep older photos looking the same where possible.
 - **Recipe:** `EditRecipe.film` (optional, so old edits decode).
   - Tune's exposure, contrast, highlights, shadows and saturation act inside the film
     model; grain is the film grain.

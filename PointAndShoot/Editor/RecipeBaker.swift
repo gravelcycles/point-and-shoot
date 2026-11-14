@@ -27,6 +27,8 @@ enum RecipeBaker {
         }
 
         var recipe = recipe
+        // Pin the look's tuning as it is now: retuning it in code later won't touch this photo.
+        recipe.freezeFilmTuning()
         var output: CIImage
         if recipe.film != nil, let raw = await rawFilter(rawData, asset: asset) {
             let defaults = EditPipeline.readDefaults(raw)
