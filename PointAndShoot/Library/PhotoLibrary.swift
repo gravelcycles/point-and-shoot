@@ -2,6 +2,7 @@ import AVFoundation
 import CoreLocation
 import OSLog
 import Photos
+import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
 
@@ -130,11 +131,31 @@ enum PhotoLibrary {
 
     /// Deletes and reports the outcome. A "cancelled" error that comes back too fast for a
     /// person to have answered means iOS never showed its prompt: reported as a failure.
-    static func deleteReporting(_ assets: [PHAsset]) async -> DeleteOutcome {
+    ///
+    /// On device (iOS 18, Limited Photos access) iOS sometimes never answers a delete: no
+    /// prompt, no callback, and later Photos requests stall too (also reported on Apple's
+    /// forums). So: one delete at a time (a second tap used to stack more stuck requests),
+    /// and `onStall` fires if iOS hasn't answered after `stallAfter` seconds.
+    @MainActor
+    static func deleteReporting(_ assets: [PHAsset], stallAfter: Double = 8,
+                                onStall: @escaping @MainActor () -> Void = {}) async -> DeleteOutcome {
         let ids = assets.map { String($0.localIdentifier.prefix(8)) }.joined(separator: ",")
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue
         Diag.log(.delete, "delete \(assets.count) [\(ids)] · \(Diag.permissionSummary())")
         guard !assets.isEmpty else { return .failed("Nothing to delete") }
+        guard !deleteInFlight else {
+            Diag.error(.delete, "ignored: iOS hasn't answered the previous delete yet")
+            return .failed("iOS hasn't answered the previous delete yet")
+        }
+        deleteInFlight = true
+        defer { deleteInFlight = false }
+        let watchdog = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(stallAfter))
+            guard !Task.isCancelled else { return }
+            Diag.error(.delete, "no answer from iOS after \(Int(stallAfter)) s (the delete request hasn't returned) · \(Diag.permissionSummary())")
+            onStall()
+        }
+        defer { watchdog.cancel() }
         let start = Date()
         do {
             try await delete(assets)
@@ -151,10 +172,28 @@ enum PhotoLibrary {
         }
     }
 
+    /// Limited Photos access: iOS's own picker for which photos the app may see. Shown from
+    /// the topmost screen; the roll's change observer picks up the new selection.
+    @MainActor
+    static func chooseLimitedPhotos() {
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else { return }
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        Diag.log(.perms, "showing the limited-library picker")
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: top) { ids in
+            Diag.log(.perms, "limited-library picker closed: \(ids.count) newly chosen")
+        }
+    }
+
+    /// A delete is waiting for iOS (main actor).
+    @MainActor private static var deleteInFlight = false
+
     static func delete(_ assets: [PHAsset]) async throws {
         guard !assets.isEmpty else { return }
         do {
             try await PHPhotoLibrary.shared().performChanges {
+                Diag.log(.delete, "change block ran (asking iOS to delete \(assets.count))")
                 PHAssetChangeRequest.deleteAssets(assets as NSArray)
             }
         } catch where !isUserCancel(error) {
