@@ -22,9 +22,8 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
 - **The top bar** has big round buttons for flash, self-timer and settings (⚙︎), each with
   a haptic click. The **format pill** in the middle ("HEIF · Natural ▾") opens a panel with
   labelled choices for file type, RAW and processing.
-- **Clean by default, pro on tap.** The strip under the viewfinder shows EV and FILTER.
-  Tap **PRO** to reveal FOCUS, WB, ISO and SHUTTER; it stays that way until you fold it
-  again. A yellow dot on PRO means something is still on manual.
+- **One control row** under the viewfinder: FOCUS, WB, ISO, SHUTTER, EV and FILTER. White
+  means the camera is deciding, yellow means you set it. Tap one to dial it in.
 - **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, FILTER) to put it back on auto.
 - **Filters at capture time.** Tap **FILTER** for live square previews of each filter, and
   **About** to read what each one does. You see it live in the viewfinder, and every shot
@@ -65,6 +64,9 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
 - **Hold the shutter for burst.** Shots fire as fast as the camera keeps up, with a
   counter on the button. Burst frames skip RAW so they stay fast.
 - The app reopens on the lens you used last.
+- **Silent shutter by default.** No click, no sounds at all. Turn **Shutter sound** on in
+  Settings if you want it. Muting needs iOS 18, and isn't allowed in some countries (e.g.
+  Japan, Korea); there the click plays unless the phone is on silent.
 
 ## Exposure, like a camera body
 

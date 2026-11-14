@@ -278,8 +278,6 @@ struct CameraSettings: Codable, Equatable {
     var showGrid: Bool = true
     var showLevel: Bool = true
     var showHistogram: Bool = false
-    /// Show FOCUS / WB / ISO / SHUTTER in the control strip (EV and FILTER are always there).
-    var proControls: Bool = false
     var focusPeaking: Bool = true
     var peakingColor: PeakingColor = .red
     var zebras: Bool = false
@@ -289,6 +287,9 @@ struct CameraSettings: Codable, Equatable {
     /// Geotag photos and videos (GPS works offline / in airplane mode).
     var saveLocation: Bool = true
     var haptics: Bool = true
+    /// Off = silent shutter (iOS 18+, where the region allows it). The phone's silent
+    /// switch mutes it too.
+    var shutterSound: Bool = false
 
     static let storageKey = "camera.settings.v1"
 

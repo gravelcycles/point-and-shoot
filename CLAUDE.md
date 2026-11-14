@@ -353,13 +353,18 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     (`.alternatePhoto`).
   - Processing levels Apple, Balanced, Natural, Zero; 12 MP or max resolution.
   - Flash, self-timer, responsive capture and zero shutter lag.
+  - Silent shutter by default: `CameraSettings.shutterSound = false` sets
+    `isShutterSoundSuppressionEnabled` (iOS 18+, only where
+    `isShutterSoundSuppressionSupported`; `camera.canSilenceShutter` drives the Settings
+    toggle). The Lock Screen extension is always silent where allowed. The app plays no
+    other sounds.
   - Capture **Filters** (called Looks in code): film stocks (§4 "Film looks"), previewed
     live and baked on as an editable edit (needs full Photos access).
   - Hold the shutter for **burst**.
 - **Controls:**
-  - Progressive disclosure: the strip shows EV + FILTER; **PRO** (`strip.pro`,
-    `settings.proControls`, default off, persisted) reveals FOCUS/WB/ISO/SHUTTER. A yellow
-    dot on PRO flags a hidden control left on manual.
+  - One control row: FOCUS/WB/ISO/SHUTTER/EV/FILTER (FILTER in Photo only). The owner wants
+    all of them visible at once; don't hide them behind a "more"/PRO toggle (tried in #12,
+    reverted). White = auto, yellow = manual.
   - Scrub dials for ISO (⅓ stops), shutter (⅓ stops), EV, Kelvin WB and manual focus.
   - Tap to focus/meter, hold to lock AE/AF, drag ↕ for EV, swipe ↔ for Photo/Video, pinch
     to zoom.
@@ -437,8 +442,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **Style:** small views, `PressScaleStyle` for tappable controls, yellow as the accent for
   "you're in control", haptics on meaningful events (through `Haptics` / `camera.haptic`, which reuse
   pre-warmed generators; don't allocate feedback generators per tap), springs for motion.
-  Keep the default screen uncluttered: power features go behind PRO, the format pill or
-  Settings, and every hidden state should be visible at a glance (e.g. PRO's dot). Never block the
+  Keep the default screen uncluttered: rarely changed options go behind the format pill or
+  Settings, and every hidden state should be visible at a glance. Never block the
   main thread.
 - **Tap targets (learned the hard way on device):** SwiftUI hit-tests only what's drawn, so
   transparent padding inside a button is dead space. Taps there fall through to the
@@ -459,7 +464,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **UI tests:** `PointAndShootUITests` runs in the simulator with the `-uitest` launch
   argument (`TestHooks.isUITest`). That mode skips the camera session, permission prompts
   and the tour, and loads default settings.
-  - Tests find controls by accessibility identifiers (`strip.*` incl. `strip.pro`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`,
+  - Tests find controls by accessibility identifiers (`strip.*`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`,
     `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`).
   - New controls should get an identifier and, if they're custom, an off-center tap test.
   - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass
@@ -487,6 +492,8 @@ to be wrong.
    - ⚠️ AVFoundation throws ObjC exceptions (instant crash) on invalid
      `AVCapturePhotoSettings` combos. Check `makePhotoSettings` first if the shutter
      crashes.
+   - ⚠️ Silent shutter: with the ringer ON, a photo, a burst and a Lock Screen shot make
+     no click; turning Settings → Shutter sound on brings the click back.
    - In Photos, confirm: RAW+HEIF shows as one asset with RAW badge; Zero output looks
      natural and isn't rotated twice; EXIF orientation is right in portrait and landscape.
 4. **Manual exposure**
