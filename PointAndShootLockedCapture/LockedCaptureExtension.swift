@@ -159,6 +159,10 @@ final class LockedCamera: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             let codec: AVVideoCodecType = self.output.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
             let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
             settings.photoQualityPrioritization = .balanced
+            // Silent, like the app's default (where iOS allows muting the shutter).
+            if #available(iOS 18.0, *), self.output.isShutterSoundSuppressionSupported {
+                settings.isShutterSoundSuppressionEnabled = true
+            }
             if let connection = self.output.connection(with: .video), connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }

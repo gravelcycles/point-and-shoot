@@ -300,6 +300,11 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     (`.alternatePhoto`).
   - Processing levels Apple, Balanced, Natural, Zero; 12 MP or max resolution.
   - Flash, self-timer, responsive capture and zero shutter lag.
+  - Silent shutter by default: `CameraSettings.shutterSound = false` sets
+    `isShutterSoundSuppressionEnabled` (iOS 18+, only where
+    `isShutterSoundSuppressionSupported`; `camera.canSilenceShutter` drives the Settings
+    toggle). The Lock Screen extension is always silent where allowed. The app plays no
+    other sounds.
   - Capture **Filters** (called Looks in code): previewed live and baked on as an editable edit (needs full Photos
     access).
   - Hold the shutter for **burst**.
@@ -434,6 +439,8 @@ to be wrong.
    - ⚠️ AVFoundation throws ObjC exceptions (instant crash) on invalid
      `AVCapturePhotoSettings` combos. Check `makePhotoSettings` first if the shutter
      crashes.
+   - ⚠️ Silent shutter: with the ringer ON, a photo, a burst and a Lock Screen shot make
+     no click; turning Settings → Shutter sound on brings the click back.
    - In Photos, confirm: RAW+HEIF shows as one asset with RAW badge; Zero output looks
      natural and isn't rotated twice; EXIF orientation is right in portrait and landscape.
 4. **Manual exposure**
