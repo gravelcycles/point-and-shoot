@@ -71,7 +71,7 @@ extension FilmStock {
                 threshold: 1.0, boost: 3.0,
                 displayThreshold: 0.75, displayBoost: 6.0,
                 sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
-            grainDensity: 0.012,
+            grainDensity: 0.008,
             grainChroma: 0.15,
             grainSize: 0.13,
             huePreserve: 0.0,

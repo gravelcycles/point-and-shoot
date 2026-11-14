@@ -40,6 +40,8 @@ struct EditRecipe: Codable, Equatable {
     var useRAW = true
     var rawInitialized = false
     var rawNoiseReduction: Double = 50
+    /// Film looks baked at capture never develop with less luminance noise reduction.
+    static let filmMinimumNoiseReduction: Double = 50
     var rawLocalTone: Double = 50
     var rawBoost: Double = 100
 
@@ -245,7 +247,6 @@ struct Look: Identifiable {
              capturesRAW: true) { r in
             r.film = FilmRecipe()
             r.grain = FilmRecipe.defaultGrain
-            r.rawNoiseReduction = 15
         },
         // The rest are film stocks too (scripts/film-looks.json), each with its own tone
         // curve, color balance and crossover, dye behavior, halation and grain.

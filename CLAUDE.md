@@ -249,6 +249,11 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Halation and grain are spatial, so they sit outside the two 3D LUTs.
   - Grain is added in *negative density*, so the print curve shapes it the way a real
     print does.
+  - The grain path keeps every image opaque, because `CIRandomGenerator`'s alpha is
+    random and any filter that un-premultiplies would turn the grain into speckle.
+    Grain under 1 px is softened with an explicit 3×3 Gaussian
+    (`CIConvolution3X3`), whose effect on amplitude is known exactly; Core Image's blur
+    isn't guaranteed at sub-pixel σ.
 - **Highlight hue protection** (`huePreserve`, per stock): film's per-channel shoulder
   turns bright warm colors yellow, because red compresses first. Bright skin goes gold.
   - The print cube blends toward the scene's own color, with the interlayer saturation
@@ -316,6 +321,13 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **Capture:** the Print mode (or the Print filter) makes the camera shoot Bayer RAW and
   keep the DNG (`CameraSettings.developsBayerRAW`). `RecipeBaker` then renders the edit
   from the in-memory DNG.
+  - **Noise.** A Bayer RAW is a single frame with none of Apple's multi-frame noise
+    reduction, so the develop has to clean it up.
+    - The baker starts from the camera's own luminance NR for the shot, never below
+      `EditRecipe.filmMinimumNoiseReduction` (50).
+    - Film looks also get ≥ 0.5 chroma NR.
+    - Print used to force 15%. Indoor shots came out "super grainy" on device: sensor
+      noise, amplified by the film's contrast, with the synthetic grain on top.
 - **Recipe:** `EditRecipe.film` (optional, so old edits decode).
   - Tune's exposure, contrast, highlights, shadows and saturation act inside the film
     model; grain is the film grain.
@@ -340,7 +352,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
 | Print: where 18% grey lands | `print-stock.json` `exposure` (0) + RAW baseline exposure | grey → ~11.5% display; assumes CIRAWFilter with boost 0 gives grey ≈ 0.18 |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
-| Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.012 D at 4032 px, 0.13 ‰, 15% color |
+| Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
+| Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
 | Film looks: inverse of a phone's tone curve (viewfinder, processed photos) | `FilmLUT.sceneFromDisplay` | display = 1.273·s/(1+0.808·s), applied to luminance |
 | Photo filters' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
 
@@ -546,6 +559,8 @@ to be wrong.
       run export-swift.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.
+    - Indoors at night, the shot shouldn't look noisy. Fine grain should be visible
+      only when you zoom in.
     - Editor: Print from the Filters tab. Details → Grain/Halation/Crossover respond;
       Tune sliders behave. Revert in Photos gives the neutral Zero develop.
     - Switch the look back to Natural: sharpening and the RAW tab's tone sliders return.

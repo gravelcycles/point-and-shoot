@@ -218,6 +218,10 @@ enum FilmPipeline {
     /// shared, monochrome part plus a little per-layer color, softened to the grain size.
     /// Amplitude is defined for a 4032 px long side; smaller renders average it down the
     /// way a downscaled photo would.
+    ///
+    /// Every intermediate image is opaque, so nothing depends on how a filter treats alpha.
+    /// (CIRandomGenerator's alpha is random too; a filter that un-premultiplies would divide
+    /// by it and turn the grain into heavy-tailed speckle.)
     private static func addGrain(to image: CIImage, stock: FilmStock, amount: Double, unit: CGFloat,
                                  animate: Bool) -> CIImage {
         guard var noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
@@ -226,29 +230,55 @@ enum FilmPipeline {
             noise = noise.transformed(by: CGAffineTransform(translationX: CGFloat(Int.random(in: 0..<1024)),
                                                             y: CGFloat(Int.random(in: 0..<1024))))
         }
+        let padded = bounds.insetBy(dx: -8, dy: -8)
+        // Uniform 0…1 in R, G, B (std 1/√12), alpha forced to 1.
+        noise = noise.cropped(to: padded).settingAlphaOne(in: padded)
+
+        // Soften to the grain size. Grain is usually under a pixel (σ ≈ 0.5 px at 4032 px),
+        // where Core Image's Gaussian blur isn't guaranteed to blur by exactly σ, and the
+        // amplitude below assumes it does. So small sizes use an explicit 3×3 Gaussian whose
+        // effect on the noise (Σw² of the 1-D taps) is known exactly.
         let sigmaPx = max(0.35, Double(unit) * stock.grainSize)
-        // CIRandomGenerator is uniform 0…1 in each of R, G, B, A (std 1/√12). Each layer
-        // mixes its own channel with the shared A channel; the blur then scales the std
-        // by Σw² of the 1-D kernel (separable 2-D Gaussian).
+        let stdFactor: Double
+        if sigmaPx < 1 {
+            let w1 = exp(-1 / (2 * sigmaPx * sigmaPx))
+            let c0 = 1 / (1 + 2 * w1), c1 = w1 / (1 + 2 * w1)
+            stdFactor = c0 * c0 + 2 * c1 * c1
+            let w = [c1 * c1, c1 * c0, c1 * c1, c0 * c1, c0 * c0, c0 * c1, c1 * c1, c1 * c0, c1 * c1].map { CGFloat($0) }
+            noise = noise.applyingFilter("CIConvolution3X3", parameters: [
+                "inputWeights": CIVector(values: w, count: 9), "inputBias": 0,
+            ])
+        } else {
+            stdFactor = gaussianStdFactor(sigma: sigmaPx)
+            noise = noise.applyingGaussianBlur(sigma: sigmaPx)
+        }
+
+        // Mix the three independent channels into per-layer grain with the stock's
+        // covariance: mostly shared (monochrome), `grainChroma` per layer. The covariance
+        // α·J + β·I (J = all ones) is M² for the symmetric M = p·I + q·J.
         let c = stock.grainChroma
-        let norm = ((1 - c) * (1 - c) + c * c).squareRoot()
+        let norm2 = (1 - c) * (1 - c) + c * c
+        let alpha = (1 - c) * (1 - c) / norm2, beta = c * c / norm2
+        let p = beta.squareRoot()
+        let q = (-2 * p + (4 * p * p + 12 * alpha).squareRoot()) / 6
         let resolution = min(1, Double(unit) / 4.032)
         let target = stock.grainDensity * amount * resolution / FilmLUT.densityScale
-        let k = target / (norm * (1 / 12.0.squareRoot()) * gaussianStdFactor(sigma: sigmaPx))
-        let a = CGFloat(k * (1 - c)), b = CGFloat(k * c)
-        let bias = -(a + b) * 0.5
+        let k = target / ((1 / 12.0.squareRoot()) * stdFactor)
+        let d = CGFloat(k * (p + q)), o = CGFloat(k * q)
+        let bias = -CGFloat(k * (p + 3 * q)) * 0.5        // zero mean
         let grain = noise
             .applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: b, y: 0, z: 0, w: a),
-                "inputGVector": CIVector(x: 0, y: b, z: 0, w: a),
-                "inputBVector": CIVector(x: 0, y: 0, z: b, w: a),
-                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                "inputRVector": CIVector(x: d, y: o, z: o, w: 0),
+                "inputGVector": CIVector(x: o, y: d, z: o, w: 0),
+                "inputBVector": CIVector(x: o, y: o, z: d, w: 0),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
                 "inputBiasVector": CIVector(x: bias, y: bias, z: bias, w: 0),
             ])
-            .cropped(to: bounds.insetBy(dx: -8, dy: -8))
-            .applyingGaussianBlur(sigma: sigmaPx)
             .cropped(to: bounds)
-        return grain.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: image])
+        // Both opaque: the sum has alpha 2, which settingAlphaOne puts back to 1.
+        return grain
+            .applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: image])
+            .settingAlphaOne(in: bounds)
     }
 
     /// How much a discrete 2-D Gaussian blur of `sigma` px shrinks white noise's std.
