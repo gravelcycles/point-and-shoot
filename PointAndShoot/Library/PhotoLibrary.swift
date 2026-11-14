@@ -39,13 +39,28 @@ enum PhotoLibrary {
     @discardableResult
     static func savePhoto(primary: Data, rawCompanion: Data?, location: CLLocation? = nil) async throws -> String? {
         try await ensureAddAccess()
+        // Photos rejects a RAW .alternatePhoto handed over as Data (PHPhotosErrorDomain
+        // 3300, seen on device for every RAW+HEIF pair); from a file URL it's accepted,
+        // which is what Apple's AVCam sample does. Write the DNG to a temp file and let
+        // Photos move it in.
+        var rawURL: URL?
+        if let rawCompanion {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString).appendingPathExtension("dng")
+            try rawCompanion.write(to: url)
+            rawURL = url
+        }
+        defer { if let rawURL { try? FileManager.default.removeItem(at: rawURL) } }
+
         let box = IDBox()
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
             request.location = location
             request.addResource(with: .photo, data: primary, options: nil)
-            if let rawCompanion {
-                request.addResource(with: .alternatePhoto, data: rawCompanion, options: nil)
+            if let rawURL {
+                let options = PHAssetResourceCreationOptions()
+                options.shouldMoveFile = true
+                request.addResource(with: .alternatePhoto, fileURL: rawURL, options: options)
             }
             box.value = request.placeholderForCreatedAsset?.localIdentifier
         }
