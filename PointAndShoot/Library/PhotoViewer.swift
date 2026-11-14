@@ -225,11 +225,11 @@ struct PhotoViewer: View {
                 }
                 .padding(.top, 2)
                 if roll.status == .limited {
-                    // Limited access hides photos and can make deletes hang (seen on device).
+                    // Limited access: let the owner pick which photos the app sees, in-app.
                     Button {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                        PhotoLibrary.chooseLimitedPhotos()
                     } label: {
-                        Text("Limited Photos access · Allow all")
+                        Text("Limited access · Choose photos")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.yellow)
                             .padding(.top, 2)
@@ -306,9 +306,7 @@ struct PhotoViewer: View {
                 }
                 Task {
                     let outcome = await PhotoLibrary.deleteReporting([asset]) {
-                        show(banner: roll.status == .limited
-                             ? "iOS isn't answering the delete. With Limited Photos access this can get stuck: allow Full Access in Settings, then force-quit Point & Shoot."
-                             : "iOS isn't answering the delete. If photos stop loading, force-quit Point & Shoot.",
+                        show(banner: "iOS isn't answering the delete. Force-quit Point & Shoot and try again; if it keeps happening, send Settings → Diagnostics.",
                              seconds: 10)
                     }
                     switch outcome {

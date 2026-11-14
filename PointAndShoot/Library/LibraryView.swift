@@ -171,9 +171,7 @@ struct RollGrid: View {
         Task {
             defer { working = false }
             let outcome = await PhotoLibrary.deleteReporting(assets) {
-                errorMessage = roll.status == .limited
-                    ? "iOS isn't answering the delete. With Limited Photos access this can get stuck: allow Full Access in Settings, then force-quit Point & Shoot."
-                    : "iOS isn't answering the delete. If photos stop loading, force-quit Point & Shoot."
+                errorMessage = "iOS isn't answering the delete. Force-quit Point & Shoot and try again; if it keeps happening, send Settings → Diagnostics."
             }
             switch outcome {
             case .deleted:

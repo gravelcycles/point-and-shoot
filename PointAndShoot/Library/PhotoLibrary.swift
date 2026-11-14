@@ -171,6 +171,20 @@ enum PhotoLibrary {
         }
     }
 
+    /// Limited Photos access: iOS's own picker for which photos the app may see. Shown from
+    /// the topmost screen; the roll's change observer picks up the new selection.
+    @MainActor
+    static func chooseLimitedPhotos() {
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else { return }
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        Diag.log(.perms, "showing the limited-library picker")
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: top) { ids in
+            Diag.log(.perms, "limited-library picker closed: \(ids.count) newly chosen")
+        }
+    }
+
     /// A delete is waiting for iOS (main actor).
     @MainActor private static var deleteInFlight = false
 
