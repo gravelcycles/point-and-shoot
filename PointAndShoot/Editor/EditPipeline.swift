@@ -126,6 +126,7 @@ enum EditPipeline {
         var curveRecipe = r
         if let film = r.film {
             var fs = FilmPipeline.Settings()
+            fs.stockID = film.stock ?? FilmStock.printLook.id
             fs.source = developedFromRAW ? .sceneLinear : .displayReferred
             fs.exposure = developedFromRAW ? 0 : r.exposure / 50   // RAW: already in the develop
             fs.halation = film.halation / 50
@@ -176,11 +177,13 @@ enum EditPipeline {
             image = image.applyingFilter("CIVibrance", parameters: ["inputAmount": r.vibrance / 100])
         }
         if r.mono {
-            // Panchromatic-ish channel mix, a little red-sensitive like classic B&W stock.
+            // Panchromatic-ish channel mix, a little red-sensitive like classic B&W stock,
+            // toned by the film stock when there is one (Noir cool, Silver warm).
+            let tone = r.film.map { FilmStock.named($0.stock).monoTone }.map { $0.map { CGFloat($0) } } ?? [1, 1, 1]
             image = image.applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 0.34, y: 0.56, z: 0.10, w: 0),
-                "inputGVector": CIVector(x: 0.34, y: 0.56, z: 0.10, w: 0),
-                "inputBVector": CIVector(x: 0.34, y: 0.56, z: 0.10, w: 0),
+                "inputRVector": CIVector(x: 0.34 * tone[0], y: 0.56 * tone[0], z: 0.10 * tone[0], w: 0),
+                "inputGVector": CIVector(x: 0.34 * tone[1], y: 0.56 * tone[1], z: 0.10 * tone[1], w: 0),
+                "inputBVector": CIVector(x: 0.34 * tone[2], y: 0.56 * tone[2], z: 0.10 * tone[2], w: 0),
                 "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
                 "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 0),
             ])

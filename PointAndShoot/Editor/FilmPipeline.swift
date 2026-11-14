@@ -1,6 +1,7 @@
 import CoreImage
 
-/// Core Image side of the Print look (the math is in FilmModel.swift).
+/// Core Image side of the film looks: Print and the photo filters, one stock each (the
+/// math is in FilmModel.swift, the stocks in FilmStock+Stocks.swift).
 ///
 ///   linear light ─ exposure ─ halation ─ shaper ─ negative cube ─ + grain ─ print cube ─ display
 ///
@@ -9,9 +10,9 @@ import CoreImage
 /// grain is added in negative density so the print curve shapes it the way a real print
 /// does (most visible in the mid-tones, quieter in highlights and deep shadows).
 enum FilmPipeline {
-    static let stock = FilmStock.printLook
-
     struct Settings: Equatable {
+        /// Which film stock (`FilmStock.all`); "print" is the Print look.
+        var stockID = "print"
         var source: FilmLUT.Source = .sceneLinear
         /// Stops, applied to scene light before the film.
         var exposure: Double = 0
@@ -26,41 +27,73 @@ enum FilmPipeline {
 
     // MARK: Lookup tables (built on first use, cached)
 
-    private static let lock = NSLock()
-    private static var negativeCubes: [FilmLUT.Source: Data] = [:]
-    private static var printCubes: [FilmControls: Data] = [:]
+    /// A small least-recently-used cache: each table is 1.8 MB, and the filter strip's live
+    /// previews touch every stock.
+    private final class TableCache<Key: Hashable> {
+        private var tables: [Key: Data] = [:]
+        private var order: [Key] = []
+        let capacity: Int
+        init(capacity: Int) { self.capacity = capacity }
 
-    static func negativeCube(_ source: FilmLUT.Source) -> Data {
-        lock.lock()
-        if let cube = negativeCubes[source] { lock.unlock(); return cube }
-        lock.unlock()
-        let cube = FilmLUT.negativeCube(stock: stock, source: source).withUnsafeBufferPointer { Data(buffer: $0) }
-        lock.lock()
-        negativeCubes[source] = cube
-        lock.unlock()
-        return cube
-    }
+        func get(_ key: Key) -> Data? {
+            guard let t = tables[key] else { return nil }
+            if let i = order.firstIndex(of: key) { order.remove(at: i) }
+            order.append(key)
+            return t
+        }
 
-    /// Builds the default tables off the main thread, so the first frame drawn with the
-    /// look doesn't wait ~50 ms for them.
-    static func prewarm() {
-        DispatchQueue.global(qos: .utility).async {
-            _ = negativeCube(.displayReferred)
-            _ = printCube(FilmControls())
-            _ = negativeCube(.sceneLinear)
+        func set(_ key: Key, _ table: Data) {
+            if tables[key] == nil { order.append(key) }
+            tables[key] = table
+            while order.count > capacity { tables[order.removeFirst()] = nil }
         }
     }
 
-    static func printCube(_ controls: FilmControls) -> Data {
+    private struct NegativeKey: Hashable { let stock: String; let source: FilmLUT.Source }
+    private struct PrintKey: Hashable { let stock: String; let controls: FilmControls }
+
+    private static let lock = NSLock()
+    private static let negativeCubes = TableCache<NegativeKey>(capacity: 16)
+    private static let printCubes = TableCache<PrintKey>(capacity: 18)
+
+    static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source) -> Data {
+        let key = NegativeKey(stock: stock.id, source: source)
         lock.lock()
-        if let cube = printCubes[controls] { lock.unlock(); return cube }
+        if let cube = negativeCubes.get(key) { lock.unlock(); return cube }
+        lock.unlock()
+        let cube = FilmLUT.negativeCube(stock: stock, source: source).withUnsafeBufferPointer { Data(buffer: $0) }
+        lock.lock()
+        negativeCubes.set(key, cube)
+        lock.unlock()
+        return cube
+    }
+
+    static func printCube(_ stock: FilmStock, _ controls: FilmControls) -> Data {
+        let key = PrintKey(stock: stock.id, controls: controls)
+        lock.lock()
+        if let cube = printCubes.get(key) { lock.unlock(); return cube }
         lock.unlock()
         let cube = FilmLUT.printCube(stock: stock, controls: controls).withUnsafeBufferPointer { Data(buffer: $0) }
         lock.lock()
-        if printCubes.count > 24 { printCubes.removeAll() }
-        printCubes[controls] = cube
+        printCubes.set(key, cube)
         lock.unlock()
         return cube
+    }
+
+    /// Builds every stock's viewfinder tables off the main thread (~200 ms of CPU once),
+    /// so neither the first frame with a filter nor the filter strip's live previews ever
+    /// wait for them. Print's RAW table too, since Print mode develops from RAW.
+    static func prewarm() {
+        DispatchQueue.global(qos: .utility).async {
+            let printStock = FilmStock.printLook
+            _ = negativeCube(printStock, .displayReferred)
+            _ = printCube(printStock, FilmControls())
+            for stock in FilmStock.all.values where stock.id != printStock.id {
+                _ = negativeCube(stock, .displayReferred)
+                _ = printCube(stock, FilmControls())
+            }
+            _ = negativeCube(printStock, .sceneLinear)
+        }
     }
 
     // MARK: Render
@@ -69,6 +102,7 @@ enum FilmPipeline {
     /// a RAW develop with no tone curve, or a display-referred image for `.displayReferred`.
     /// `unit` is the long side / 1000, so spatial effects scale with the picture.
     static func apply(_ image: CIImage, settings s: Settings, unit: CGFloat) -> CIImage {
+        let stock = FilmStock.named(s.stockID)
         let bounds = image.extent
         var x = image
         let ev = s.exposure + stock.exposure
@@ -76,7 +110,7 @@ enum FilmPipeline {
             x = x.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev])
         }
         if s.halation > 0 {
-            x = addHalation(x, amount: s.halation, source: s.source, unit: unit)
+            x = addHalation(x, stock: stock, amount: s.halation, source: s.source, unit: unit)
         }
 
         // Shaper: → Rec.2020, ÷ scale, clamp to 0…1, ^(1/power). Matches FilmLUT.shaped.
@@ -96,16 +130,16 @@ enum FilmPipeline {
             .applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / FilmLUT.shaperPower])
             .applyingFilter("CIColorCube", parameters: [
                 "inputCubeDimension": FilmLUT.negativeDimension,
-                "inputCubeData": negativeCube(s.source),
+                "inputCubeData": negativeCube(stock, s.source),
             ])
 
         if s.grain > 0 {
-            x = addGrain(to: x, amount: s.grain, unit: unit, animate: s.animateGrain)
+            x = addGrain(to: x, stock: stock, amount: s.grain, unit: unit, animate: s.animateGrain)
         }
 
         x = x.applyingFilter("CIColorCube", parameters: [
             "inputCubeDimension": FilmLUT.printDimension,
-            "inputCubeData": printCube(s.controls),
+            "inputCubeData": printCube(stock, s.controls),
         ])
         // The print cube outputs Display P3 with the sRGB transfer curve.
         if let p3 = CGColorSpace(name: CGColorSpace.displayP3), let linear = x.matchedToWorkingSpace(from: p3) {
@@ -123,7 +157,8 @@ enum FilmPipeline {
     /// bright edges. Energy-conserving, E' = (E + a·glow) / (1 + a), so flat areas keep
     /// their color and only edges next to bright light pick up the glow. Highlights near
     /// clipping are boosted first, since the sensor clips where film wouldn't.
-    private static func addHalation(_ image: CIImage, amount: Double, source: FilmLUT.Source, unit: CGFloat) -> CIImage {
+    private static func addHalation(_ image: CIImage, stock: FilmStock, amount: Double, source: FilmLUT.Source,
+                                    unit: CGFloat) -> CIImage {
         let bounds = image.extent
         let spread = stock.halationSpread
         let threshold = CGFloat(source == .sceneLinear ? spread.threshold : spread.displayThreshold)
@@ -187,7 +222,8 @@ enum FilmPipeline {
     /// Every intermediate image is opaque, so nothing depends on how a filter treats alpha.
     /// (CIRandomGenerator's alpha is random too; a filter that un-premultiplies would divide
     /// by it and turn the grain into heavy-tailed speckle.)
-    private static func addGrain(to image: CIImage, amount: Double, unit: CGFloat, animate: Bool) -> CIImage {
+    private static func addGrain(to image: CIImage, stock: FilmStock, amount: Double, unit: CGFloat,
+                                 animate: Bool) -> CIImage {
         guard var noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
         let bounds = image.extent
         if animate {

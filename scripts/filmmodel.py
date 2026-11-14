@@ -66,9 +66,46 @@ def curve_density(c, logE):
             + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * ms[i + 1])
 
 
+LUM_P3 = np.array([0.2289746, 0.6917385, 0.0792869])
+INVERSE_SAMPLES = 1024
+
+
+def neg_log_exposure(c, d):
+    """Inverse of a (monotone) negative curve: density → log exposure, by linear
+    interpolation in a dense table (FilmCurve.logExposure in Swift)."""
+    x0, x1 = c["x"][0], c["x"][-1]
+    xs = x0 + (x1 - x0) * np.arange(INVERSE_SAMPLES + 1) / INVERSE_SAMPLES
+    ds = curve_density(dict(c, gamma=1.0), xs)
+    return np.interp(d, ds, xs)
+
+
+def hue_matrix(stock):
+    """Layer exposure → scene color in linear P3: undo the sensitivity matrix's
+    interlayer saturation, then Rec.2020 → P3."""
+    return REC2020_TO_P3 @ np.linalg.inv(np.array(stock["sensitivity"]).reshape(3, 3))
+
+
+def smoothstep(a, b, x):
+    t = np.clip((x - a) / (b - a), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
 def scene_from_display(x):
     v = np.clip(x, 0, 0.995)
-    return v / (1.333 - 1.11 * v)
+    return v / (1.273 - 0.808 * v)
+
+
+LUM2020 = np.array([0.2627, 0.6780, 0.0593])
+
+
+def scene_from_display_rgb(rgb2020):
+    """Undo a phone's tone curve on luminance and keep each color's channel ratios
+    (FilmLUT.sceneFromDisplay(rgb:)). Inverting per channel would read a saturated
+    display red as a red channel stops overexposed and push it into the shoulder."""
+    rgb = np.clip(rgb2020, 0, 1)
+    y = rgb @ LUM2020
+    scale = scene_from_display(y) / np.maximum(y, 1e-6)
+    return rgb * scale[..., None]
 
 
 def negative_density(rgb2020, stock):
@@ -96,9 +133,48 @@ def print_curves(stock, controls):
     return curves
 
 
+NEUTRAL_MAX, NEUTRAL_SAMPLES = 100.0, 1024      # exposure rel. grey; table in exposure^(1/4)
+NEUTRAL_ROOT = NEUTRAL_MAX ** 0.25
+
+
+def neutral_table(stock, controls):
+    """How the stock renders a neutral at each exposure (rel. 18% grey), tint included:
+    [NEUTRAL_SAMPLES + 1, 3] linear P3, sampled evenly in exposure^(1/4) (cheap to index:
+    two square roots). Hue protection keeps this cast."""
+    s = NEUTRAL_ROOT * np.arange(NEUTRAL_SAMPLES + 1) / NEUTRAL_SAMPLES
+    u = np.maximum(np.log10(np.maximum(s ** 4, 1e-12)), -6.0)
+    dn = np.stack([curve_density(stock["negative"][c], u) for c in range(3)], -1)
+    return _display_core(dn, stock, controls)
+
+
+def neutral_lookup(table, y):
+    t = np.sqrt(np.sqrt(np.minimum(y, NEUTRAL_MAX))) / NEUTRAL_ROOT * NEUTRAL_SAMPLES
+    i = np.minimum(t.astype(int), NEUTRAL_SAMPLES - 1)
+    f = (t - i)[..., None]
+    return table[i] + (table[i + 1] - table[i]) * f
+
+
 def display(dn, stock, controls=None):
     """Negative density (...x3) -> linear Display P3 (white = 1)."""
     controls = controls or {}
+    out = _display_core(dn, stock, controls)
+    # Highlight hue protection: film's per-channel shoulder turns bright warm colors
+    # yellow (red compresses first). Blend toward the scene's own hue — carrying the
+    # stock's own neutral cast at that brightness — scaled to the same luminance.
+    hp = stock.get("huePreserve", 0.0)
+    if hp > 0:
+        e = 10.0 ** np.stack([neg_log_exposure(stock["negative"][c], dn[..., c]) for c in range(3)], -1)
+        e = np.maximum(e @ hue_matrix(stock).T, 0)     # scene color (P3), saturation boost undone
+        ye = e @ LUM_P3
+        tgt = e / np.maximum(ye, 1e-9)[..., None] * neutral_lookup(neutral_table(stock, controls), ye)
+        yo, yt = out @ LUM_P3, tgt @ LUM_P3
+        tgt = tgt * (yo / np.maximum(yt, 1e-9))[..., None]
+        w = hp * smoothstep(0.2, 0.85, yo)
+        out = out + (tgt - out) * w[..., None]
+    return out
+
+
+def _display_core(dn, stock, controls):
     curves = print_curves(stock, controls)
     grey = grey_negative_density(stock)
     printer = stock.get("printer", [0.0, 0.0, 0.0])
@@ -134,6 +210,19 @@ def decode_srgb(v):
     return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
 
 
+def split_tone(enc, stock):
+    """Shadow / highlight toning on the print's encoded output: the toe and the shoulder
+    take on their own colors (cross-processed and toned prints, faded dyes), weighted
+    (1 - Y)^2 and Y^2 by encoded luminance. The tints are luminance-neutral offsets, so
+    the tone curve holds; a tint in the shadows also colors a lifted black."""
+    st = stock.get("shadowTint", [0.0, 0.0, 0.0])
+    ht = stock.get("highlightTint", [0.0, 0.0, 0.0])
+    if not any(st) and not any(ht):
+        return enc
+    y = np.clip(enc @ LUM_P3, 0, 1)[..., None]
+    return np.clip(enc + (1 - y) ** 2 * np.array(st) + y * y * np.array(ht), 0, 1)
+
+
 def neutral_response(stops, stock, controls=None):
     x = 0.18 * 2.0 ** np.asarray(stops, dtype=np.float64)
     rgb = np.stack([x, x, x], axis=-1)
@@ -145,16 +234,17 @@ def neutral_response(stops, stock, controls=None):
 def negative_cube(stock, source="sceneLinear", n=48):
     u = np.arange(n) / (n - 1)
     x = SHAPER_SCALE * u ** SHAPER_POWER
-    lin = x if source == "sceneLinear" else scene_from_display(x)
-    b, g, r = np.meshgrid(lin, lin, lin, indexing="ij")
+    b, g, r = np.meshgrid(x, x, x, indexing="ij")
     rgb = np.stack([r, g, b], axis=-1)
+    if source != "sceneLinear":
+        rgb = scene_from_display_rgb(rgb)
     return negative_density(rgb, stock) / DENSITY_SCALE  # [b, g, r, 3]
 
 
 def print_cube(stock, controls=None, n=48):
     d = np.arange(n) * (DENSITY_SCALE / (n - 1))
     b, g, r = np.meshgrid(d, d, d, indexing="ij")
-    return encode_srgb(display(np.stack([r, g, b], axis=-1), stock, controls))
+    return split_tone(encode_srgb(display(np.stack([r, g, b], axis=-1), stock, controls)), stock)
 
 
 # --- Full image render (mirrors FilmPipeline) ------------------------------------------
@@ -211,12 +301,12 @@ def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0,
     if source == "sceneLinear":
         rgb2020 = x @ SRGB_TO_REC2020.T
     else:
-        rgb2020 = scene_from_display(np.clip(x, 0, 1)) @ SRGB_TO_REC2020.T
+        rgb2020 = scene_from_display_rgb(np.clip(x, 0, 1) @ SRGB_TO_REC2020.T)
     rgb2020 = np.clip(rgb2020, 0, SHAPER_SCALE)
     dn = negative_density(rgb2020, stock)
     if grain_amount > 0:
         dn = dn + grain_field(dn.shape[:2], stock, grain_amount)
-    return np.clip(display(dn, stock, controls), 0, 1)
+    return decode_srgb(split_tone(encode_srgb(display(dn, stock, controls)), stock))
 
 
 def load_stock(path):
