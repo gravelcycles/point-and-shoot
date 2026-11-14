@@ -24,7 +24,7 @@
     0.012,
     0.0
    ],
-   "grain": 0.004,
+   "grain": 0.0027,
    "grain_chroma": 0.1,
    "huePreserve": 0.8
   },
@@ -52,7 +52,7 @@
     0.03,
     0.0
    ],
-   "grain": 0.018,
+   "grain": 0.012,
    "grain_chroma": 0.2,
    "huePreserve": 0.7,
    "shadow_tint": [
@@ -90,7 +90,7 @@
     0.26,
     0.22
    ],
-   "grain": 0.006,
+   "grain": 0.004,
    "grain_chroma": 0.1,
    "huePreserve": 0.9,
    "shadow_tint": [
@@ -142,7 +142,7 @@
     0.01,
     0.0
    ],
-   "grain": 0.008,
+   "grain": 0.0053,
    "grain_chroma": 0.15,
    "huePreserve": 0.7,
    "shadow_tint": [
@@ -179,7 +179,7 @@
     0.09,
     0.01
    ],
-   "grain": 0.014,
+   "grain": 0.0093,
    "grain_chroma": 0.2,
    "huePreserve": 0.35,
    "shadow_tint": [
@@ -217,7 +217,7 @@
     0.006,
     0.0
    ],
-   "grain": 0.004,
+   "grain": 0.0027,
    "grain_chroma": 0.1,
    "huePreserve": 0.75,
    "highlight_tint": [
@@ -250,7 +250,7 @@
     0.015,
     0.0
    ],
-   "grain": 0.014,
+   "grain": 0.0093,
    "grain_chroma": 0.3,
    "huePreserve": 0.5,
    "shadow_tint": [
@@ -287,7 +287,7 @@
     0.01,
     0.0
    ],
-   "grain": 0.005,
+   "grain": 0.0033,
    "grain_chroma": 0.1,
    "huePreserve": 0.8
   },
@@ -314,7 +314,7 @@
     0.04,
     0.04
    ],
-   "grain": 0.02,
+   "grain": 0.0133,
    "grain_chroma": 0.0,
    "mono_tone": [
     1.0,
@@ -345,7 +345,7 @@
     0.09,
     0.09
    ],
-   "grain": 0.018,
+   "grain": 0.012,
    "grain_chroma": 0.0,
    "mono_tone": [
     0.9,
@@ -376,7 +376,7 @@
     0.03,
     0.03
    ],
-   "grain": 0.007,
+   "grain": 0.0047,
    "grain_chroma": 0.0,
    "mono_tone": [
     1.1,
