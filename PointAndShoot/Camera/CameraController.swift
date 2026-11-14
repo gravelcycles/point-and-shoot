@@ -1189,10 +1189,14 @@ final class CameraController: NSObject {
         let wantsZero = s.developsBayerRAW && !burst
         let rawMode: RawMode = burst ? .off : (wantsZero ? .bayer : s.rawMode)
         let rawTypes = photoOutput.availableRawPhotoPixelFormatTypes
+        // Bayer RAW is the sensor's full frame: AVFoundation throws (an instant crash) if it's
+        // requested while digitally zoomed (pinch zoom, the front camera zoomed in, or a
+        // cropped lens like 48 mm). Zoomed shots use the processed photo instead.
+        let zoomed = device.videoZoomFactor > 1.001
         var rawType: OSType?
         switch rawMode {
         case .off: rawType = nil
-        case .bayer: rawType = rawTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
+        case .bayer: rawType = zoomed ? nil : rawTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
         case .proRAW: rawType = rawTypes.first { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) }
         }
 
@@ -1217,9 +1221,17 @@ final class CameraController: NSObject {
             photoSettings = AVCapturePhotoSettings(format: processedFormat)
             plan.expectsProcessed = true
             if wantsZero {
-                plan.fallbackNote = s.processing == .zero
-                    ? "Zero needs Bayer RAW — this lens used Natural"
-                    : "No Bayer RAW on this lens — Print look applied to the processed photo"
+                if zoomed {
+                    plan.fallbackNote = s.processing == .zero
+                        ? "Zoomed in: RAW needs 1×, so this shot used Natural"
+                        : "Zoomed in: RAW needs 1×, so the look went on the processed photo"
+                } else {
+                    plan.fallbackNote = s.processing == .zero
+                        ? "Zero needs Bayer RAW — this lens used Natural"
+                        : "No Bayer RAW on this lens — Print look applied to the processed photo"
+                }
+            } else if rawMode == .bayer && zoomed {
+                plan.fallbackNote = "Zoomed in: RAW needs 1×, so this shot is HEIF/JPEG only"
             }
         }
 

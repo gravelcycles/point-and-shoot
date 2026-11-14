@@ -183,6 +183,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **Bayer RAW forces `.speed` prioritization and 12 MP dimensions.** This is an assumption
   meant to avoid `NSInvalidArgumentException` from AVFoundation. ProRAW is enabled on the
   output only when selected.
+- **No Bayer RAW while zoomed.** AVFoundation throws on Bayer RAW when
+  `videoZoomFactor > 1` (crashed on device: Print, front camera, pinch-zoomed). Zoomed
+  shots drop to the processed photo (Print/filters then apply to it) with a toast. ProRAW
+  is unaffected.
 - **Bursts:** no RAW, `.speed`, no flash, 12 MP. They fire every 0.11 s, at most 60 shots,
   and pause while 4 or more captures are in flight.
 - **Exposure modes** are P / S / M. S (shutter priority) is implemented by us: a 15 Hz
