@@ -245,11 +245,11 @@ is the only source of truth for what exists. Everything else reacts to it.
 
 | Where / when | What happens |
 |---|---|
-| Viewer trash | iOS shows its own confirmation. Confirm → the roll drops it → the viewer lands on the neighbour (`lastIndex`). Don't Allow → nothing. The button is disabled while the request is up (no double delete). |
+| Viewer trash | iOS shows its own (modal) confirmation. Confirm → the roll drops it → the viewer lands on the neighbour (`lastIndex`). Don't Allow → nothing. No busy flag: the modal alert already prevents a double delete. |
 | Grid Select → Delete | One confirmation for the batch; Select mode ends on success and stays (same picks) on Don't Allow. Items deleted elsewhere drop out of the selection; an empty roll shows "No photos". |
 | Deleted in Photos / another device, app open or backgrounded | Change observer (or the refetch on return) updates the roll → viewer moves to the neighbour, an open Info sheet closes, the camera thumbnail updates. |
-| Already-deleted asset deleted again | `PhotoLibrary.delete` skips assets that no longer exist (`isGone`), so no error. |
-| Open in the editor when deleted | Save/Revert detect it and offer **Save as New Photo** (renders from the editing input) or Discard. |
+| Already-deleted asset deleted again | `PhotoLibrary.delete` always asks Photos to delete exactly what was tapped; only if Photos refuses does it drop items that are gone (`isGone`) and retry. **Never pre-filter with `isGone`:** that made Delete silently do nothing on device (#19). |
+| Open in the editor when deleted | Save/Revert fail, then `isGone` confirms it and the editor offers **Save as New Photo** (renders from the editing input) or Discard. |
 | Camera thumbnail | A capture's own thumbnail shows instantly but only until the roll has the shot *and* has rendered it (`handOffThumbnail`); then the roll's newest item is shown, so deleting it anywhere updates the button (empty roll → empty button). A failed save clears it. Without read access the capture's thumbnail is all there is. |
 | Shot still developing | Can't be deleted (no asset yet). If its save fails, `lastSavedAssetID` is cleared so the viewer's "Developing…" page doesn't wait forever. A Print bake on a shot deleted meanwhile fails quietly. |
 | Lock Screen shots parked for import | Imported once: one import at a time, and imported file keys are remembered, so a deleted shot never comes back if its parked file couldn't be removed. |
