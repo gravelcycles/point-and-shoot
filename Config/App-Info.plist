@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Limited Photos access: don't let iOS pop its "select more photos?" prompt on its own
+	     once per launch; the app offers "Choose photos" (presentLimitedLibraryPicker)
+	     instead, as Apple recommends for apps that handle limited access. -->
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
+</dict>
+</plist>
