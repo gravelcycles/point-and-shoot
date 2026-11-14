@@ -67,7 +67,7 @@ final class FrozenTuningTests: XCTestCase {
     /// A Print edit saved by the first Print build (#9): no stock id, no tuning.
     private var printV1Edit: EditRecipe {
         var r = printRecipe
-        r.film = FilmRecipe(stock: nil, halation: 50, crossover: 0, tuning: nil, engine: nil)
+        r.film = FilmRecipe(stock: nil, tuning: nil, engine: nil, halation: 50, crossover: 0)
         return r
     }
 
