@@ -67,6 +67,7 @@ final class EditSession {
         }
         guard let input, let url = input.fullSizeImageURL else {
             errorMessage = EditError.couldNotLoad.localizedDescription
+            Diag.error(.editor, "couldn't load \(asset.localIdentifier.prefix(8)) for editing")
             isLoading = false
             return
         }
@@ -92,6 +93,7 @@ final class EditSession {
 
         guard let base else {
             errorMessage = EditError.couldNotLoad.localizedDescription
+            Diag.error(.editor, "couldn't load \(asset.localIdentifier.prefix(8)) for editing")
             isLoading = false
             return
         }
@@ -265,6 +267,7 @@ final class EditSession {
             savedRecipe = recipe
             return true
         } catch {
+            Diag.error(.editor, "save/revert failed for \(asset.localIdentifier.prefix(8))", error)
             if PhotoLibrary.isGone(asset) { assetDeleted = true } else { errorMessage = error.localizedDescription }
             return false
         }
@@ -286,6 +289,7 @@ final class EditSession {
             savedRecipe = recipe
             return true
         } catch {
+            Diag.error(.editor, "save as new photo failed", error)
             errorMessage = error.localizedDescription
             return false
         }
@@ -300,6 +304,7 @@ final class EditSession {
             }
             return true
         } catch {
+            Diag.error(.editor, "save/revert failed for \(asset.localIdentifier.prefix(8))", error)
             if PhotoLibrary.isGone(asset) { assetDeleted = true } else { errorMessage = error.localizedDescription }
             return false
         }

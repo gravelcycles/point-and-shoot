@@ -235,12 +235,18 @@ final class CameraController: NSObject {
         observers.append(nc.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil) { [weak self] note in
             guard let self else { return }
             let error = note.userInfo?[AVCaptureSessionErrorKey] as? AVError
+            Diag.error(.session, "runtime error: \(error?.localizedDescription ?? "?") (code \(error?.code.rawValue ?? 0))")
             if error?.code == .mediaServicesWereReset {
                 self.sessionQueue.async { if !self.session.isRunning { self.session.startRunning() } }
             }
         })
+        observers.append(nc.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: nil) { note in
+            let reason = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int) ?? -1
+            Diag.log(.session, "interrupted (reason \(reason))")
+        })
         observers.append(nc.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: nil) { [weak self] _ in
             guard let self else { return }
+            Diag.log(.session, "interruption ended")
             self.sessionQueue.async { if !self.session.isRunning { self.session.startRunning() } }
         })
     }
@@ -713,6 +719,7 @@ final class CameraController: NSObject {
     }
 
     private func post(_ message: String) {
+        Diag.log(.session, message)
         DispatchQueue.main.async { self.toast = message }
     }
 
@@ -1227,6 +1234,11 @@ final class CameraController: NSObject {
                     DispatchQueue.main.async { self?.setDeveloping(assetID, isDeveloping) }
                 },
                 completion: { [weak self] message, assetID in
+                    if let assetID {
+                        Diag.log(.save, "saved \(assetID.prefix(8))\(message.map { " · " + $0 } ?? "")")
+                    } else {
+                        Diag.error(.save, "not saved: \(message ?? "no reason")")
+                    }
                     guard let self else { return }
                     self.sessionQueue.async { self.inFlight[id] = nil }
                     DispatchQueue.main.async {
@@ -1260,6 +1272,7 @@ final class CameraController: NSObject {
             flash: device.hasFlash && photoOutput.supportedFlashModes.contains(s.flash.avMode),
             zoomed: device.videoZoomFactor > 1.001)
         let d = PhotoPlanner.decide(s, burst: burst, caps: caps)
+        Diag.log(.capture, "shot: mode \(s.mode.rawValue) look \(s.activeLook ?? "-") processing \(s.processing.rawValue) raw \(d.raw) withProcessed \(d.withProcessed) zeroDevelop \(d.zeroDevelop) burst \(burst) zoomed \(caps.zoomed) lens \(device.localizedName)\(d.fallbackNote.map { " · " + $0 } ?? "")")
 
         let processedFormat: [String: Any] = [AVVideoCodecKey: d.heif ? AVVideoCodecType.hevc : .jpeg]
         let rawType: OSType? = switch d.raw {

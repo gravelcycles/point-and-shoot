@@ -12,6 +12,7 @@ struct SettingsView: View {
                 videoSection(s)
                 assistSection(s)
                 controlsSection
+                aboutSection
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -185,6 +186,19 @@ struct SettingsView: View {
             Text((camera.canSilenceShutter || TestHooks.isUITest
                   ? "The shutter is silent unless you turn Shutter sound on. "
                   : "This iPhone or region doesn't let apps mute the shutter (it needs iOS 18, and some countries require the click); the Ring/Silent switch still mutes it. ") + "Location uses the GPS chip and compass, so it works in airplane mode — the first fix can take a minute without signal, and works best outdoors. Tap the location icon in the top bar to see accuracy. Tap to focus and meter. Hold to lock AE/AF. Pinch to zoom. Swipe the viewfinder to switch Photo/Video. On iPhone 16, Camera Control adjusts zoom and exposure.")
+        }
+    }
+
+    /// Which build is on the phone, and the development log to share with a bug report.
+    private var aboutSection: some View {
+        Section {
+            LabeledContent("Version", value: Diag.buildDescription)
+            NavigationLink("Diagnostics") { DiagnosticsView() }
+                .accessibilityIdentifier("settings.diagnostics")
+        } header: {
+            Text("About")
+        } footer: {
+            Text("Diagnostics is a log of what the app did and what went wrong. Share it with a bug report.")
         }
     }
 }

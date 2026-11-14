@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreLocation
+import OSLog
 import Photos
 import UIKit
 import UniformTypeIdentifiers
@@ -53,6 +54,7 @@ enum PhotoLibrary {
         defer { if let rawURL { try? FileManager.default.removeItem(at: rawURL) } }
 
         let box = IDBox()
+        do {
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
             request.location = location
@@ -63,6 +65,10 @@ enum PhotoLibrary {
                 request.addResource(with: .alternatePhoto, fileURL: rawURL, options: options)
             }
             box.value = request.placeholderForCreatedAsset?.localIdentifier
+        }
+        } catch {
+            Diag.error(.save, "Photos save failed (\(primary.count / 1024) KB\(rawCompanion.map { " + RAW \($0.count / 1024) KB" } ?? ""))", error)
+            throw error
         }
         return box.value
     }
@@ -113,6 +119,38 @@ enum PhotoLibrary {
     /// pre-check that wrongly reported photos as already gone made Delete do nothing). Only
     /// if Photos refuses does it look for items deleted elsewhere meanwhile and retry with
     /// the rest.
+    /// What happened to a delete, in words the user can screenshot. Every path is visible:
+    /// a delete that silently did nothing on device (twice) is what this is for.
+    enum DeleteOutcome {
+        case deleted
+        /// The user tapped Don't Allow on iOS's prompt.
+        case kept
+        case failed(String)
+    }
+
+    /// Deletes and reports the outcome. A "cancelled" error that comes back too fast for a
+    /// person to have answered means iOS never showed its prompt: reported as a failure.
+    static func deleteReporting(_ assets: [PHAsset]) async -> DeleteOutcome {
+        let ids = assets.map { String($0.localIdentifier.prefix(8)) }.joined(separator: ",")
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue
+        Diag.log(.delete, "delete \(assets.count) [\(ids)] · \(Diag.permissionSummary())")
+        guard !assets.isEmpty else { return .failed("Nothing to delete") }
+        let start = Date()
+        do {
+            try await delete(assets)
+            Diag.log(.delete, "deleted \(assets.count) in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+            return .deleted
+        } catch {
+            let ns = error as NSError
+            let elapsed = Date().timeIntervalSince(start)
+            Diag.error(.delete, "delete failed after \(Int(elapsed * 1000)) ms: \(ns.localizedDescription) (\(ns.domain) \(ns.code))")
+            if isUserCancel(error) && elapsed > 0.8 { return .kept }
+            let access = ["not asked", "restricted", "denied", "full", "limited"][min(max(status, 0), 4)]
+            let what = isUserCancel(error) ? "iOS didn't show its delete prompt" : ns.localizedDescription
+            return .failed("\(what) (\(ns.domain) \(ns.code), Photos access: \(access))")
+        }
+    }
+
     static func delete(_ assets: [PHAsset]) async throws {
         guard !assets.isEmpty else { return }
         do {

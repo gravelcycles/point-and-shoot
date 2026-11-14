@@ -64,6 +64,9 @@ struct CameraView: View {
             // developing has been saved.
             if open { camera.suspendForBrowsing() } else { camera.resumeAfterBrowsing() }
         }
+        .onChange(of: camera.toast) { _, toast in
+            if let toast { Diag.log(.ui, "toast: \(toast)") }
+        }
         .onChange(of: roll.latestThumbnailID) { _, _ in handOffThumbnail() }
         .onChange(of: camera.capturesInFlight) { _, _ in handOffThumbnail() }
         .onChange(of: camera.lastSavedAssetID) { _, _ in handOffThumbnail() }

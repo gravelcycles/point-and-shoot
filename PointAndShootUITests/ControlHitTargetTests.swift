@@ -174,6 +174,22 @@ final class ControlHitTargetTests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "0", "The shutter should be silent by default")
     }
 
+    /// Settings → Diagnostics opens and shows this launch in the log.
+    func testDiagnosticsLogIsReachableFromSettings() {
+        tapOffLabel(app.buttons["topbar.settings"], dx: 0.5, dy: 0.5)
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 4))
+        let link = app.buttons["settings.diagnostics"]
+        var swipes = 0
+        while !link.isHittable && swipes < 12 { app.swipeUp(); swipes += 1 }
+        XCTAssertTrue(link.exists, "Settings has no Diagnostics entry")
+        link.tap()
+        let text = app.staticTexts["diagnostics.text"]
+        XCTAssertTrue(text.waitForExistence(timeout: 4), "Diagnostics didn't open")
+        let launched = NSPredicate(format: "label CONTAINS 'launch'")
+        expectation(for: launched, evaluatedWith: text)
+        waitForExpectations(timeout: 4)
+    }
+
     /// The empty strip above the controls overlaps the bottom of the viewfinder. Taps there
     /// belong to the controls area and must not trigger tap-to-focus.
     func testTapsInControlsAreaDoNotFallThroughToViewfinder() {

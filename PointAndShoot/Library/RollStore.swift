@@ -40,6 +40,7 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
 
     func requestAccess() async {
         let granted = await PhotoLibrary.requestReadWrite()
+        Diag.log(.perms, "Photos access answered: \(granted.rawValue) · \(Diag.permissionSummary())")
         await MainActor.run {
             status = granted
             if isAuthorized { start() }
@@ -79,6 +80,9 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
         list.reserveCapacity(result.count)
         result.enumerateObjects { asset, _, _ in list.append(asset) }
         DispatchQueue.main.async {
+            if list.count != self.assets.count || !self.isLoaded {
+                Diag.log(.roll, "roll: \(list.count) items (was \(self.isLoaded ? String(self.assets.count) : "not loaded"))")
+            }
             self.assets = list
             self.isLoaded = true
             self.refreshLatestThumbnail()

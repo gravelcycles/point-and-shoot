@@ -598,6 +598,21 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **The simulator can't decode RAW** (CIRAWFilter returns an empty image, native size 0×0),
   so the Zero/Print *develop* is device-only; its tests skip there. Saving RAW pairs, the
   capture decisions and baking from processed photos are all tested in the simulator.
+- **Diagnostics log (`Diag`, App/Diagnostics.swift).** While the app is in development,
+  log every meaningful event and every failure with `Diag.log(area, …)` /
+  `Diag.error(area, …, error)` (errors carry the NSError domain and code). Never per frame.
+  - Lines go to the unified log (category = area) and to a ring buffer persisted at
+    `Application Support/diagnostics.log`, so the run before a crash survives.
+  - Uncaught ObjC exceptions (AVFoundation's instant crashes) are written synchronously
+    before the app dies; MetricKit crash/hang reports are added on a later launch.
+  - Already logged: launch (build, device, permissions), foreground/background, memory
+    and thermal, session errors and interruptions, each shot's capture plan, capture and
+    save results (incl. the RAW-pair fallback), Zero develop time, every bake with timing
+    and errors, roll size changes, deletes (outcome, error code, access), editor errors,
+    Lock Screen imports, and every toast/banner the user sees.
+  - **Asking the owner for logs:** Settings → About → Diagnostics → Share (AirDrop the
+    .txt to the Mac and attach it), or Copy. Settings → About → Version shows when the
+    installed build was made.
 - **Every device bug gets a test** where the simulator can reproduce it: a pure-logic
   rule (extract it, like `PhotoPlanner` / `ViewerSelection`), a Photos-library
   integration test, or a UI flow with seeded photos. The simulator has no camera, so

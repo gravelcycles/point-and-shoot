@@ -7,6 +7,10 @@ struct PointAndShootApp: App {
     /// UI tests: seeded photos are all saved (`roll.seeded` appears).
     @State private var seeded = false
 
+    init() {
+        Diag.start()
+    }
+
     var body: some Scene {
         WindowGroup {
             if TestHooks.isUnitTestHost {
