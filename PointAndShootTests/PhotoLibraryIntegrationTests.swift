@@ -57,12 +57,16 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
         let types = PHAssetResource.assetResources(for: a).map(\.type)
         XCTAssertTrue(types.contains(.photo), "resources: \(types.map(\.rawValue))")
         XCTAssertTrue(types.contains(.alternatePhoto), "The DNG wasn't paired: \(types.map(\.rawValue))")
-        XCTAssertTrue(PhotoLibrary.hasRAW(a))
+        let utis = PHAssetResource.assetResources(for: a).map(\.uniformTypeIdentifier)
+        XCTAssertTrue(PhotoLibrary.hasRAW(a), "RAW not recognised; resource types: \(utis)")
     }
 
     func testZeroDevelopKeepsSensorPixelsAndTheOrientationTag() throws {
         for orientation: UInt16 in [1, 6] {
-            let data = try XCTUnwrap(ZeroDeveloper.develop(dng: TestDNG.make(orientation: orientation), asHEIF: false))
+            let dng = TestDNG.make(orientation: orientation)
+            let developed = try XCTUnwrap(ZeroDeveloper.developImage(dng: dng), "orientation \(orientation): the develop produced no image")
+            XCTAssertEqual(developed.image.extent.size, CGSize(width: 64, height: 48), "sensor pixels, not rotated")
+            let data = try XCTUnwrap(ZeroDeveloper.develop(dng: dng, asHEIF: false), "orientation \(orientation): encoding the develop failed")
             let src = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
             let props = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any])
             XCTAssertEqual(props[kCGImagePropertyPixelWidth as String] as? Int, 64, "orientation \(orientation)")
@@ -74,7 +78,7 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
 
     func testZeroDevelopPairsWithItsDNG() async throws {
         let dng = TestDNG.make(orientation: 6)
-        let developed = try XCTUnwrap(ZeroDeveloper.develop(dng: dng, asHEIF: true))
+        let developed = try XCTUnwrap(ZeroDeveloper.develop(dng: dng, asHEIF: true), "HEIF develop failed")
         let id = try await PhotoLibrary.savePhoto(primary: developed, rawCompanion: dng)
         let types = PHAssetResource.assetResources(for: try asset(id)).map(\.type)
         XCTAssertTrue(types.contains(.alternatePhoto), "Zero develop + DNG wasn't saved as a pair")

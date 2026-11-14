@@ -24,6 +24,15 @@ enum ZeroDeveloper {
     }
 
     static func develop(dng: Data, asHEIF: Bool) -> Data? {
+        guard let developed = developImage(dng: dng) else { return nil }
+        return encode(developed.image, properties: developed.properties,
+                      orientation: developed.orientation, asHEIF: asHEIF)
+    }
+
+    /// The neutral develop in the sensor's native (unrotated) orientation, the DNG's
+    /// orientation tag, and the metadata to write with it. nil if the DNG can't be decoded.
+    static func developImage(dng: Data) -> (image: CIImage, orientation: CGImagePropertyOrientation,
+                                           properties: [String: Any])? {
         guard let raw = CIRAWFilter(imageData: dng, identifierHint: "com.adobe.raw-image") else { return nil }
         configureNeutral(raw)
         // Keep the sensor's native (unrotated) pixels and carry the DNG's orientation tag
@@ -33,7 +42,7 @@ enum ZeroDeveloper {
         // PHPhotosErrorInvalidResource (3300).
         let fileOrientation = raw.orientation
         raw.orientation = .up
-        guard var image = raw.outputImage else { return nil }
+        guard let image = raw.outputImage, !image.extent.isEmpty, !image.extent.isInfinite else { return nil }
 
         var props: [String: Any] = [:]
         for (k, v) in raw.properties { if let key = k as? String { props[key] = v } }
@@ -43,13 +52,21 @@ enum ZeroDeveloper {
             props[kCGImagePropertyTIFFDictionary as String] = tiff
         }
         props.removeValue(forKey: kCGImagePropertyDNGDictionary as String)
-        image = image.settingProperties(props)
+        return (image, fileOrientation, props)
+    }
 
+    /// HEIF/JPEG with the DNG's metadata. If the encoder refuses some of that metadata,
+    /// retry with just the orientation rather than losing the develop.
+    static func encode(_ image: CIImage, properties: [String: Any], orientation: CGImagePropertyOrientation,
+                       asHEIF: Bool) -> Data? {
         let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
         let quality = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
-        if asHEIF {
-            return context.heifRepresentation(of: image, format: .RGBA8, colorSpace: colorSpace, options: [quality: 0.92])
+        func write(_ img: CIImage) -> Data? {
+            asHEIF
+                ? context.heifRepresentation(of: img, format: .RGBA8, colorSpace: colorSpace, options: [quality: 0.92])
+                : context.jpegRepresentation(of: img, colorSpace: colorSpace, options: [quality: 0.92])
         }
-        return context.jpegRepresentation(of: image, colorSpace: colorSpace, options: [quality: 0.92])
+        if let data = write(image.settingProperties(properties)) { return data }
+        return write(image.settingProperties([kCGImagePropertyOrientation as String: orientation.rawValue]))
     }
 }
