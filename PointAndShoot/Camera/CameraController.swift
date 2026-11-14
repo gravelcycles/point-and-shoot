@@ -252,6 +252,14 @@ final class CameraController: NSObject {
 
     private func apply(old: CameraSettings, new s: CameraSettings) {
         pushRendererConfig()
+        if s.zoomLocked != old.zoomLocked {
+            if s.zoomLocked { enforceZoomLock() }
+            let zoomAllowed = !s.zoomLocked
+            sessionQueue.async {
+                guard let device = self.device else { return }
+                self.installCameraControls(device: device, zoom: zoomAllowed)
+            }
+        }
         updateStorage()
         if old.saveLocation != s.saveLocation {
             if s.saveLocation { location.start() } else { location.stop(disabled: true) }
@@ -331,10 +339,17 @@ final class CameraController: NSObject {
 
     private func initialLens(for s: CameraSettings) -> Lens? {
         if let id = s.lastLensID, let remembered = lensesCache.first(where: { $0.id == id }) {
+            // A cropped "lens" (e.g. 48 mm = main at 2×) is a zoom: not while zoom is locked.
+            if s.zoomLocked, remembered.zoom != 1, let base = baseLens(of: remembered) { return base }
             return remembered
         }
         return lensesCache.first { $0.position == .back && $0.device.deviceType == .builtInWideAngleCamera && $0.zoom == 1 }
             ?? lensesCache.first
+    }
+
+    /// The 1× entry for the same physical camera as `lens`.
+    private func baseLens(of lens: Lens) -> Lens? {
+        lensesCache.first { $0.device == lens.device && $0.zoom == 1 }
     }
 
     static func focalLength(for device: AVCaptureDevice) -> Int {
@@ -450,7 +465,7 @@ final class CameraController: NSObject {
             self.applyExposure(mode: exposureState.0, iso: exposureState.1, shutter: exposureState.2, bias: exposureState.3)
             self.applyWhiteBalance(wb)
             self.applyFocus(mode: focus.0, lensPosition: focus.1)
-            self.installCameraControls(device: device)
+            self.installCameraControls(device: device, zoom: !s.zoomLocked)
 
             let caps = self.readCapabilities(device: device, settings: s)
             DispatchQueue.main.async {
@@ -681,13 +696,14 @@ final class CameraController: NSObject {
 
     // MARK: - Camera Control button (iPhone 16+)
 
-    private func installCameraControls(device: AVCaptureDevice) {
+    /// `zoom: false` leaves out the zoom slider (zoom is locked while shooting Bayer RAW).
+    private func installCameraControls(device: AVCaptureDevice, zoom: Bool) {
         guard #available(iOS 18.0, *), session.supportsControls else { return }
         session.beginConfiguration()
         for control in session.controls { session.removeControl(control) }
-        let zoom = AVCaptureSystemZoomSlider(device: device)
-        let ev = AVCaptureSystemExposureBiasSlider(device: device)
-        for control in [zoom, ev] as [AVCaptureControl] where session.canAddControl(control) {
+        var controls: [AVCaptureControl] = [AVCaptureSystemExposureBiasSlider(device: device)]
+        if zoom { controls.insert(AVCaptureSystemZoomSlider(device: device), at: 0) }
+        for control in controls where session.canAddControl(control) {
             session.addControl(control)
         }
         session.setControlsDelegate(self, queue: sessionQueue)
@@ -780,6 +796,7 @@ final class CameraController: NSObject {
 
     /// Continuous pinch zoom on the current physical lens.
     func setZoom(_ factor: CGFloat) {
+        guard !settings.zoomLocked else { return }
         zoomFactor = factor
         sessionQueue.async {
             self.withLockedDevice { d in
@@ -789,6 +806,19 @@ final class CameraController: NSObject {
     }
 
     var zoomRange: ClosedRange<CGFloat> { 1...10 }
+
+    /// Back to 1× when a Bayer RAW mode (Print, Zero, a film filter, RAW) turns on.
+    private func enforceZoomLock() {
+        if let lens = currentLens, lens.zoom != 1, let base = baseLens(of: lens) {
+            select(lens: base)   // same glass: ramps the crop back to 1×
+            return
+        }
+        guard abs(zoomFactor - 1) > 0.001 else { return }
+        zoomFactor = 1
+        sessionQueue.async {
+            self.withLockedDevice { d in d.ramp(toVideoZoomFactor: max(d.minAvailableVideoZoomFactor, 1), withRate: 16) }
+        }
+    }
 
     // MARK: - Exposure
 

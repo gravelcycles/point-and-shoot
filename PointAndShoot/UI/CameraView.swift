@@ -118,6 +118,14 @@ struct CameraView: View {
                 onTap: { p, size in handleTap(p, size: size, lock: false) },
                 onLongPress: { p, size in handleTap(p, size: size, lock: true) },
                 onPinch: { scale, state in
+                    if camera.settings.zoomLocked {
+                        // RAW is the full sensor frame: say why nothing zooms, once per pinch.
+                        if state == .began {
+                            camera.haptic(.light)
+                            camera.toast = "No zoom in \(camera.settings.zoomLockReason): RAW is the full frame"
+                        }
+                        return
+                    }
                     if state == .began { pinchStart = camera.zoomFactor }
                     camera.setZoom(min(max(pinchStart * scale, 1), 10))
                 },
@@ -418,7 +426,8 @@ struct LensPicker: View {
     var body: some View {
         let position = camera.currentLens?.position ?? .back
         HStack(spacing: 10) {
-            ForEach(camera.lenses.filter { $0.position == position }) { lens in
+            // Cropped "lenses" (zoom ≠ 1) are digital zoom: hidden while zoom is locked for RAW.
+            ForEach(camera.lenses.filter { $0.position == position && (!camera.settings.zoomLocked || $0.zoom == 1) }) { lens in
                 let selected = lens == camera.currentLens
                 let base = CGFloat(lens.focalLength) / lens.zoom
                 let focal = selected ? Int((base * camera.zoomFactor).rounded()) : lens.focalLength
