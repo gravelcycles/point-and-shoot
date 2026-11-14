@@ -16,9 +16,18 @@ final class LibraryFlowTests: XCTestCase {
         app.launchArguments = ["-uitest", "-uitest-seed", "3"]
         app.launch()
         XCTAssertTrue(app.buttons["strip.ev"].waitForExistence(timeout: 15), "camera UI didn't appear")
-        // Wait for the seeded photos to be saved, then for the roll to settle.
-        guard app.staticTexts["roll.seeded"].waitForExistence(timeout: 30), rollCount() >= 3 else {
-            throw XCTSkip("No Photos access in this simulator (roll has \(rollCount()) items)")
+        // Seeding asks for Photos access: allow it like a person would, then wait for the
+        // seeded photos to be saved and the roll to settle.
+        let seeded = app.staticTexts["roll.seeded"]
+        let until = Date().addingTimeInterval(40)
+        while !seeded.exists && Date() < until {
+            allowPhotosAccessIfAsked()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        guard seeded.exists, rollCount() >= 3 else {
+            let message = "No Photos access in this simulator (roll has \(rollCount()) items)"
+            if ProcessInfo.processInfo.environment["CI"] != nil { XCTFail(message); return }
+            throw XCTSkip(message)
         }
         var last = rollCount()
         var stableSince = Date()
@@ -27,6 +36,18 @@ final class LibraryFlowTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.3)
             let now = rollCount()
             if now != last { last = now; stableSince = Date() }
+        }
+    }
+
+    /// Taps "Allow Full Access" (or "Allow") on iOS's Photos permission prompt, if it's up.
+    private func allowPhotosAccessIfAsked() {
+        for source in [springboard.alerts, app.alerts] {
+            let alert = source.firstMatch
+            guard alert.exists else { continue }
+            for label in ["Allow Full Access", "Allow Access to All Photos", "Allow"] {
+                let button = alert.buttons[label]
+                if button.exists { button.tap(); return }
+            }
         }
     }
 

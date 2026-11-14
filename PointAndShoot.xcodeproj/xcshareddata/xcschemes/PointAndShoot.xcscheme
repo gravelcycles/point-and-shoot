@@ -60,9 +60,9 @@
             skipped = "NO">
                <BuildableReference
                   BuildableIdentifier = "primary"
-                  BlueprintIdentifier = "A10000000000000000000060"
-                  BuildableName = "PointAndShootTests.xctest"
-                  BlueprintName = "PointAndShootTests"
+                  BlueprintIdentifier = "A10000000000000000000050"
+                  BuildableName = "PointAndShootUITests.xctest"
+                  BlueprintName = "PointAndShootUITests"
                   ReferencedContainer = "container:PointAndShoot.xcodeproj">
                </BuildableReference>
          </TestableReference>
@@ -70,9 +70,9 @@
             skipped = "NO">
                <BuildableReference
                   BuildableIdentifier = "primary"
-                  BlueprintIdentifier = "A10000000000000000000050"
-                  BuildableName = "PointAndShootUITests.xctest"
-                  BlueprintName = "PointAndShootUITests"
+                  BlueprintIdentifier = "A10000000000000000000060"
+                  BuildableName = "PointAndShootTests.xctest"
+                  BlueprintName = "PointAndShootTests"
                   ReferencedContainer = "container:PointAndShoot.xcodeproj">
                </BuildableReference>
          </TestableReference>

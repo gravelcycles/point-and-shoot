@@ -1,3 +1,4 @@
+import Photos
 import UIKit
 
 /// Test modes. The simulator has no camera, so tests run the real UI without the camera
@@ -25,6 +26,12 @@ enum TestHooks {
     static func seedPhotosIfRequested() async -> Int {
         let n = seedCount
         guard isUITest, n > 0 else { return 0 }
+        // Ask for full access ourselves: the UI test taps "Allow Full Access" (CI's
+        // `simctl privacy` grant doesn't reliably reach the app). Once granted it holds for
+        // the rest of the run, including the Photos integration unit tests.
+        if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .notDetermined {
+            _ = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        }
         var saved = 0
         for i in 0..<n {
             let hue = CGFloat(i) / CGFloat(max(n, 1))

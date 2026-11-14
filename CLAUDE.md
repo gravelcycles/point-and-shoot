@@ -506,8 +506,10 @@ is the only source of truth for what exists. Everything else reacts to it.
   - `PointAndShootUITests`: tap targets, Print zoom lock, settings, and the roll flows
     (viewer, delete with iOS's confirmation, Don't Allow, grid batch delete) against
     photos seeded with `-uitest-seed N`.
-  - The warm-up step grants the app Photos access (`simctl privacy`), and
-    `TEST_RUNNER_CI=1` makes integration tests fail rather than skip without it.
+  - Photos access: the seeding app asks for full access and `LibraryFlowTests` taps
+    "Allow Full Access" (the warm-up's `simctl privacy` grant didn't reach the app in CI).
+    The scheme runs the UI tests first, so the integration unit tests inherit that access.
+    `TEST_RUNNER_CI=1` makes both fail rather than skip without it.
   - When it fails, the errors appear in the run summary. The `build-log` artifact holds the full log; grep it for
   `SwiftCompile` / `in target '…'` to confirm what was actually built.
 - **macOS runners are scarce on the free plan** (a few concurrent Mac jobs per account).
