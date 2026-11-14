@@ -36,8 +36,16 @@ final class PipelineTests: XCTestCase {
             XCTAssertFalse(out.extent.isInfinite, "\(look.id): infinite extent")
             let px = try pixels(of: out)
             XCTAssertTrue(px.allSatisfy { $0.isFinite }, "\(look.id): NaN/inf pixels")
-            let lum = stride(from: 0, to: px.count, by: 4).map { px[$0] + px[$0 + 1] + px[$0 + 2] }
-            XCTAssertGreaterThan((lum.max() ?? 0) - (lum.min() ?? 0), 0.05, "\(look.id): flat output")
+            var lo = Float.greatestFiniteMagnitude
+            var hi = -Float.greatestFiniteMagnitude
+            var i = 0
+            while i + 2 < px.count {
+                let sum: Float = px[i] + px[i + 1] + px[i + 2]
+                lo = min(lo, sum)
+                hi = max(hi, sum)
+                i += 4
+            }
+            XCTAssertGreaterThan(hi - lo, 0.05, "\(look.id): flat output")
         }
     }
 
