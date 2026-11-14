@@ -5,6 +5,7 @@ struct RAWDefaults {
     var temperature: Float = 5500
     var tint: Float = 0
     var noiseReduction: Float = 0.5
+    var colorNoiseReduction: Float = 0.5
     var localTone: Float = 0.5
     var boost: Float = 1
     var sharpness: Float = 0
@@ -29,6 +30,7 @@ enum EditPipeline {
             temperature: raw.neutralTemperature,
             tint: raw.neutralTint,
             noiseReduction: raw.isLuminanceNoiseReductionSupported ? raw.luminanceNoiseReductionAmount : 0,
+            colorNoiseReduction: raw.isColorNoiseReductionSupported ? raw.colorNoiseReductionAmount : 0,
             localTone: raw.isLocalToneMapSupported ? raw.localToneMapAmount : 0,
             boost: raw.boostAmount,
             sharpness: raw.isSharpnessSupported ? raw.sharpnessAmount : 0,
@@ -46,11 +48,14 @@ enum EditPipeline {
             if raw.isLocalToneMapSupported { raw.localToneMapAmount = 0 }
             raw.boostAmount = 0
             if raw.isSharpnessSupported { raw.sharpnessAmount = 0 }
+            // Color speckle never looks like film: at least moderate chroma noise reduction.
+            if raw.isColorNoiseReductionSupported { raw.colorNoiseReductionAmount = max(d.colorNoiseReduction, 0.5) }
             if raw.isDetailSupported { raw.detailAmount = 0 }
         } else {
             if raw.isLocalToneMapSupported { raw.localToneMapAmount = Float(r.rawLocalTone / 100) }
             raw.boostAmount = Float(r.rawBoost / 100)
             if raw.isSharpnessSupported { raw.sharpnessAmount = d.sharpness }
+            if raw.isColorNoiseReductionSupported { raw.colorNoiseReductionAmount = d.colorNoiseReduction }
             if raw.isDetailSupported { raw.detailAmount = d.detail }
         }
     }
