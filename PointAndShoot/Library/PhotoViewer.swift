@@ -285,23 +285,28 @@ struct PhotoViewer: View {
             .opacity(isPhoto ? 1 : 0.35)
             Spacer()
             barButton("trash", id: "viewer.delete") {
-                // iOS's own confirmation is modal, so it can't be double-sent; no busy flag
-                // that could get stuck and leave the button dead.
-                guard let asset else { return }
+                // Never silent: every outcome shows something (delete did nothing on device
+                // twice with no clue why). iOS's own confirmation is modal, so no busy flag.
+                Haptics.impact(.light)
+                guard let asset else {
+                    show(banner: "Couldn't find this photo to delete (\(selectedID.map { String($0.prefix(8)) } ?? "none"))")
+                    return
+                }
                 Task {
-                    do {
-                        try await PhotoLibrary.delete(asset)
-                        // The change observer moves the viewer to the neighbor.
-                    } catch where PhotoLibrary.isUserCancel(error) {
-                        // Tapped Don't Allow on the system confirmation: nothing to do.
-                    } catch where PhotoLibrary.isGone(asset) {
-                        // Already deleted (in Photos, or a double tap): the roll catches up.
-                    } catch {
-                        show(banner: "Couldn't delete: \(error.localizedDescription)")
+                    switch await PhotoLibrary.deleteReporting([asset]) {
+                    case .deleted:
+                        // The change observer moves the viewer to the neighbour; say so if not.
+                        try? await Task.sleep(for: .seconds(2))
+                        if roll.contains(asset.localIdentifier) && !PhotoLibrary.isGone(asset) {
+                            show(banner: "iOS says it deleted the photo, but it's still in the library")
+                        }
+                    case .kept:
+                        break
+                    case .failed(let why):
+                        show(banner: "Couldn't delete: \(why)", seconds: 6)
                     }
                 }
             }
-            .disabled(asset == nil)
             Spacer()
             barButton("info.circle", id: "viewer.info") {
                 if let asset { infoAsset = AssetItem(asset: asset) }
@@ -362,10 +367,10 @@ struct PhotoViewer: View {
         }
     }
 
-    private func show(banner: String) {
+    private func show(banner: String, seconds: Double = 1.6) {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { savedBanner = banner }
         Task {
-            try? await Task.sleep(for: .seconds(1.6))
+            try? await Task.sleep(for: .seconds(seconds))
             withAnimation(.easeOut(duration: 0.25)) { savedBanner = nil }
         }
     }

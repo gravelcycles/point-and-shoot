@@ -12,6 +12,7 @@ struct SettingsView: View {
                 videoSection(s)
                 assistSection(s)
                 controlsSection
+                aboutSection
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -186,5 +187,24 @@ struct SettingsView: View {
                   ? "The shutter is silent unless you turn Shutter sound on. "
                   : "This iPhone or region doesn't let apps mute the shutter (it needs iOS 18, and some countries require the click); the Ring/Silent switch still mutes it. ") + "Location uses the GPS chip and compass, so it works in airplane mode — the first fix can take a minute without signal, and works best outdoors. Tap the location icon in the top bar to see accuracy. Tap to focus and meter. Hold to lock AE/AF. Pinch to zoom. Swipe the viewfinder to switch Photo/Video. On iPhone 16, Camera Control adjusts zoom and exposure.")
         }
+    }
+
+    /// Which build is on the phone, so a bug report can be matched to the code.
+    private var aboutSection: some View {
+        Section("About") {
+            LabeledContent("Version", value: Self.buildDescription)
+        }
+    }
+
+    static var buildDescription: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        var built = ""
+        if let url = Bundle.main.executableURL,
+           let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate {
+            built = " · built " + date.formatted(date: .abbreviated, time: .shortened)
+        }
+        return "\(version) (\(build))\(built)"
     }
 }

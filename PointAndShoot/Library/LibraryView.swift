@@ -162,20 +162,24 @@ struct RollGrid: View {
 
     private func deleteSelected() {
         let assets = selectedAssets
-        guard !assets.isEmpty, !working else { return }
+        guard !working else { return }
+        guard !assets.isEmpty else {
+            errorMessage = "None of the \(selected.count) picked items are in the roll any more."
+            return
+        }
         working = true
         Task {
             defer { working = false }
-            do {
-                try await PhotoLibrary.delete(assets)
+            switch await PhotoLibrary.deleteReporting(assets) {
+            case .deleted:
                 withAnimation(.snappy(duration: 0.2)) {
                     selected.removeAll()
                     selecting = false
                 }
-            } catch where PhotoLibrary.isUserCancel(error) {
-                // Kept them: stay in Select with the same items picked.
-            } catch {
-                errorMessage = "Couldn't delete: \(error.localizedDescription)"
+            case .kept:
+                break   // Don't Allow: stay in Select with the same items picked.
+            case .failed(let why):
+                errorMessage = "Couldn't delete: \(why)"
             }
         }
     }
