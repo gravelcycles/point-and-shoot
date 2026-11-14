@@ -202,6 +202,11 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **Processing levels** map to `photoQualityPrioritization`: Apple → `.quality`, Balanced →
   `.balanced`, Natural → `.speed`. **Zero** captures Bayer RAW only and develops it with
   `ZeroDeveloper`: no local tone map, no luminance NR, a little chroma NR.
+- **RAW+processed pairs: the DNG goes in as a file.** `PhotoLibrary.savePhoto` writes the
+  RAW to a temp `.dng` and adds it with `addResource(with: .alternatePhoto, fileURL:)`
+  (`shouldMoveFile`), like Apple's AVCam. Added as `Data`, Photos rejects the pair with
+  PHPhotosErrorDomain 3300 (seen on device for Print). If a pair is still refused, the
+  photo and the DNG are saved as two assets and a toast names the error code.
 - **Bayer RAW forces `.speed` prioritization and 12 MP dimensions.** This is an assumption
   meant to avoid `NSInvalidArgumentException` from AVFoundation. ProRAW is enabled on the
   output only when selected.
