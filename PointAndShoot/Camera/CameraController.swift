@@ -48,6 +48,9 @@ final class CameraController: NSObject {
     private(set) var lastThumbnailDate = Date.distantPast
     /// Library ID of the most recent photo/video this app saved — the viewer opens on it.
     private(set) var lastSavedAssetID: String?
+    /// Saved shots whose filter/Print look is still being baked on. The viewer shows
+    /// "Developing…" over them; the camera thumbnail waits for the developed version.
+    private(set) var developingAssetIDs: Set<String> = []
     private(set) var countdown: Int?
     private(set) var burstCount = 0
     /// Estimated recording time left on the phone at the current video settings.
@@ -185,6 +188,18 @@ final class CameraController: NSObject {
     /// camera's thumbnail button.
     func releaseCaptureThumbnail() {
         lastThumbnail = nil
+    }
+
+    private func setDeveloping(_ id: String, _ developing: Bool) {
+        if developing {
+            developingAssetIDs.insert(id)
+            // Never leave a shot looking stuck if a bake hangs: give up on the overlay.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
+                self?.developingAssetIDs.remove(id)
+            }
+        } else {
+            developingAssetIDs.remove(id)
+        }
     }
 
     private func captureFinished() {
@@ -1207,6 +1222,9 @@ final class CameraController: NSObject {
                 thumbnail: { [weak self] image in
                     self?.lastThumbnail = image
                     self?.lastThumbnailDate = Date()
+                },
+                developing: { [weak self] assetID, isDeveloping in
+                    DispatchQueue.main.async { self?.setDeveloping(assetID, isDeveloping) }
                 },
                 completion: { [weak self] message, assetID in
                     guard let self else { return }

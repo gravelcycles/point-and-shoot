@@ -37,6 +37,8 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private let willCapture: () -> Void
     private let thumbnail: (UIImage) -> Void
     private let completion: (_ message: String?, _ assetID: String?) -> Void
+    /// The saved asset is (true) / is no longer (false) waiting for its look to be baked.
+    private let developing: (_ assetID: String, _ isDeveloping: Bool) -> Void
 
     private var rawData: Data?
     private var processedData: Data?
@@ -47,7 +49,9 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     init(plan: PhotoPlan,
          willCapture: @escaping () -> Void,
          thumbnail: @escaping (UIImage) -> Void,
+         developing: @escaping (_ assetID: String, _ isDeveloping: Bool) -> Void = { _, _ in },
          completion: @escaping (_ message: String?, _ assetID: String?) -> Void) {
+        self.developing = developing
         self.plan = plan
         self.willCapture = willCapture
         self.thumbnail = thumbnail
@@ -121,13 +125,21 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                     self.completion("Nothing was captured", nil)
                     return
                 }
-                // Bake the filter/Print look *before* reporting the shot done: the viewer
-                // keeps "Developing…" up until then, instead of showing the plain photo and
-                // swapping in the filtered one a moment later.
-                if let look = plan.look, let assetID {
+                // Report the shot saved right away (the camera can suspend, the next shot
+                // isn't held up), but mark it as still developing so the viewer shows
+                // "Developing…" on its page until the look is baked, never the plain photo.
+                // Bakes run one at a time: a full-resolution RAW develop each, and several
+                // at once on a busy GPU is what made shots hang on "Developing…".
+                guard let look = plan.look, let assetID else {
+                    self.completion(note, assetID)
+                    return
+                }
+                self.developing(assetID, true)
+                self.completion(note, assetID)
+                await BakeQueue.shared.run {
                     try? await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw, viewfinderKey: viewfinderKey)
                 }
-                self.completion(note, assetID)
+                self.developing(assetID, false)
             } catch {
                 self.completion("Couldn't save: \(error.localizedDescription)", nil)
             }
@@ -148,5 +160,21 @@ extension UIImage.Orientation {
         case .rightMirrored: self = .rightMirrored
         @unknown default: self = .up
         }
+    }
+}
+
+/// Runs look bakes strictly one after another, in capture order.
+actor BakeQueue {
+    static let shared = BakeQueue()
+    private var tail: Task<Void, Never>?
+
+    func run(_ operation: @escaping @Sendable () async -> Void) async {
+        let previous = tail
+        let task = Task {
+            await previous?.value
+            await operation()
+        }
+        tail = task
+        await task.value
     }
 }

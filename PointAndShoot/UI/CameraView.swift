@@ -67,6 +67,7 @@ struct CameraView: View {
         .onChange(of: roll.latestThumbnailID) { _, _ in handOffThumbnail() }
         .onChange(of: camera.capturesInFlight) { _, _ in handOffThumbnail() }
         .onChange(of: camera.lastSavedAssetID) { _, _ in handOffThumbnail() }
+        .onChange(of: camera.developingAssetIDs) { _, _ in handOffThumbnail() }
         .fullScreenCover(isPresented: $showLibrary) {
             PhotoViewer(roll: roll, camera: camera)
         }
@@ -274,6 +275,7 @@ struct CameraView: View {
     private func handOffThumbnail() {
         guard camera.lastThumbnail != nil, camera.capturesInFlight == 0,
               let id = camera.lastSavedAssetID, roll.contains(id),
+              !camera.developingAssetIDs.contains(id),
               let shown = roll.latestThumbnailID, shown == roll.assets.first?.localIdentifier else { return }
         camera.releaseCaptureThumbnail()
     }
