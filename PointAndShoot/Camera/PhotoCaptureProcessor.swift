@@ -86,9 +86,11 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
         if let error = error ?? captureError {
+            Diag.error(.capture, "capture failed", error)
             completion("Capture failed: \(error.localizedDescription)", nil)
             return
         }
+        Diag.log(.capture, "captured: raw \(rawData.map { "\($0.count / 1024) KB" } ?? "none"), processed \(processedData.map { "\($0.count / 1024) KB" } ?? "none")")
         let plan = self.plan
         let raw = rawData
         let processed = processedData
@@ -101,8 +103,14 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                 var alternate: Data? = plan.storeRAW ? raw : nil
 
                 if plan.zeroDevelop, let raw {
+                    let start = Date()
                     primary = ZeroDeveloper.develop(dng: raw, asHEIF: plan.zeroAsHEIF)
-                    if primary == nil { alternate = nil; primary = raw }
+                    if primary == nil {
+                        Diag.error(.save, "Zero develop failed; saving the DNG alone")
+                        alternate = nil; primary = raw
+                    } else {
+                        Diag.log(.save, "Zero develop \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+                    }
                 }
 
                 var assetID: String?
@@ -113,6 +121,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                     do {
                         assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: companion, location: where_)
                     } catch where companion != nil {
+                        Diag.error(.save, "Photos refused the RAW pair; saving them separately", error)
                         // Never lose the shot because Photos refused the RAW pairing: keep the
                         // photo, and the DNG as its own asset so nothing is thrown away.
                         assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: nil, location: where_)
@@ -137,7 +146,15 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                 self.developing(assetID, true)
                 self.completion(note, assetID)
                 await BakeQueue.shared.run {
-                    try? await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw, viewfinderKey: viewfinderKey)
+                    let start = Date()
+                    let name = look.look ?? "look"
+                    Diag.log(.bake, "baking \(name) onto \(assetID.prefix(8))\(raw == nil ? "" : " from RAW")")
+                    do {
+                        try await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw, viewfinderKey: viewfinderKey)
+                        Diag.log(.bake, "baked \(name) in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+                    } catch {
+                        Diag.error(.bake, "bake of \(name) failed after \(Int(Date().timeIntervalSince(start) * 1000)) ms", error)
+                    }
                 }
                 self.developing(assetID, false)
             } catch {

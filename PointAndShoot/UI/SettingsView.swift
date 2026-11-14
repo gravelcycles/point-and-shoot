@@ -189,22 +189,16 @@ struct SettingsView: View {
         }
     }
 
-    /// Which build is on the phone, so a bug report can be matched to the code.
+    /// Which build is on the phone, and the development log to share with a bug report.
     private var aboutSection: some View {
-        Section("About") {
-            LabeledContent("Version", value: Self.buildDescription)
+        Section {
+            LabeledContent("Version", value: Diag.buildDescription)
+            NavigationLink("Diagnostics") { DiagnosticsView() }
+                .accessibilityIdentifier("settings.diagnostics")
+        } header: {
+            Text("About")
+        } footer: {
+            Text("Diagnostics is a log of what the app did and what went wrong. Share it with a bug report.")
         }
-    }
-
-    static var buildDescription: String {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        var built = ""
-        if let url = Bundle.main.executableURL,
-           let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate {
-            built = " · built " + date.formatted(date: .abbreviated, time: .shortened)
-        }
-        return "\(version) (\(build))\(built)"
     }
 }

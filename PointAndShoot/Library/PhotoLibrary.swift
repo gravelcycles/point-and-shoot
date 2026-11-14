@@ -54,6 +54,7 @@ enum PhotoLibrary {
         defer { if let rawURL { try? FileManager.default.removeItem(at: rawURL) } }
 
         let box = IDBox()
+        do {
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
             request.location = location
@@ -64,6 +65,10 @@ enum PhotoLibrary {
                 request.addResource(with: .alternatePhoto, fileURL: rawURL, options: options)
             }
             box.value = request.placeholderForCreatedAsset?.localIdentifier
+        }
+        } catch {
+            Diag.error(.save, "Photos save failed (\(primary.count / 1024) KB\(rawCompanion.map { " + RAW \($0.count / 1024) KB" } ?? ""))", error)
+            throw error
         }
         return box.value
     }
@@ -123,24 +128,22 @@ enum PhotoLibrary {
         case failed(String)
     }
 
-    static let deleteLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "PointAndShoot", category: "delete")
-
     /// Deletes and reports the outcome. A "cancelled" error that comes back too fast for a
     /// person to have answered means iOS never showed its prompt: reported as a failure.
     static func deleteReporting(_ assets: [PHAsset]) async -> DeleteOutcome {
         let ids = assets.map { String($0.localIdentifier.prefix(8)) }.joined(separator: ",")
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite).rawValue
-        deleteLog.notice("delete \(assets.count, privacy: .public) [\(ids, privacy: .public)] access=\(status, privacy: .public)")
+        Diag.log(.delete, "delete \(assets.count) [\(ids)] · \(Diag.permissionSummary())")
         guard !assets.isEmpty else { return .failed("Nothing to delete") }
         let start = Date()
         do {
             try await delete(assets)
-            deleteLog.notice("deleted")
+            Diag.log(.delete, "deleted \(assets.count) in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
             return .deleted
         } catch {
             let ns = error as NSError
             let elapsed = Date().timeIntervalSince(start)
-            deleteLog.error("delete failed \(ns.domain, privacy: .public) \(ns.code, privacy: .public) after \(elapsed, privacy: .public)s: \(ns.localizedDescription, privacy: .public)")
+            Diag.error(.delete, "delete failed after \(Int(elapsed * 1000)) ms: \(ns.localizedDescription) (\(ns.domain) \(ns.code))")
             if isUserCancel(error) && elapsed > 0.8 { return .kept }
             let access = ["not asked", "restricted", "denied", "full", "limited"][min(max(status, 0), 4)]
             let what = isUserCancel(error) ? "iOS didn't show its delete prompt" : ns.localizedDescription

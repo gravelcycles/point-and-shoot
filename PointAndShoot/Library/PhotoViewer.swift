@@ -368,6 +368,7 @@ struct PhotoViewer: View {
     }
 
     private func show(banner: String, seconds: Double = 1.6) {
+        Diag.log(.viewer, "banner: \(banner)")
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { savedBanner = banner }
         Task {
             try? await Task.sleep(for: .seconds(seconds))

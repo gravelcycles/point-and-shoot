@@ -37,7 +37,9 @@ enum LockedCaptureImporter {
                     imported.insert(key)
                     UserDefaults.standard.set(Array(imported.suffix(500)), forKey: importedKey)
                     try? FileManager.default.removeItem(at: file)
+                    Diag.log(.importer, "imported Lock Screen shot \(file.lastPathComponent)")
                 } catch {
+                    Diag.error(.importer, "couldn't import Lock Screen shot \(file.lastPathComponent)", error)
                     everythingImported = false
                 }
             }
