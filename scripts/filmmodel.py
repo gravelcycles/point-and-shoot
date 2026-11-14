@@ -66,9 +66,46 @@ def curve_density(c, logE):
             + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * ms[i + 1])
 
 
+LUM_P3 = np.array([0.2289746, 0.6917385, 0.0792869])
+INVERSE_SAMPLES = 1024
+
+
+def neg_log_exposure(c, d):
+    """Inverse of a (monotone) negative curve: density → log exposure, by linear
+    interpolation in a dense table (FilmCurve.logExposure in Swift)."""
+    x0, x1 = c["x"][0], c["x"][-1]
+    xs = x0 + (x1 - x0) * np.arange(INVERSE_SAMPLES + 1) / INVERSE_SAMPLES
+    ds = curve_density(dict(c, gamma=1.0), xs)
+    return np.interp(d, ds, xs)
+
+
+def hue_matrix(stock):
+    """Layer exposure → scene color in linear P3: undo the sensitivity matrix's
+    interlayer saturation, then Rec.2020 → P3."""
+    return REC2020_TO_P3 @ np.linalg.inv(np.array(stock["sensitivity"]).reshape(3, 3))
+
+
+def smoothstep(a, b, x):
+    t = np.clip((x - a) / (b - a), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
 def scene_from_display(x):
     v = np.clip(x, 0, 0.995)
-    return v / (1.333 - 1.11 * v)
+    return v / (1.273 - 0.808 * v)
+
+
+LUM2020 = np.array([0.2627, 0.6780, 0.0593])
+
+
+def scene_from_display_rgb(rgb2020):
+    """Undo a phone's tone curve on luminance and keep each color's channel ratios
+    (FilmLUT.sceneFromDisplay(rgb:)). Inverting per channel would read a saturated
+    display red as a red channel stops overexposed and push it into the shoulder."""
+    rgb = np.clip(rgb2020, 0, 1)
+    y = rgb @ LUM2020
+    scale = scene_from_display(y) / np.maximum(y, 1e-6)
+    return rgb * scale[..., None]
 
 
 def negative_density(rgb2020, stock):
@@ -121,7 +158,19 @@ def display(dn, stock, controls=None):
         ws = t * t * (3 - 2 * t)
         dm = dm + (-0.22 * h * wh - 0.45 * s * ws)
     t = 10.0 ** (-(dm - base))
-    return t @ np.array(stock["display"]).reshape(3, 3).T
+    out = t @ np.array(stock["display"]).reshape(3, 3).T
+    # Highlight hue protection: film's per-channel shoulder turns bright warm colors
+    # yellow (red compresses first). Blend toward the scene's own channel ratios as
+    # brightness rises, scaled to the same luminance.
+    hp = stock.get("huePreserve", 0.0)
+    if hp > 0:
+        e = 10.0 ** np.stack([neg_log_exposure(stock["negative"][c], dn[..., c]) for c in range(3)], -1)
+        e = np.maximum(e @ hue_matrix(stock).T, 0)     # scene color (P3), saturation boost undone
+        yo, ye = out @ LUM_P3, e @ LUM_P3
+        ratio = e * (yo / np.maximum(ye, 1e-9))[..., None]
+        w = hp * smoothstep(0.2, 0.85, yo)
+        out = out + (ratio - out) * w[..., None]
+    return out
 
 
 def encode_srgb(x):
@@ -145,9 +194,10 @@ def neutral_response(stops, stock, controls=None):
 def negative_cube(stock, source="sceneLinear", n=48):
     u = np.arange(n) / (n - 1)
     x = SHAPER_SCALE * u ** SHAPER_POWER
-    lin = x if source == "sceneLinear" else scene_from_display(x)
-    b, g, r = np.meshgrid(lin, lin, lin, indexing="ij")
+    b, g, r = np.meshgrid(x, x, x, indexing="ij")
     rgb = np.stack([r, g, b], axis=-1)
+    if source != "sceneLinear":
+        rgb = scene_from_display_rgb(rgb)
     return negative_density(rgb, stock) / DENSITY_SCALE  # [b, g, r, 3]
 
 
@@ -211,7 +261,7 @@ def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0,
     if source == "sceneLinear":
         rgb2020 = x @ SRGB_TO_REC2020.T
     else:
-        rgb2020 = scene_from_display(np.clip(x, 0, 1)) @ SRGB_TO_REC2020.T
+        rgb2020 = scene_from_display_rgb(np.clip(x, 0, 1) @ SRGB_TO_REC2020.T)
     rgb2020 = np.clip(rgb2020, 0, SHAPER_SCALE)
     dn = negative_density(rgb2020, stock)
     if grain_amount > 0:

@@ -27,9 +27,22 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   again. A yellow dot on PRO means something is still on manual.
 - **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, FILTER) to put it back on auto.
 - **Filters at capture time.** Tap **FILTER** for live square previews of each filter, and
-  **About** to read what each one does. Pick Print, Warm 400, Mono 400, Cine, Chrome, Noir
-  or another. You see it live in the viewfinder, and every shot is saved with the look as
-  an *editable edit*. The untouched original stays one tap away in the editor or Photos.
+  **About** to read what each one does. You see it live in the viewfinder, and every shot
+  is saved with the look as an *editable edit*. The untouched original stays one tap away
+  in the editor or Photos.
+  - **Every filter is a film stock,** not a set of slider moves. Each has its own tone
+    curve, color balance, film color (rich colors get denser, not louder), halation and
+    grain.
+    - **Natural:** a clean negative scan.
+    - **Warm 400:** golden portrait film.
+    - **Skin:** soft and flattering.
+    - **Cool Air:** crisp, cyan-leaning.
+    - **Cine:** tungsten cinema negative with teal shadows and a red glow around lights.
+    - **Chrome:** slide film.
+    - **Faded:** a sun-faded print.
+    - **Punch:** vivid.
+    - **Mono 400, Noir, Silver:** black and white.
+  - **Bright skin stays skin-colored** instead of going gold.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
   - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.
@@ -116,7 +129,7 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
     the value, and a haptic ticks when you cross zero. Hold ◧ to compare with the original.
   - **Filters** (with an **About** guide explaining each): Print (the film emulation above),
     Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir, Silver,
-    with live thumbnails. On a photo with a DNG, Print develops from the sensor data.
+    with live thumbnails. On a photo with a DNG, every filter develops from the sensor data.
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.
   - **Details**: structure, sharpening, fade, grain, vignette.

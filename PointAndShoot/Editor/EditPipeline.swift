@@ -121,6 +121,7 @@ enum EditPipeline {
         var curveRecipe = r
         if let film = r.film {
             var fs = FilmPipeline.Settings()
+            fs.stockID = film.stock ?? FilmStock.printLook.id
             fs.source = developedFromRAW ? .sceneLinear : .displayReferred
             fs.exposure = developedFromRAW ? 0 : r.exposure / 50   // RAW: already in the develop
             fs.halation = film.halation / 50

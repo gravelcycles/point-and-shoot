@@ -1,0 +1,299 @@
+{
+ "about": "Photo filters as film stocks: the Print model with per-filter tone, color and texture. Built by scripts/filmlooks.py; exported with scripts/print-look.py export-swift. Keys left out inherit from Print. grey = display luminance of 18% grey; slope = log-log contrast below the shoulder; shoulder = how hard highlights turn; white/floor = display white and black; printer/crossover = [red, blue] log-exposure offsets / gamma splits; interlayer = saturation; crosstalk = 0..1 of print-dye density coupling; grain = density std at 4032 px.",
+ "looks": {
+  "natural": {
+   "name": "Natural",
+   "about": "A clean color-negative scan: gentle film curve, open highlights, true color.",
+   "grey": 0.165,
+   "slope": 1.25,
+   "shoulder": 1.9,
+   "white": 0.975,
+   "floor": 0.0,
+   "printer": [
+    0.0,
+    0.006
+   ],
+   "crossover": [
+    0.0,
+    -0.012
+   ],
+   "interlayer": 0.2,
+   "crosstalk": 0.55,
+   "halation": [
+    0.05,
+    0.012,
+    0.0
+   ],
+   "grain": 0.004,
+   "grain_chroma": 0.1,
+   "huePreserve": 0.8
+  },
+  "warm400": {
+   "name": "Warm 400",
+   "about": "Portrait color negative: golden, low contrast, pastel color and flattering skin.",
+   "grey": 0.17,
+   "slope": 1.12,
+   "shoulder": 1.9,
+   "white": 0.95,
+   "floor": 0.004,
+   "printer": [
+    -0.012,
+    0.06
+   ],
+   "crossover": [
+    0.03,
+    -0.09
+   ],
+   "interlayer": 0.18,
+   "crosstalk": 0.8,
+   "halation": [
+    0.09,
+    0.025,
+    0.0
+   ],
+   "grain": 0.011,
+   "grain_chroma": 0.2,
+   "huePreserve": 0.7
+  },
+  "portrait": {
+   "name": "Skin",
+   "about": "Soft portrait stock: low contrast, warm-neutral, calm reds, smooth highlights.",
+   "grey": 0.175,
+   "slope": 1.05,
+   "shoulder": 1.6,
+   "white": 0.95,
+   "floor": 0.003,
+   "printer": [
+    -0.002,
+    0.015
+   ],
+   "crossover": [
+    0.012,
+    -0.035
+   ],
+   "interlayer": 0.2,
+   "crosstalk": 0.55,
+   "halation": [
+    0.05,
+    0.015,
+    0.0
+   ],
+   "grain": 0.006,
+   "grain_chroma": 0.1,
+   "huePreserve": 0.9
+  },
+  "cool": {
+   "name": "Cool Air",
+   "about": "Cool consumer negative: crisp, cyan-green shadows, clean whites, quiet color.",
+   "grey": 0.155,
+   "slope": 1.35,
+   "shoulder": 2.4,
+   "white": 0.97,
+   "floor": 0.002,
+   "printer": [
+    0.035,
+    -0.025
+   ],
+   "crossover": [
+    -0.04,
+    0.05
+   ],
+   "interlayer": 0.12,
+   "crosstalk": 0.7,
+   "halation": [
+    0.03,
+    0.01,
+    0.0
+   ],
+   "grain": 0.008,
+   "grain_chroma": 0.15,
+   "huePreserve": 0.7
+  },
+  "cine": {
+   "name": "Cine",
+   "about": "Tungsten cinema negative: dense, teal shadows under warm highlights, strong red glow around lights.",
+   "grey": 0.11,
+   "slope": 1.5,
+   "shoulder": 2.6,
+   "white": 0.9,
+   "floor": 0.0,
+   "printer": [
+    0.02,
+    0.02
+   ],
+   "crossover": [
+    0.05,
+    -0.17
+   ],
+   "interlayer": 0.3,
+   "crosstalk": 1.0,
+   "halation": [
+    0.3,
+    0.08,
+    0.01
+   ],
+   "grain": 0.013,
+   "grain_chroma": 0.2,
+   "huePreserve": 0.4
+  },
+  "chrome": {
+   "name": "Chrome",
+   "about": "Slide film: deep blacks, hard contrast, saturated color, neutral-cool whites.",
+   "grey": 0.13,
+   "slope": 1.6,
+   "shoulder": 2.2,
+   "white": 0.96,
+   "floor": 0.0,
+   "printer": [
+    0.01,
+    -0.015
+   ],
+   "crossover": [
+    0.0,
+    0.03
+   ],
+   "interlayer": 0.3,
+   "crosstalk": 0.45,
+   "halation": [
+    0.02,
+    0.006,
+    0.0
+   ],
+   "grain": 0.004,
+   "grain_chroma": 0.1,
+   "huePreserve": 0.75
+  },
+  "faded": {
+   "name": "Faded",
+   "about": "An old print left in the sun: milky blacks, dimmed whites, warm-magenta cast, faded color.",
+   "grey": 0.19,
+   "slope": 1.0,
+   "shoulder": 1.6,
+   "white": 0.86,
+   "floor": 0.035,
+   "printer": [
+    -0.03,
+    0.05
+   ],
+   "crossover": [
+    -0.03,
+    0.08
+   ],
+   "interlayer": -0.25,
+   "crosstalk": 1.0,
+   "halation": [
+    0.06,
+    0.015,
+    0.0
+   ],
+   "grain": 0.014,
+   "grain_chroma": 0.3,
+   "huePreserve": 0.5
+  },
+  "punch": {
+   "name": "Punch",
+   "about": "Vivid color negative pushed hard: bold contrast, rich saturated color, clean blacks.",
+   "grey": 0.15,
+   "slope": 1.45,
+   "shoulder": 2.0,
+   "white": 0.97,
+   "floor": 0.0,
+   "printer": [
+    0.0,
+    0.015
+   ],
+   "crossover": [
+    0.02,
+    -0.04
+   ],
+   "interlayer": 0.4,
+   "crosstalk": 0.35,
+   "halation": [
+    0.04,
+    0.01,
+    0.0
+   ],
+   "grain": 0.005,
+   "grain_chroma": 0.1,
+   "huePreserve": 0.75
+  },
+  "mono400": {
+   "name": "Mono 400",
+   "about": "Classic black-and-white 400: punchy mid-tones, a long toe and visible grain.",
+   "grey": 0.15,
+   "slope": 1.55,
+   "shoulder": 2.4,
+   "white": 0.97,
+   "floor": 0.0,
+   "printer": [
+    0.0,
+    0.0
+   ],
+   "crossover": [
+    0.0,
+    0.0
+   ],
+   "interlayer": 0.0,
+   "crosstalk": 0.0,
+   "halation": [
+    0.04,
+    0.04,
+    0.04
+   ],
+   "grain": 0.02,
+   "grain_chroma": 0.0
+  },
+  "noir": {
+   "name": "Noir",
+   "about": "Pushed black-and-white: inky blacks, bright highlights, heavy grain and glow.",
+   "grey": 0.12,
+   "slope": 2.0,
+   "shoulder": 3.0,
+   "white": 1.0,
+   "floor": 0.0,
+   "printer": [
+    0.0,
+    0.0
+   ],
+   "crossover": [
+    0.0,
+    0.0
+   ],
+   "interlayer": 0.0,
+   "crosstalk": 0.0,
+   "halation": [
+    0.09,
+    0.09,
+    0.09
+   ],
+   "grain": 0.018,
+   "grain_chroma": 0.0
+  },
+  "silver": {
+   "name": "Silver",
+   "about": "Soft fine-grain black and white: gentle contrast, open shadows, pearly highlights.",
+   "grey": 0.18,
+   "slope": 1.05,
+   "shoulder": 1.8,
+   "white": 0.93,
+   "floor": 0.008,
+   "printer": [
+    0.0,
+    0.0
+   ],
+   "crossover": [
+    0.0,
+    0.0
+   ],
+   "interlayer": 0.0,
+   "crosstalk": 0.0,
+   "halation": [
+    0.03,
+    0.03,
+    0.03
+   ],
+   "grain": 0.007,
+   "grain_chroma": 0.0
+  }
+ }
+}

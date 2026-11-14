@@ -105,6 +105,30 @@ enum FilmMath {
         return encodeSRGB(t * t)
     }
 
+    static func matmul(_ a: [Double], _ b: [Double]) -> [Double] {
+        var m = [Double](repeating: 0, count: 9)
+        for i in 0..<3 { for j in 0..<3 { m[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j] } }
+        return m
+    }
+
+    static func inverse3(_ m: [Double]) -> [Double] {
+        let a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], i = m[8]
+        let A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g
+        let det = a * A + b * B + c * C
+        return [A / det, -(b * i - c * h) / det, (b * f - c * e) / det,
+                B / det, (a * i - c * g) / det, -(a * f - c * d) / det,
+                C / det, -(a * h - b * g) / det, (a * e - b * d) / det]
+    }
+
+    /// Linear Display P3 → linear Rec.2020, and back (both D65).
+    static let p3ToRec2020: [Double] = [
+        0.753833, 0.198597, 0.047570,
+        0.045744, 0.941777, 0.012479,
+        -0.001210, 0.017601, 0.983609,
+    ]
+    static let rec2020ToP3: [Double] = inverse3(p3ToRec2020)
+    static let lumP3 = (0.2289746, 0.6917385, 0.0792869)
+
     /// Linear sRGB → linear Rec.2020 (both D65).
     static let sRGBToRec2020: [Double] = [
         0.627404, 0.329283, 0.043313,
@@ -115,6 +139,9 @@ enum FilmMath {
 
 /// One film system: a negative printed onto a print stock, plus its grain and halation.
 struct FilmStock: Hashable {
+    /// The id recipes store (`FilmRecipe.stock`): "print", "warm400", …
+    var id: String
+
     struct HalationSpread: Hashable {
         /// Scene-linear level above which clipped highlights get boosted (sensors clip
         /// where film doesn't), and the boost.
@@ -156,6 +183,9 @@ struct FilmStock: Hashable {
     var grainDensity: Double
     var grainChroma: Double
     var grainSize: Double
+    /// 0…1: how much bright colors keep their scene hue instead of film's per-channel
+    /// shoulder shift (which turns bright warm colors yellow). 0 = pure film (Print).
+    var huePreserve: Double
 
     /// Density 18% grey produces on the negative, per layer.
     var greyNegativeDensity: (Double, Double, Double) {
@@ -190,19 +220,80 @@ enum FilmLUT {
         /// Scene-linear light, e.g. a RAW develop with no tone curve. 18% grey = 0.18.
         case sceneLinear
         /// An already-rendered display image (camera video, a processed HEIF). The cube
-        /// undoes a generic camera tone curve first so highlights aren't compressed twice.
+        /// undoes a generic camera tone curve first (on luminance, keeping each color's
+        /// channel ratios) so highlights aren't compressed twice.
         case displayReferred
     }
 
-    /// Inverse of a generic phone rendering, display = 1.333·s / (1 + 1.11·s), which puts
-    /// 18% grey at 0.20 and +4.5 stops at white.
+    /// Inverse of a generic phone rendering, display = 1.273·s / (1 + 0.808·s), which puts
+    /// 18% grey at 0.20 and +3.5 stops at white. (Gentle on purpose: a brightly rendered
+    /// face shouldn't be read as stops over and pushed into the film's shoulder.)
     static func sceneFromDisplay(_ x: Double) -> Double {
         let v = min(max(x, 0), 0.995)
-        return v / (1.333 - 1.11 * v)
+        return v / (1.273 - 0.808 * v)
+    }
+
+    /// For a display-referred color (linear Rec.2020): undo the tone curve on luminance
+    /// and keep the color's channel ratios. Inverting per channel would read a saturated
+    /// display red as a red channel stops overexposed, and the film's shoulder would turn
+    /// it orange.
+    static func sceneFromDisplay(rgb: (Double, Double, Double)) -> (Double, Double, Double) {
+        let r = min(max(rgb.0, 0), 1), g = min(max(rgb.1, 0), 1), b = min(max(rgb.2, 0), 1)
+        let y = 0.2627 * r + 0.6780 * g + 0.0593 * b
+        let k = sceneFromDisplay(y) / max(y, 1e-6)
+        return (r * k, g * k, b * k)
     }
 
     static func unshaped(_ u: Double) -> Double {
         shaperScale * pow(u, shaperPower)
+    }
+
+    /// Density → log exposure for a monotone negative curve: linear interpolation in a
+    /// dense table (= filmmodel.neg_log_exposure).
+    struct InverseCurve {
+        static let samples = 1024
+        let xs: [Double]
+        let ds: [Double]
+
+        init(_ curve: FilmCurve) {
+            var probe = curve
+            probe.gamma = 1
+            let x0 = curve.x[0], x1 = curve.x[curve.x.count - 1]
+            let n = Self.samples
+            xs = (0...n).map { x0 + (x1 - x0) * Double($0) / Double(n) }
+            ds = xs.map { probe.density($0) }
+        }
+
+        func logExposure(_ d: Double) -> Double {
+            let n = ds.count
+            if d <= ds[0] { return xs[0] }
+            if d >= ds[n - 1] { return xs[n - 1] }
+            var lo = 0, hi = n - 1
+            while hi - lo > 1 {
+                let mid = (lo + hi) / 2
+                if ds[mid] <= d { lo = mid } else { hi = mid }
+            }
+            return xs[lo] + (xs[lo + 1] - xs[lo]) * (d - ds[lo]) / (ds[lo + 1] - ds[lo])
+        }
+    }
+
+    /// Layer exposure → scene color in linear P3 (the sensitivity matrix's saturation
+    /// undone), for highlight hue protection.
+    static func hueMatrix(_ s: FilmStock) -> [Double] {
+        FilmMath.matmul(FilmMath.rec2020ToP3, FilmMath.inverse3(s.sensitivity))
+    }
+
+    /// Blends a bright color toward the scene's own channel ratios at the same luminance,
+    /// more as it gets brighter (film's shoulder would otherwise shift its hue).
+    static func protectHue(_ out: (Double, Double, Double), scene: (Double, Double, Double),
+                           amount: Double) -> (Double, Double, Double) {
+        let l = FilmMath.lumP3
+        let yo = l.0 * out.0 + l.1 * out.1 + l.2 * out.2
+        let e = (max(scene.0, 0), max(scene.1, 0), max(scene.2, 0))
+        let ye = l.0 * e.0 + l.1 * e.1 + l.2 * e.2
+        let k = yo / max(ye, 1e-9)
+        let w = amount * FilmMath.smoothstep(0.2, 0.85, yo)
+        return (out.0 + (e.0 * k - out.0) * w, out.1 + (e.1 * k - out.1) * w, out.2 + (e.2 * k - out.2) * w)
     }
 
     /// Scene light (Rec.2020 linear) → negative density per layer.
@@ -220,16 +311,16 @@ enum FilmLUT {
         let n = negativeDimension
         let step = 1 / Double(n - 1)
         var lin = [Double](repeating: 0, count: n)
-        for i in 0..<n {
-            let x = unshaped(Double(i) * step)
-            lin[i] = source == .sceneLinear ? x : sceneFromDisplay(x)
-        }
+        for i in 0..<n { lin[i] = unshaped(Double(i) * step) }
         var cube = [Float](repeating: 1, count: n * n * n * 4)
         var o = 0
         for b in 0..<n {
             for g in 0..<n {
                 for r in 0..<n {
-                    let d = negativeDensity((lin[r], lin[g], lin[b]), stock: stock)
+                    let rgb = source == .sceneLinear
+                        ? (lin[r], lin[g], lin[b])
+                        : sceneFromDisplay(rgb: (lin[r], lin[g], lin[b]))
+                    let d = negativeDensity(rgb, stock: stock)
                     cube[o] = Float(d.0 / densityScale)
                     cube[o + 1] = Float(d.1 / densityScale)
                     cube[o + 2] = Float(d.2 / densityScale)
@@ -292,7 +383,11 @@ enum FilmLUT {
         let dp = (printDensity(dn.0, channel: 0, stock: s, curves: curves, grey: grey),
                   printDensity(dn.1, channel: 1, stock: s, curves: curves, grey: grey),
                   printDensity(dn.2, channel: 2, stock: s, curves: curves, grey: grey))
-        return display(print: dp, stock: s, curves: curves, controls: c)
+        let out = display(print: dp, stock: s, curves: curves, controls: c)
+        guard s.huePreserve > 0 else { return out }
+        let inv = s.negative.map { InverseCurve($0) }
+        let e = (pow(10, inv[0].logExposure(dn.0)), pow(10, inv[1].logExposure(dn.1)), pow(10, inv[2].logExposure(dn.2)))
+        return protectHue(out, scene: FilmMath.mul(hueMatrix(s), e), amount: s.huePreserve)
     }
 
     /// RGBA float cube, red fastest. Input: negative density / densityScale. Output:
@@ -366,6 +461,17 @@ enum FilmLUT {
             }
         }
         let d = stock.display
+        // Highlight hue protection needs the scene color: exposure per axis (inverse
+        // negative curve), mixed per cell through the hue matrix.
+        let hp = stock.huePreserve
+        var ex = [Double](repeating: 0, count: 3 * n)
+        let hm = hp > 0 ? hueMatrix(stock) : [Double](repeating: 0, count: 9)
+        if hp > 0 {
+            for ch in 0..<3 {
+                let inv = InverseCurve(stock.negative[ch])
+                for k in 0..<n { ex[ch * n + k] = pow(10, inv.logExposure(Double(k) * step)) }
+            }
+        }
         let encode = FilmMath.encodeTable
         let last = Double(FilmMath.encodeTableSize)
         @inline(__always) func enc(_ v: Double) -> Float {
@@ -394,9 +500,19 @@ enum FilmLUT {
                                 let h = toneTable[i] + (toneTable[i + 1] - toneTable[i]) * (u - Double(i))
                                 t0 *= h; t1 *= h; t2 *= h
                             }
-                            out[o] = enc(d[0] * t0 + d[1] * t1 + d[2] * t2)
-                            out[o + 1] = enc(d[3] * t0 + d[4] * t1 + d[5] * t2)
-                            out[o + 2] = enc(d[6] * t0 + d[7] * t1 + d[8] * t2)
+                            var rgb = (d[0] * t0 + d[1] * t1 + d[2] * t2,
+                                       d[3] * t0 + d[4] * t1 + d[5] * t2,
+                                       d[6] * t0 + d[7] * t1 + d[8] * t2)
+                            if hp > 0 {
+                                let e0 = ex[ri], e1 = ex[n + gi], e2 = ex[2 * n + bi]
+                                let sc = (hm[0] * e0 + hm[1] * e1 + hm[2] * e2,
+                                          hm[3] * e0 + hm[4] * e1 + hm[5] * e2,
+                                          hm[6] * e0 + hm[7] * e1 + hm[8] * e2)
+                                rgb = protectHue(rgb, scene: sc, amount: hp)
+                            }
+                            out[o] = enc(rgb.0)
+                            out[o + 1] = enc(rgb.1)
+                            out[o + 2] = enc(rgb.2)
                             o += 4
                         }
                     }

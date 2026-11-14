@@ -420,9 +420,9 @@ extension CameraSettings {
         }
     }
 
-    /// The active look is a film look, which develops from the sensor's Bayer RAW (like
-    /// Zero processing) so the film model gets real scene light.
-    var captureLookNeedsRAW: Bool { Look.named(activeLook)?.recipe.film != nil }
+    /// The active look shoots the sensor's Bayer RAW and develops it itself (Print, like
+    /// Zero processing), so the film model gets real scene light.
+    var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
     /// We capture Bayer RAW and develop it ourselves: Zero processing, or a film look.
     var developsBayerRAW: Bool { processing == .zero || captureLookNeedsRAW }
 }

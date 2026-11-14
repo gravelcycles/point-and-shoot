@@ -128,7 +128,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/ColorMixer.swift         8-band HSL → cached 32³ color cube
   Editor/RecipeBaker.swift        applies a recipe to a library asset (capture Looks; film looks from the DNG)
   Editor/FilmModel.swift          Print look math: film curves, LUT builders (Foundation only, testable anywhere)
-  Editor/FilmStock+Print.swift    GENERATED numbers for the Print look (from scripts/print-stock.json)
+  Editor/FilmStock+Stocks.swift   GENERATED film stocks: Print + every photo filter (from scripts/*.json)
   Editor/FilmPipeline.swift       Print look in Core Image: halation, neg cube, grain, print cube
   Editor/CropOverlay.swift, MetalImageView.swift
 PointAndShootUITests/             simulator UI tests (tap targets, tap-through); run with -uitest
@@ -141,9 +141,11 @@ Config/*-Info.plist               NSExtension dicts for the two extensions (merg
 .github/workflows/build.yml       unsigned compile on every push + PRs (free: repo is public)
 .github/workflows/testflight.yml  sign + upload to TestFlight on push (skips until secrets exist)
 codemagic.yaml                    optional alternative CI
-scripts/print-look.py             Print look tools: preview on DNGs, fit to reference pairs, export-swift, parity
+scripts/print-look.py             film-look tools: preview on DNGs, fit to reference pairs, export-swift, parity
 scripts/filmmodel.py              reference (numpy) implementation of FilmModel/FilmPipeline
 scripts/print-stock.json          the Print look's parameters (source of truth)
+scripts/film-looks.json           the photo filters as compact film-stock specs (source of truth)
+scripts/filmlooks.py              builds full stocks from film-looks.json (tone curve derivation)
 CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 ```
 
@@ -210,14 +212,35 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   for the viewer, the grid and the camera thumbnail. Views key image caches on
   `PHAsset.revisionKey` (localIdentifier + modificationDate), so edits refresh everywhere.
 
-### Print look (film emulation)
+### Film looks: Print and every photo filter
+- **Every filter except Original is a film stock** in the same model. Print is the
+  original. Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir
+  and Silver each have their own:
+  - tone curve: grey placement, contrast slope, shoulder, white, black floor
+  - printer-light balance and crossover
+  - interlayer saturation and dye crosstalk
+  - halation and grain
+  - B&W filters are color stocks followed by the existing mono mix, so the color mixer
+    still works like darkroom filters.
+  - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
+- **Only Print captures RAW** (`Look.capturesRAW`). The others apply to whatever Photo
+  mode's processing produced, and develop from RAW when the shot has a DNG.
 - **Signal path:** scene-linear light → exposure → halation → shaper → negative cube →
   + grain → print cube → Display P3. See the header of `FilmModel.swift`.
   - Halation and grain are spatial, so they sit outside the two 3D LUTs.
   - Grain is added in *negative density*, so the print curve shapes it the way a real
     print does.
-- **Source of truth:** `scripts/print-stock.json`.
-  - `FilmStock+Print.swift` is generated from it: `scripts/print-look.py export-swift`.
+- **Highlight hue protection** (`huePreserve`, per stock): film's per-channel shoulder
+  turns bright warm colors yellow, because red compresses first. Bright skin goes gold.
+  - The print cube blends toward the scene's own color, with the interlayer saturation
+    undone, as luminance rises.
+  - Print keeps 0 to stay faithful to Chromagraph. The color filters use 0.4–0.9.
+- **Source of truth:**
+  - `scripts/print-stock.json` holds Print (fitted).
+  - `scripts/film-looks.json` holds the filters: compact specs, with anything left out
+    inherited from Print. `scripts/filmlooks.py` derives each stock's print curve from
+    its tone target.
+  - `FilmStock+Stocks.swift` is generated from both: `scripts/print-look.py export-swift`.
   - `scripts/filmmodel.py` mirrors the Swift math exactly.
   - After touching either side, run `scripts/print-look.py parity`. It compiles
     FilmModel.swift with `swiftc`, works on Linux too, and fails on any difference
@@ -232,9 +255,11 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     Chromagraph samples (neutral-axis tint vs. lightness, ColorChecker chroma ≈ 0.85×).
   - Grain (mostly monochrome, ~0.5 px) and halation: matched by eye/measurement to the
     same samples.
-- **Tables:**
-  - The negative cube (48³, 1.8 MB) is fixed per source and built once (~15 ms;
-    prewarmed at launch).
+- **Tables** (per stock):
+  - The negative cube (48³, 1.8 MB) is fixed per stock and source, built once (~15 ms).
+    At launch every stock's viewfinder cube is prewarmed in the background (~200 ms of
+    CPU), so the FILTER strip's live previews never stall the viewfinder.
+  - Both caches are small LRUs (16 negative, 18 print; 1.8 MB each).
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
     highlights, shadows) and is cached. It rebuilds in ~3 ms, so editor sliders never
     hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
@@ -247,7 +272,12 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - `.sceneLinear` is a RAW develop with `boostAmount = 0`, no local tone mapping and no
     sharpening (`EditPipeline.configure` does this whenever `recipe.film != nil`).
   - `.displayReferred` (viewfinder, processed HEIFs) first undoes a generic phone tone
-    curve inside the negative cube.
+    curve inside the negative cube. It inverts **on luminance and keeps each color's
+    channel ratios** (`FilmLUT.sceneFromDisplay(rgb:)`).
+    - Inverting per channel read saturated display reds as stops over: they turned
+      orange and faces yellow.
+    - The curve is deliberately gentle (+3.5 stops at white), so a brightly rendered face
+      isn't pushed into the shoulder.
 - **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
   "Print film look".
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
@@ -289,7 +319,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Print: where 18% grey lands | `print-stock.json` `exposure` (0) + RAW baseline exposure | grey → ~11.5% display; assumes CIRAWFilter with boost 0 gives grey ≈ 0.18 |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.012 D at 4032 px, 0.13 ‰, 15% color |
-| Print: viewfinder inverse tone curve | `FilmLUT.sceneFromDisplay` | display = 1.333·s/(1+1.11·s) |
+| Film looks: inverse of a phone's tone curve (viewfinder, processed photos) | `FilmLUT.sceneFromDisplay` | display = 1.273·s/(1+0.808·s), applied to luminance |
+| Photo filters' tone, color and texture | `scripts/film-looks.json` | designed on two RAW files and two Apple-processed photos; tune on device |
 
 ---
 
@@ -300,8 +331,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     (`.alternatePhoto`).
   - Processing levels Apple, Balanced, Natural, Zero; 12 MP or max resolution.
   - Flash, self-timer, responsive capture and zero shutter lag.
-  - Capture **Filters** (called Looks in code): previewed live and baked on as an editable edit (needs full Photos
-    access).
+  - Capture **Filters** (called Looks in code): film stocks (§4 "Film looks"), previewed
+    live and baked on as an editable edit (needs full Photos access).
   - Hold the shutter for **burst**.
 - **Controls:**
   - Progressive disclosure: the strip shows EV + FILTER; **PRO** (`strip.pro`,
