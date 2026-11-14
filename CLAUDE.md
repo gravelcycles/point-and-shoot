@@ -412,10 +412,13 @@ is the only source of truth for what exists. Everything else reacts to it.
   regenerating `FilmStock+Stocks.swift`) never changes an older photo, even when it's
   reopened and re-saved in the editor.
   - **Photos from before pinning** (no `tuning`) resolve to the exact tuning they were made
-    with, from the frozen history in `FilmStock+Legacy.swift`: a stock id → the stocks as
-    shipped from #15/#20; no stock id (Print before #15) → Print as shipped in #9 (grain
-    0.012). Saving such an edit pins that same tuning. **Never edit or regenerate
-    `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
+    with, from the frozen history in `FilmStock+Legacy.swift`:
+    - a stock id (film-stock filters, #15+) → the stocks as shipped from #15/#20;
+    - no stock id is Print, which never stored one before pinning: luminance NR under 50
+      (#9's Print set 15%) → Print as shipped in #9 (grain 0.012); otherwise (the #20+
+      baker floors NR at 50) → Print as shipped from #20 (grain 0.008).
+    - Saving such an edit pins that same tuning. **Never edit or regenerate
+      `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
   - `FilmRecipe.engine` records the film-math version (`currentEngine`, now 1). Pinning

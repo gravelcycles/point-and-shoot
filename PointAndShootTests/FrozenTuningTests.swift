@@ -64,23 +64,39 @@ final class FrozenTuningTests: XCTestCase {
 
     // MARK: Photos taken before tunings were pinned
 
-    /// A Print edit saved by the first Print build (#9): no stock id, no tuning.
+    /// A Print edit as the first Print build (#9) saved it: no stock id, no tuning, 15% NR.
     private var printV1Edit: EditRecipe {
         var r = printRecipe
         r.film = FilmRecipe(stock: nil, tuning: nil, engine: nil, halation: 50, crossover: 0)
+        r.rawNoiseReduction = 15
+        r.rawInitialized = true
         return r
     }
 
-    func testPrintFromBeforeStockIDsResolvesToPrintAsItShipped() {
-        let stock = FilmStock.resolved(for: printV1Edit.film!)
+    /// A Print edit as #20–#27 saved it: still no stock id or tuning, NR floored at 50.
+    private var printV2Edit: EditRecipe {
+        var r = printV1Edit
+        r.rawNoiseReduction = 62
+        return r
+    }
+
+    func testPrintFromTheFirstBuildResolvesToPrintAsItShipped() throws {
+        let stock = try XCTUnwrap(FilmStock.resolved(for: printV1Edit))
         XCTAssertEqual(stock, FilmStock.Legacy.printV1)
         XCTAssertEqual(stock.grainDensity, 0.012, "#9 shipped Print with 0.012 D grain")
     }
 
+    func testPrintFromAfterTheGrainFixResolvesToThatPrint() throws {
+        let stock = try XCTUnwrap(FilmStock.resolved(for: printV2Edit))
+        XCTAssertEqual(stock, FilmStock.Legacy.v2["print"])
+        XCTAssertEqual(stock.grainDensity, 0.008, "#20 shipped Print with 0.008 D grain")
+    }
+
     func testStockEditsFromBeforePinningResolveToTheStocksAsShipped() {
         for id in FilmStock.all.keys {
-            let film = FilmRecipe(stock: id, tuning: nil, engine: nil)
-            XCTAssertEqual(FilmStock.resolved(for: film), FilmStock.Legacy.v2[id], id)
+            var r = EditRecipe()
+            r.film = FilmRecipe(stock: id, tuning: nil, engine: nil)
+            XCTAssertEqual(FilmStock.resolved(for: r), FilmStock.Legacy.v2[id], id)
         }
     }
 
