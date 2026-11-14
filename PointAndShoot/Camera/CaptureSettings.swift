@@ -426,4 +426,16 @@ extension CameraSettings {
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.recipe.film != nil }
     /// We capture Bayer RAW and develop it ourselves: Zero processing, or a film look.
     var developsBayerRAW: Bool { processing == .zero || captureLookNeedsRAW }
+
+    /// Bayer RAW is the sensor's full frame, and AVFoundation throws (an instant crash) if
+    /// it's captured while digitally zoomed. Modes that shoot it lock zoom at 1×.
+    var zoomLocked: Bool { mode.isStill && (developsBayerRAW || rawMode == .bayer) }
+
+    /// What to call the zoom-locked mode in a toast.
+    var zoomLockReason: String {
+        if mode == .print { return "Print" }
+        if processing == .zero { return "Zero" }
+        if captureLookNeedsRAW { return "this filter" }
+        return "Bayer RAW"
+    }
 }
