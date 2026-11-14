@@ -210,6 +210,19 @@ def decode_srgb(v):
     return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
 
 
+def split_tone(enc, stock):
+    """Shadow / highlight toning on the print's encoded output: the toe and the shoulder
+    take on their own colors (cross-processed and toned prints, faded dyes), weighted
+    (1 - Y)^2 and Y^2 by encoded luminance. The tints are luminance-neutral offsets, so
+    the tone curve holds; a tint in the shadows also colors a lifted black."""
+    st = stock.get("shadowTint", [0.0, 0.0, 0.0])
+    ht = stock.get("highlightTint", [0.0, 0.0, 0.0])
+    if not any(st) and not any(ht):
+        return enc
+    y = np.clip(enc @ LUM_P3, 0, 1)[..., None]
+    return np.clip(enc + (1 - y) ** 2 * np.array(st) + y * y * np.array(ht), 0, 1)
+
+
 def neutral_response(stops, stock, controls=None):
     x = 0.18 * 2.0 ** np.asarray(stops, dtype=np.float64)
     rgb = np.stack([x, x, x], axis=-1)
@@ -231,7 +244,7 @@ def negative_cube(stock, source="sceneLinear", n=48):
 def print_cube(stock, controls=None, n=48):
     d = np.arange(n) * (DENSITY_SCALE / (n - 1))
     b, g, r = np.meshgrid(d, d, d, indexing="ij")
-    return encode_srgb(display(np.stack([r, g, b], axis=-1), stock, controls))
+    return split_tone(encode_srgb(display(np.stack([r, g, b], axis=-1), stock, controls)), stock)
 
 
 # --- Full image render (mirrors FilmPipeline) ------------------------------------------
@@ -293,7 +306,7 @@ def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0,
     dn = negative_density(rgb2020, stock)
     if grain_amount > 0:
         dn = dn + grain_field(dn.shape[:2], stock, grain_amount)
-    return np.clip(display(dn, stock, controls), 0, 1)
+    return decode_srgb(split_tone(encode_srgb(display(dn, stock, controls)), stock))
 
 
 def load_stock(path):

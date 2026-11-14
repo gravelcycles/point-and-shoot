@@ -91,6 +91,10 @@ def build_stock(name, spec, base):
         st["halation"] = spec["halation"]
     if "halation_spread" in spec:
         st["halation_spread"] = {**base["halation_spread"], **spec["halation_spread"]}
+    for k_spec, k_stock in (("shadow_tint", "shadowTint"), ("highlight_tint", "highlightTint")):
+        t = np.array(spec.get(k_spec, [0.0, 0.0, 0.0]), dtype=np.float64)
+        t = t - float(t @ F.LUM_P3)          # luminance-neutral: the tone target holds
+        st[k_stock] = [round(float(v), 5) for v in t]
     st["huePreserve"] = spec.get("huePreserve", 0.0)
     st["monoTone"] = spec.get("mono_tone", [1.0, 1.0, 1.0])
     for k_spec, k_stock in (("grain", "grainDensity"), ("grain_chroma", "grainChroma"), ("grain_size", "grain_size")):

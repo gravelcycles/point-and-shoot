@@ -34,14 +34,16 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     curve, color balance, film color (rich colors get denser, not louder), halation and
     grain.
     - **Natural:** a clean negative scan.
-    - **Warm 400:** golden portrait film.
-    - **Skin:** soft and flattering.
-    - **Cool Air:** crisp, cyan-leaning.
-    - **Cine:** tungsten cinema negative with teal shadows and a red glow around lights.
-    - **Chrome:** slide film.
-    - **Faded:** a sun-faded print.
-    - **Punch:** vivid.
-    - **Mono 400, Noir, Silver:** black and white (neutral, cold-toned, warm-toned).
+    - **Warm 400:** golden hour: amber light, matte brown blacks, grain.
+    - **Skin:** bright, soft and peachy, with a gentle glow.
+    - **Cool Air:** airy, with blue-cyan shadows.
+    - **Cine:** low key, teal shadows under amber highlights, a red glow around lights.
+    - **Chrome:** slide film: dark, dense and richly saturated.
+    - **Faded:** a sun-faded print with milky indigo blacks.
+    - **Punch:** maximum color.
+    - **Mono 400, Noir, Silver:** black and white (neutral; inky and cold; soft sepia).
+  - **Each filter has its own shadows, brightness and color,** spaced at least as far
+    apart as Instagram-style filters, so they're easy to tell apart at a glance.
   - **Bright skin stays skin-colored** instead of going gold.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.

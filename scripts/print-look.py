@@ -21,6 +21,13 @@
       balance, or with --same-raw one shared exposure offset); writes a new stock JSON.
       Then run export-swift.
 
+  print-look.py spread IMG [...] [--side 300]
+      Render every photo filter on DNGs (developed scene-linear) and JPEG/HEIC/PNG
+      (display-referred, like processed photos) and print how far apart the filters are:
+      brightness, contrast, chroma, shadow and highlight tint, and each filter's nearest
+      neighbour in mean ΔE (Oklab). Keep every nearest-neighbour ΔE >= 0.06 when tuning
+      (film only: the recipe's vignette and structure come on top).
+
 Needs: numpy scipy pillow rawpy opencv-python-headless (pillow-heif for .heic).
 """
 from __future__ import annotations
@@ -113,7 +120,9 @@ def export_swift(stock_path=STOCK, out=SWIFT):
             f"            grainChroma: {float(st['grainChroma'])},",
             f"            grainSize: {float(st['grain_size'])},",
             f"            huePreserve: {float(st.get('huePreserve', 0.0))},",
-            f"            monoTone: {[float(v) for v in st.get('monoTone', [1.0, 1.0, 1.0])]})",
+            f"            monoTone: {[float(v) for v in st.get('monoTone', [1.0, 1.0, 1.0])]},",
+            f"            shadowTint: {[float(v) for v in st.get('shadowTint', [0.0, 0.0, 0.0])]},",
+            f"            highlightTint: {[float(v) for v in st.get('highlightTint', [0.0, 0.0, 0.0])]})",
             "    }()",
             "",
         ]
@@ -332,6 +341,51 @@ def fit(pairs_dir, out_path, stock_path=STOCK, long_side=900, same_raw=False):
     print("wrote", out_path, "- now run: scripts/print-look.py export-swift")
 
 
+# --- spread ----------------------------------------------------------------------------
+
+P3_TO_SRGB = np.linalg.inv(np.array([[0.822462, 0.177538, 0.0], [0.033194, 0.966806, 0.0],
+                                     [0.017083, 0.072397, 0.910520]]))
+MONO_MIX = np.array([0.34, 0.56, 0.10])
+
+
+def spread(paths, side=300):
+    import filmlooks
+    stocks = filmlooks.all_stocks(F.load_stock(STOCK))
+    specs = filmlooks.load_looks()["looks"]
+    inputs = []
+    for p in paths:
+        if p.lower().endswith(".dng"):
+            inputs.append(("sceneLinear", _resize(develop_linear(p, max_side=4 * side), side)))
+        else:
+            inputs.append(("displayReferred", np.clip(load_reference(p, side) @ P3_TO_SRGB.T, 0, 1)))
+    groups = {"color": [k for k in specs if "mono_tone" not in specs[k]],
+              "black and white": [k for k in specs if "mono_tone" in specs[k]]}
+    for title, ids in groups.items():
+        labs = {}
+        for sid in ids:
+            st = stocks[sid]
+            outs = []
+            for src, img in inputs:
+                out = F.render(img, st, grain_amount=0, source=src)
+                if title != "color":
+                    out = (out @ MONO_MIX)[..., None] * np.array(st["monoTone"])
+                outs.append(oklab_p3(np.clip(out, 0, 1)))
+            labs[sid] = outs
+        D = np.array([[np.mean([np.linalg.norm(x - y, axis=-1).mean() for x, y in zip(labs[a], labs[b])])
+                       for b in ids] for a in ids])
+        print(f"\n{title}: {'filter':10s} {'L':>6s} {'L sd':>6s} {'chroma':>7s} {'shadow a,b':>15s} {'hilite a,b':>15s}  nearest")
+        for i, sid in enumerate(ids):
+            px = np.concatenate([x.reshape(-1, 3) for x in labs[sid]])
+            sh, hi = px[px[:, 0] < 0.4], px[px[:, 0] > 0.7]
+            tint = lambda q: f"({q[:, 1].mean():+.3f},{q[:, 2].mean():+.3f})" if len(q) else "      -      "
+            d = D[i].copy()
+            d[i] = np.inf
+            j = int(d.argmin())
+            print(f"{'':{len(title) + 2}s}{sid:10s} {px[:, 0].mean():6.3f} {px[:, 0].std():6.3f} "
+                  f"{np.hypot(px[:, 1], px[:, 2]).mean():7.3f} {tint(sh):>15s} {tint(hi):>15s}  {ids[j]} {d[j]:.3f}"
+                  + ("   < 0.06: too close" if d[j] < 0.06 else ""))
+
+
 def parity():
     import subprocess
     import tempfile
@@ -350,7 +404,7 @@ def parity():
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
     worst = 0.0
-    for sid in ("print", "chrome", "warm400", "noir"):
+    for sid in ("print", "chrome", "warm400", "cine", "noir"):
         st, s = stocks[sid], sw[sid]
         neg, negd = F.negative_cube(st, "sceneLinear", 48), F.negative_cube(st, "displayReferred", 48)
         pc, pcc = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48)
@@ -381,6 +435,9 @@ def main():
     pv.add_argument("--ev", type=float, default=0.0)
     pv.add_argument("--out", default=".")
     sub.add_parser("parity")
+    sp = sub.add_parser("spread")
+    sp.add_argument("images", nargs="+")
+    sp.add_argument("--side", type=int, default=300)
     ft = sub.add_parser("fit")
     ft.add_argument("pairs_dir")
     ft.add_argument("--out", default=STOCK)
@@ -393,6 +450,8 @@ def main():
         preview(a.dngs, a.ev, a.out)
     elif a.cmd == "parity":
         parity()
+    elif a.cmd == "spread":
+        spread(a.images, a.side)
     elif a.cmd == "fit":
         fit(a.pairs_dir, a.out, same_raw=a.same_raw)
 

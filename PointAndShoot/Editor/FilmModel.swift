@@ -188,6 +188,14 @@ struct FilmStock: Hashable {
     var huePreserve: Double
     /// RGB gains after the mono mix for black-and-white filters (warm or cool toning).
     var monoTone: [Double]
+    /// Split toning on the print's encoded output: offsets added with weight (1 − Y)² in
+    /// the shadows and Y² in the highlights (Y = encoded luminance). Luminance-neutral,
+    /// so the tone curve holds; a shadow tint also colors a lifted black. This is what
+    /// gives a filter its own shadows: film blacks otherwise converge to the same neutral.
+    var shadowTint: [Double] = [0, 0, 0]
+    var highlightTint: [Double] = [0, 0, 0]
+
+    var hasSplitTone: Bool { shadowTint.contains { $0 != 0 } || highlightTint.contains { $0 != 0 } }
 
     /// Density 18% grey produces on the negative, per layer.
     var greyNegativeDensity: (Double, Double, Double) {
@@ -524,12 +532,15 @@ enum FilmLUT {
         let rootScale = Double(nSamples) / neutralRoot
         let encode = FilmMath.encodeTable
         let last = Double(FilmMath.encodeTableSize)
-        @inline(__always) func enc(_ v: Double) -> Float {
+        @inline(__always) func enc(_ v: Double) -> Double {
             let t = min(max(v, 0), 1).squareRoot() * last
             let i = min(Int(t), FilmMath.encodeTableSize - 1)
             let frac = t - Double(i)
-            return Float(encode[i] + (encode[i + 1] - encode[i]) * frac)
+            return encode[i] + (encode[i + 1] - encode[i]) * frac
         }
+        let toned = stock.hasSplitTone
+        let s0 = stock.shadowTint[0], s1 = stock.shadowTint[1], s2 = stock.shadowTint[2]
+        let h0 = stock.highlightTint[0], h1 = stock.highlightTint[1], h2 = stock.highlightTint[2]
 
         var cube = [Float](repeating: 1, count: n * n * n * 4)
         cube.withUnsafeMutableBufferPointer { out in
@@ -574,9 +585,17 @@ enum FilmLUT {
                                 let w = hp * x * x * (3 - 2 * x)
                                 rgb = (rgb.0 + (g0 * k - rgb.0) * w, rgb.1 + (g1 * k - rgb.1) * w, rgb.2 + (g2 * k - rgb.2) * w)
                             }
-                            out[o] = enc(rgb.0)
-                            out[o + 1] = enc(rgb.1)
-                            out[o + 2] = enc(rgb.2)
+                            var e0 = enc(rgb.0), e1 = enc(rgb.1), e2 = enc(rgb.2)
+                            if toned {      // split toning (filmmodel.split_tone)
+                                let y = lum.0 * e0 + lum.1 * e1 + lum.2 * e2   // in 0…1: e is, and lum sums to 1
+                                let ws = (1 - y) * (1 - y), wh = y * y
+                                e0 = min(max(e0 + ws * s0 + wh * h0, 0), 1)
+                                e1 = min(max(e1 + ws * s1 + wh * h1, 0), 1)
+                                e2 = min(max(e2 + ws * s2 + wh * h2, 0), 1)
+                            }
+                            out[o] = Float(e0)
+                            out[o + 1] = Float(e1)
+                            out[o + 2] = Float(e2)
                             o += 4
                         }
                     }

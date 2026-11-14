@@ -12,7 +12,7 @@ ctl.contrast = 0.4; ctl.saturation = 0.5; ctl.crossover = -0.5; ctl.highlights =
 
 var out: [String: Any] = [:]
 var timing: [String: [Double]] = [:]
-for id in ["print", "chrome", "warm400", "noir"] {
+for id in ["print", "chrome", "warm400", "cine", "noir"] {
     let s = FilmStock.named(id)
     var neutral: [[Double]] = [], neutralCtl: [[Double]] = []
     for st in stride(from: -6.0, through: 6.0, by: 0.5) {

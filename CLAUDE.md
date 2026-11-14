@@ -219,13 +219,28 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - tone curve: grey placement, contrast slope, shoulder, white, black floor
   - printer-light balance and crossover
   - interlayer saturation and dye crosstalk
-  - halation and grain
+  - halation and grain (Skin's "halation" is a neutral, wide bloom)
+  - split toning (`shadowTint` / `highlightTint`): luminance-neutral offsets added to the
+    print's *encoded* output with weight (1 − Y)² / Y². This is what gives each filter
+    its own shadows. Without it every film black converges to the same neutral, which was
+    the main reason the filters read as alike (Cine's teal shadows, Cool Air's blue,
+    Warm 400's brown, Faded's indigo).
   - B&W filters are color stocks followed by the existing mono mix, so the color mixer
     still works like darkroom filters. The stock's `monoTone` gains tone the result: Noir
     is cold, Silver warm, Mono 400 neutral.
-  - Signatures are deliberately far apart: every pair of color filters differs by
-    ≥ 0.03 mean ΔE (Oklab), and most by 0.05–0.15. Keep it that way when tuning; the
-    first pass at 0.014–0.03 read as "they all look the same".
+  - Signatures are deliberately far apart. Each filter owns 2–3 axes that survive a
+    thumbnail: brightness (key), contrast, chroma, shadow tint, highlight tint and
+    vignette. Grain and structure don't show at thumbnail size, so they never carry a
+    filter on their own.
+    - **Rule:** every filter's nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
+      `scripts/print-look.py spread IMG…`, which prints the table and flags offenders.
+    - Today the nearest pairs are 0.067–0.075. That is more spread out than
+      Instagram-style filters: CSSgram's 26 filters have a nearest-neighbour median of
+      0.050 and a minimum of 0.021.
+    - On a ColorChecker (CIE76) our colour filters are ≥ 14.9 from each other, vs a
+      median of ~11 for CSSgram.
+    - The first pass sat at 0.014–0.03 and the second at 0.032–0.055. Both read as "they
+      all look the same".
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
 - **Only Print captures RAW** (`Look.capturesRAW`). The others apply to whatever Photo
   mode's processing produced, and develop from RAW when the shot has a DNG.
@@ -268,8 +283,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     CPU), so the FILTER strip's live previews never stall the viewfinder.
   - Both caches are small LRUs (16 negative, 18 print; 1.8 MB each).
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
-    highlights, shadows) and is cached. It rebuilds in ~2–3 ms (~5 ms with hue
-    protection), only when a film slider moves, so editor sliders don't hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
+    highlights, shadows) and is cached. It rebuilds in ~2 ms (Print) to ~7 ms (hue
+    protection + split toning), only when a film slider moves, so editor sliders don't hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
     are linear in density), with a 1-D table for highlights/shadows and a √-space table
     for the sRGB encode.
   - Don't shrink below 48³: at 40³ the grey ramp stops being monotone (banding).
@@ -327,7 +342,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.012 D at 4032 px, 0.13 ‰, 15% color |
 | Film looks: inverse of a phone's tone curve (viewfinder, processed photos) | `FilmLUT.sceneFromDisplay` | display = 1.273·s/(1+0.808·s), applied to luminance |
-| Photo filters' tone, color and texture | `scripts/film-looks.json` | designed on two RAW files and two Apple-processed photos; tune on device |
+| Photo filters' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
 
 ---
 
