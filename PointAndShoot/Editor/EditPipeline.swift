@@ -38,7 +38,8 @@ enum EditPipeline {
     }
 
     static func configure(_ raw: CIRAWFilter, recipe r: EditRecipe, defaults d: RAWDefaults) {
-        raw.exposure = Float(r.exposure / 50)
+        // Under a film look, plus the exposure that matched the shot to the viewfinder.
+        raw.exposure = Float(r.exposure / 50 + (r.film != nil ? r.rawFilmExposure ?? 0 : 0))
         raw.neutralTemperature = max(2000, min(50000, d.temperature + Float(r.warmth) * 40))
         raw.neutralTint = max(-150, min(150, d.tint + Float(r.tint) * 1.2))
         if raw.isLuminanceNoiseReductionSupported { raw.luminanceNoiseReductionAmount = Float(r.rawNoiseReduction / 100) }

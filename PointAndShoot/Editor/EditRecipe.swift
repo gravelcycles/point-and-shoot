@@ -44,6 +44,10 @@ struct EditRecipe: Codable, Equatable {
     static let filmMinimumNoiseReduction: Double = 50
     var rawLocalTone: Double = 50
     var rawBoost: Double = 100
+    /// Stops added to the RAW develop under a film look so the shot matches the
+    /// viewfinder's brightness (measured when the look is baked at capture). nil = none;
+    /// optional so older edits decode.
+    var rawFilmExposure: Double?
 
     // Color mixer: 8 bands × (hue, saturation, luminance), -100…100. Stored only when
     // used (nil = untouched), which also keeps older saved edits decoding fine.
@@ -87,6 +91,7 @@ struct EditRecipe: Codable, Equatable {
         r.rawNoiseReduction = target.rawNoiseReduction
         r.rawLocalTone = target.rawLocalTone
         r.rawBoost = target.rawBoost
+        r.rawFilmExposure = target.rawFilmExposure
         return r
     }
 
@@ -103,6 +108,7 @@ struct EditRecipe: Codable, Equatable {
         rawNoiseReduction = keep.rawNoiseReduction
         rawLocalTone = keep.rawLocalTone
         rawBoost = keep.rawBoost
+        rawFilmExposure = keep.rawFilmExposure
     }
 }
 

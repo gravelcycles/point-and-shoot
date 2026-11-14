@@ -373,6 +373,20 @@ is the only source of truth for what exists. Everything else reacts to it.
     - Film looks also get ≥ 0.5 chroma NR.
     - Print used to force 15%. Indoor shots came out "super grainy" on device: sensor
       noise, amplified by the film's contrast, with the synthetic grain on top.
+  - **Brightness matches the viewfinder.**
+    - The problem: the viewfinder renders Apple's processed video through the film's
+      display-referred path, but the photo develops the linear RAW. On device the photo
+      came out much darker than the viewfinder, which the owner likes.
+    - How the match works: under a film look, `PreviewRenderer` measures a scene key a
+      few times a second. That's the geometric-mean scene luminance as the film sees it
+      (`FilmLUT.sceneKey`, on a 48 px sample).
+    - The key rides along with the shot (`PhotoPlan.viewfinderKey`). The baker measures
+      the same key on a small RAW develop and stores the difference as
+      `EditRecipe.rawFilmExposure`, clamped to −1.5…+2.5 EV. `EditPipeline.configure`
+      adds it to the RAW exposure under film looks, so the editor reproduces it, and
+      switching looks keeps it.
+    - Flash shots, and shots with no recent viewfinder key, match the processed photo
+      instead.
 - **Recipe:** `EditRecipe.film` (optional, so old edits decode).
   - Tune's exposure, contrast, highlights, shadows and saturation act inside the film
     model; grain is the film grain.
@@ -395,7 +409,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 | Zero develop NR / sharpening | `ZeroDeveloper.configureNeutral` | chroma NR 0.3, sharpness 0.1 |
 | Storage reserve / auto-stop | `updateStorage` | 1 GB reserve / stop under 600 MB |
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
-| Print: where 18% grey lands | `print-stock.json` `exposure` (0) + RAW baseline exposure | grey → ~11.5% display; assumes CIRAWFilter with boost 0 gives grey ≈ 0.18 |
+| Print: brightness | `RecipeBaker.matchedExposure`, `FilmLUT.sceneKey` | each shot's RAW develop is matched to the viewfinder (geometric-mean scene luminance), −1.5…+2.5 EV. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
@@ -601,10 +615,11 @@ to be wrong.
       exposure controls are still there.
     - Settings → Print film look → Filter: PRINT leaves the mode picker and appears under
       FILTER. The format pill then reads "Print · RAW" when it's picked.
-    - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ Overall
-      brightness: is 18% grey (or a typical daylight scene) about as dark as intended?
-      If everything is too dark or bright, change `exposure` in `print-stock.json`, then
-      run export-swift.
+    - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ The saved
+      photo should be about as bright as the viewfinder was (indoors, outdoors, at
+      night). If it's consistently off, check `rawFilmExposure` in the edit's recipe and
+      `FilmLUT.sceneKey`. If Print is too dark or bright everywhere, *including the
+      viewfinder*, change `exposure` in `print-stock.json`, then run export-swift.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.
     - Indoors at night, the shot shouldn't look noisy. Fine grain should be visible

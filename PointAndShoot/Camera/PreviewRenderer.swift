@@ -44,6 +44,11 @@ final class PreviewRenderer {
     private var lastBase: CIImage?
     /// Latest frame before any filter, for the filter picker's live thumbnails.
     private var lastClean: CIImage?
+    /// Scene key of what the viewfinder shows under a film look (FilmLUT.sceneKey), so a
+    /// shot's RAW develop can be matched to it: the viewfinder renders Apple's processed
+    /// video, the saved photo the linear RAW, and they don't land at the same brightness.
+    private var measuringKey = false
+    private var sceneKey: (value: Double, time: CFAbsoluteTime)?
 
     private lazy var logCube: Data = Self.makeAppleLogToRec709Cube(dimension: 33)
     private lazy var stripes: CIImage? = {
@@ -159,6 +164,7 @@ final class PreviewRenderer {
         image = image.transformed(by: CGAffineTransform(translationX: tx, y: ty)).cropped(to: bounds)
 
         lastClean = image
+        if cfg.look?.film != nil && frameIndex % 6 == 0 { measureSceneKey(image) }
         if let look = cfg.look {
             image = EditPipeline.apply(look, to: image, developedFromRAW: false, applyCrop: false, animateGrain: true)
                 .cropped(to: bounds)
@@ -291,6 +297,28 @@ final class PreviewRenderer {
     }
 
     // MARK: - Histogram
+
+    /// The viewfinder's scene key, if it was measured in the last 1.5 s (film looks only).
+    func currentSceneKey() -> Double? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let sceneKey, CFAbsoluteTimeGetCurrent() - sceneKey.time < 1.5 else { return nil }
+        return sceneKey.value
+    }
+
+    private func measureSceneKey(_ image: CIImage) {
+        lock.lock()
+        if measuringKey { lock.unlock(); return }
+        measuringKey = true
+        lock.unlock()
+        analysisQueue.async {
+            let value = FilmPipeline.sceneKey(of: image, context: self.context, source: .displayReferred)
+            self.lock.lock()
+            if let value { self.sceneKey = (value, CFAbsoluteTimeGetCurrent()) }
+            self.measuringKey = false
+            self.lock.unlock()
+        }
+    }
 
     private func analyze(_ image: CIImage) {
         lock.lock()

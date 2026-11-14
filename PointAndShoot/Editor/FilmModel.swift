@@ -254,6 +254,27 @@ enum FilmLUT {
         return (r * k, g * k, b * k)
     }
 
+    /// Geometric-mean scene luminance (linear Rec.2020 Y) of a small linear-sRGB sample,
+    /// as the film sees it: clamped like the shaper, and display-referred pixels un-rendered
+    /// exactly as the negative cube does. Comparing the viewfinder's key with a RAW
+    /// develop's gives the exposure that makes the saved photo match the viewfinder.
+    /// `rgba`: RGBA floats. Floor 1e-3 (≈ 7.5 stops under grey) so noise and black
+    /// borders don't dominate. nil for an empty sample.
+    static func sceneKey(rgba: [Float], displayReferred: Bool) -> Double? {
+        let m = FilmMath.sRGBToRec2020
+        var sum = 0.0, count = 0
+        var i = 0
+        while i + 3 < rgba.count {
+            var c = FilmMath.mul(m, (Double(rgba[i]), Double(rgba[i + 1]), Double(rgba[i + 2])))
+            c = (min(max(c.0, 0), shaperScale), min(max(c.1, 0), shaperScale), min(max(c.2, 0), shaperScale))
+            if displayReferred { c = sceneFromDisplay(rgb: c) }
+            sum += log(max(0.2627 * c.0 + 0.6780 * c.1 + 0.0593 * c.2, 1e-3))
+            count += 1
+            i += 4
+        }
+        return count > 0 ? exp(sum / Double(count)) : nil
+    }
+
     static func unshaped(_ u: Double) -> Double {
         shaperScale * pow(u, shaperPower)
     }

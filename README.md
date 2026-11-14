@@ -51,6 +51,8 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     to fiddle with. Flash, timer and exposure stay.
   - **Or make it a filter:** Settings → Photo → **Print film look** → Filter puts it in the
     FILTER list instead.
+  - **What you see is what you get:** each shot is exposed to match the viewfinder's
+    brightness.
   - **How it works:** the camera shoots Bayer RAW and keeps the DNG, like Zero. Print runs
     the sensor data through a model of a Kodak Vision3 negative printed to print film:
     - dense blacks with a long, soft toe

@@ -15,6 +15,9 @@ struct PhotoPlan {
     var location: TaggedLocation?
     /// Capture look to bake on as a non-destructive edit once saved.
     var look: EditRecipe?
+    /// The viewfinder's scene key at the shutter (FilmLUT.sceneKey), for matching a film
+    /// look's RAW develop to what was on screen.
+    var viewfinderKey: Double?
 }
 
 /// Writes GPS (and compass heading) into the photo file's own EXIF.
@@ -39,6 +42,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private var processedData: Data?
     private var sentThumbnail = false
     private var captureError: Error?
+    private var flashFired = false
 
     init(plan: PhotoPlan,
          willCapture: @escaping () -> Void,
@@ -59,6 +63,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
             captureError = error
             return
         }
+        if photo.resolvedSettings.isFlashEnabled { flashFired = true }
         let data = plan.location.map { photo.fileDataRepresentation(with: GPSCustomizer($0)) }
             ?? photo.fileDataRepresentation()
         if photo.isRawPhoto {
@@ -83,6 +88,9 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
         let plan = self.plan
         let raw = rawData
         let processed = processedData
+        // A flash shot looks nothing like the pre-flash viewfinder: match it to the
+        // processed photo instead.
+        let viewfinderKey = flashFired ? nil : plan.viewfinderKey
         Task.detached(priority: .userInitiated) {
             do {
                 var primary = processed
@@ -115,7 +123,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                 }
                 self.completion(note, assetID)
                 if let look = plan.look, let assetID {
-                    try? await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw)
+                    try? await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw, viewfinderKey: viewfinderKey)
                 }
             } catch {
                 self.completion("Couldn't save: \(error.localizedDescription)", nil)

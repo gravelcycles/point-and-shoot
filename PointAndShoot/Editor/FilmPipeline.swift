@@ -212,6 +212,26 @@ enum FilmPipeline {
         ]
     }
 
+    // MARK: Exposure matching
+
+    /// `FilmLUT.sceneKey` of a Core Image image (linear working space), measured on a
+    /// ~48 px Lanczos-downscaled copy. Cheap enough for the viewfinder a few times a second.
+    static func sceneKey(of image: CIImage, context: CIContext, source: FilmLUT.Source) -> Double? {
+        let e = image.extent
+        guard e.width >= 1, e.height >= 1, e.width.isFinite, e.height.isFinite else { return nil }
+        let w = 48
+        let s = CGFloat(w) / e.width
+        let h = max(1, Int(e.height * s))
+        let small = image
+            .transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
+            .clampedToExtent()
+            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: s, kCIInputAspectRatioKey: 1])
+        var px = [Float](repeating: 0, count: w * h * 4)
+        context.render(small, toBitmap: &px, rowBytes: w * 4 * MemoryLayout<Float>.size,
+                       bounds: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBAf, colorSpace: nil)
+        return FilmLUT.sceneKey(rgba: px, displayReferred: source == .displayReferred)
+    }
+
     // MARK: Grain
 
     /// Zero-mean noise in negative density (the cube stores density ÷ densityScale): a
