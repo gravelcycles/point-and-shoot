@@ -572,6 +572,9 @@ is the only source of truth for what exists. Everything else reacts to it.
   - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass
     `-only-testing:PointAndShootUITests/<Class>/<test>` to run a single test. CI runs the
     same tests after the device build.
+- **The simulator can't decode RAW** (CIRAWFilter returns an empty image, native size 0×0),
+  so the Zero/Print *develop* is device-only; its tests skip there. Saving RAW pairs, the
+  capture decisions and baking from processed photos are all tested in the simulator.
 - **Every device bug gets a test** where the simulator can reproduce it: a pure-logic
   rule (extract it, like `PhotoPlanner` / `ViewerSelection`), a Photos-library
   integration test, or a UI flow with seeded photos. The simulator has no camera, so
