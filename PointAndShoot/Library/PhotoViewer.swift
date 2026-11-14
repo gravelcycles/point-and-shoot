@@ -143,7 +143,8 @@ struct PhotoViewer: View {
                         .id(Self.pendingID)
                 }
                 ForEach(roll.assets, id: \.localIdentifier) { asset in
-                    AssetPage(asset: asset, manager: roll.imageManager, isCurrent: asset.localIdentifier == selectedID)
+                    AssetPage(asset: asset, manager: roll.imageManager, isCurrent: asset.localIdentifier == selectedID,
+                              developing: camera.developingAssetIDs.contains(asset.localIdentifier))
                         .containerRelativeFrame([.horizontal, .vertical])
                         .id(asset.localIdentifier)
                 }
@@ -402,13 +403,13 @@ private struct AssetPage: View {
     let asset: PHAsset
     let manager: PHCachingImageManager
     let isCurrent: Bool
+    var developing = false
 
     var body: some View {
         if asset.mediaType == .video {
             VideoPage(asset: asset, isCurrent: isCurrent)
         } else {
-            PhotoPage(asset: asset, manager: manager)
-
+            PhotoPage(asset: asset, manager: manager, developing: developing)
         }
     }
 }
@@ -416,6 +417,9 @@ private struct AssetPage: View {
 private struct PhotoPage: View {
     let asset: PHAsset
     let manager: PHCachingImageManager
+    /// Its filter/Print look is still being baked on: show the plain image blurred under
+    /// "Developing…" rather than as if it were the finished shot.
+    var developing = false
 
     @State private var image: UIImage?
     /// The revision the newest request is for; results for older revisions are dropped.
@@ -434,6 +438,16 @@ private struct PhotoPage: View {
                         .scaledToFit()
                         .scaleEffect(zoom, anchor: anchor)
                         .frame(width: geo.size.width, height: geo.size.height)
+                        .blur(radius: developing ? 6 : 0)
+                        .opacity(developing ? 0.8 : 1)
+                        .animation(.easeOut(duration: 0.25), value: developing)
+                    if developing {
+                        VStack(spacing: 10) {
+                            ProgressView().tint(.white).controlSize(.large)
+                            Text("Developing…").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                        }
+                        .transition(.opacity)
+                    }
                 } else {
                     ProgressView().tint(.white)
                 }
