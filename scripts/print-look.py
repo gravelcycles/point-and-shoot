@@ -21,12 +21,14 @@
       balance, or with --same-raw one shared exposure offset); writes a new stock JSON.
       Then run export-swift.
 
-  print-look.py spread IMG [...] [--side 300]
+  print-look.py spread IMG [...] [--side 300] [--cssgram] [--sheet OUT.jpg]
       Render every photo filter on DNGs (developed scene-linear) and JPEG/HEIC/PNG
       (display-referred, like processed photos) and print how far apart the filters are:
       brightness, contrast, chroma, shadow and highlight tint, and each filter's nearest
       neighbour in mean ΔE (Oklab). Keep every nearest-neighbour ΔE >= 0.06 when tuning
-      (film only: the recipe's vignette and structure come on top).
+      (film only: the recipe's vignette and structure come on top). --cssgram adds the
+      same table for the 26 Instagram-style CSSgram filters (scripts/cssgram.py) as a
+      yardstick; --sheet writes a contact sheet to look at.
 
 Needs: numpy scipy pillow rawpy opencv-python-headless (pillow-heif for .heic).
 """
@@ -348,42 +350,92 @@ P3_TO_SRGB = np.linalg.inv(np.array([[0.822462, 0.177538, 0.0], [0.033194, 0.966
 MONO_MIX = np.array([0.34, 0.56, 0.10])
 
 
-def spread(paths, side=300):
+def _phone_render(lin):
+    """A generic phone rendering of scene light (the inverse of FilmLUT.sceneFromDisplay),
+    so DNGs can stand in for processed photos (the Original row, CSSgram)."""
+    return np.clip(lin * 1.273 / (1 + 0.808 * np.maximum(lin, 0)), 0, 1)
+
+
+def _spread_table(title, labs):
+    ids = list(labs)
+    D = np.array([[np.mean([np.linalg.norm(x - y, axis=-1).mean() for x, y in zip(labs[a], labs[b])])
+                   for b in ids] for a in ids])
+    print(f"\n{title}: {'filter':10s} {'L':>6s} {'L sd':>6s} {'chroma':>7s} {'shadow a,b':>15s} {'hilite a,b':>15s}  nearest")
+    nn = []
+    for i, sid in enumerate(ids):
+        px = np.concatenate([x.reshape(-1, 3) for x in labs[sid]])
+        sh, hi = px[px[:, 0] < 0.4], px[px[:, 0] > 0.7]
+        tint = lambda q: f"({q[:, 1].mean():+.3f},{q[:, 2].mean():+.3f})" if len(q) else "      -      "
+        d = D[i].copy()
+        d[i] = np.inf
+        j = int(d.argmin())
+        nn.append(d[j])
+        print(f"{'':{len(title) + 2}s}{sid:10s} {px[:, 0].mean():6.3f} {px[:, 0].std():6.3f} "
+              f"{np.hypot(px[:, 1], px[:, 2]).mean():7.3f} {tint(sh):>15s} {tint(hi):>15s}  {ids[j]} {d[j]:.3f}"
+              + ("   < 0.06: too close" if d[j] < 0.06 and not title.startswith("CSSgram") else ""))
+    print(f"{'':{len(title) + 2}s}nearest-neighbour ΔE: min {min(nn):.3f}, median {np.median(nn):.3f}")
+
+
+def spread(paths, side=300, cssgram=False, sheet=None):
     import filmlooks
     stocks = filmlooks.all_stocks(F.load_stock(STOCK))
     specs = filmlooks.load_looks()["looks"]
-    inputs = []
+    inputs = []   # (source, image for the film, display-referred sRGB for Original / CSSgram)
     for p in paths:
         if p.lower().endswith(".dng"):
-            inputs.append(("sceneLinear", _resize(develop_linear(p, max_side=4 * side), side)))
+            lin = _resize(develop_linear(p, max_side=4 * side), side)
+            # Expose like a camera meter (median ≈ 0.7 × 18% grey): sample DNGs are often
+            # dark as shot, and a dark frame measures mostly shadows.
+            lin = lin * (0.18 * 0.7 / max(float(np.median(lin @ np.array([0.2126, 0.7152, 0.0722]))), 1e-6))
+            inputs.append(("sceneLinear", lin, _phone_render(lin)))
         else:
-            inputs.append(("displayReferred", np.clip(load_reference(p, side) @ P3_TO_SRGB.T, 0, 1)))
+            disp = np.clip(load_reference(p, side) @ P3_TO_SRGB.T, 0, 1)
+            inputs.append(("displayReferred", disp, disp))
     groups = {"color": [k for k in specs if "mono_tone" not in specs[k]],
               "black and white": [k for k in specs if "mono_tone" in specs[k]]}
+    renders = {}   # id -> [linear P3 per input]
     for title, ids in groups.items():
         labs = {}
         for sid in ids:
             st = stocks[sid]
             outs = []
-            for src, img in inputs:
+            for src, img, _ in inputs:
                 out = F.render(img, st, grain_amount=0, source=src)
                 if title != "color":
                     out = (out @ MONO_MIX)[..., None] * np.array(st["monoTone"])
-                outs.append(oklab_p3(np.clip(out, 0, 1)))
-            labs[sid] = outs
-        D = np.array([[np.mean([np.linalg.norm(x - y, axis=-1).mean() for x, y in zip(labs[a], labs[b])])
-                       for b in ids] for a in ids])
-        print(f"\n{title}: {'filter':10s} {'L':>6s} {'L sd':>6s} {'chroma':>7s} {'shadow a,b':>15s} {'hilite a,b':>15s}  nearest")
-        for i, sid in enumerate(ids):
-            px = np.concatenate([x.reshape(-1, 3) for x in labs[sid]])
-            sh, hi = px[px[:, 0] < 0.4], px[px[:, 0] > 0.7]
-            tint = lambda q: f"({q[:, 1].mean():+.3f},{q[:, 2].mean():+.3f})" if len(q) else "      -      "
-            d = D[i].copy()
-            d[i] = np.inf
-            j = int(d.argmin())
-            print(f"{'':{len(title) + 2}s}{sid:10s} {px[:, 0].mean():6.3f} {px[:, 0].std():6.3f} "
-                  f"{np.hypot(px[:, 1], px[:, 2]).mean():7.3f} {tint(sh):>15s} {tint(hi):>15s}  {ids[j]} {d[j]:.3f}"
-                  + ("   < 0.06: too close" if d[j] < 0.06 else ""))
+                outs.append(np.clip(out, 0, 1))
+            renders[sid] = outs
+            labs[sid] = [oklab_p3(o) for o in outs]
+        _spread_table(title, labs)
+    if cssgram:
+        import cssgram as CG
+        srgb_to_p3 = np.linalg.inv(P3_TO_SRGB)
+        labs = {n: [oklab_p3(np.clip(CG.render(n, d), 0, 1) @ srgb_to_p3.T) for _, _, d in inputs]
+                for n in CG.RECIPES if n not in CG.MONO}
+        _spread_table("CSSgram (Instagram-style), for reference", labs)
+    if sheet:
+        _spread_sheet(sheet, inputs, renders, stocks)
+
+
+def _spread_sheet(path, inputs, renders, stocks):
+    from PIL import Image, ImageDraw
+    srgb_to_p3 = np.linalg.inv(P3_TO_SRGB)
+    rows = [("Original", [d @ srgb_to_p3.T for _, _, d in inputs])] + \
+           [(stocks[k]["name"], v) for k, v in renders.items()]
+    h = max(im.shape[0] for im in rows[0][1])
+    W = 110 + sum(im.shape[1] + 6 for im in rows[0][1])
+    sheet = Image.new("RGB", (W, len(rows) * (h + 6) + 6), (22, 22, 22))
+    draw = ImageDraw.Draw(sheet)
+    y = 6
+    for name, tiles in rows:
+        draw.text((8, y + h // 2 - 6), name, fill=(255, 255, 255))
+        x = 110
+        for t in tiles:
+            sheet.paste(Image.fromarray((F.encode_srgb(np.clip(t, 0, 1)) * 255 + 0.5).astype(np.uint8)), (x, y))
+            x += t.shape[1] + 6
+        y += h + 6
+    sheet.save(path, quality=90)   # Display P3 values; fine for judging differences
+    print("wrote", path)
 
 
 def parity():
@@ -438,6 +490,8 @@ def main():
     sp = sub.add_parser("spread")
     sp.add_argument("images", nargs="+")
     sp.add_argument("--side", type=int, default=300)
+    sp.add_argument("--cssgram", action="store_true", help="also print CSSgram's spread on the same images")
+    sp.add_argument("--sheet", help="write a contact sheet (filters x images) to this JPEG")
     ft = sub.add_parser("fit")
     ft.add_argument("pairs_dir")
     ft.add_argument("--out", default=STOCK)
@@ -451,7 +505,7 @@ def main():
     elif a.cmd == "parity":
         parity()
     elif a.cmd == "spread":
-        spread(a.images, a.side)
+        spread(a.images, a.side, a.cssgram, a.sheet)
     elif a.cmd == "fit":
         fit(a.pairs_dir, a.out, same_raw=a.same_raw)
 

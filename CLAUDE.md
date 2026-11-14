@@ -26,10 +26,26 @@ Team `D5STMWZ849`) and installed all three targets on the owner's iPhone 12 Pro 
 **Nothing has been exercised on the device yet.** The next phase is device testing, with one
 fix PR per problem. Expect runtime issues even though it builds cleanly; see §8.
 
-Git history: merged into `main` so far: PRs #1 (whole app), #2 (color mixer), #3 (Lock
-Screen camera + Control Center), #8 (tap targets + simulator UI tests), #10 (CI runner
-usage), #11 (top-bar redesign, filters, multi-select) and #9 (the Print look and Print
-mode, §4 "Print look").
+Git history: merged into `main` so far:
+
+| PRs | What |
+|---|---|
+| #1 | the whole app |
+| #2 | colour mixer |
+| #3 | Lock Screen camera and Control Center |
+| #4–#7, #13 | docs, deploy script, icons |
+| #8 | tap targets and simulator UI tests |
+| #9 | the Print look and Print mode |
+| #10 | CI runner usage |
+| #11 | top-bar redesign, filters, multi-select |
+| #12, #14 | one-row controls, PRO toggle dropped |
+| #15 | every filter a film stock, with split toning |
+| #16 | silent shutter |
+| #17 | the Print/Zero "Couldn't save" fix |
+| #18 | crash shooting zoomed in with Bayer RAW (zoom locks at 1×) |
+| #20 | grainy Print photos: noise reduction and grain |
+
+The film-look work has its own handoff notes: `docs/film-looks.md`.
 
 ---
 
@@ -146,6 +162,10 @@ scripts/filmmodel.py              reference (numpy) implementation of FilmModel/
 scripts/print-stock.json          the Print look's parameters (source of truth)
 scripts/film-looks.json           the photo filters as compact film-stock specs (source of truth)
 scripts/filmlooks.py              builds full stocks from film-looks.json (tone curve derivation)
+scripts/cssgram.py                the 26 Instagram-style CSSgram filters, browser-exact: the yardstick
+                                  for how far apart our filters are (`print-look.py spread --cssgram`)
+docs/film-looks.md                ★ handoff notes for the film looks: history, tuning loop, pitfalls,
+                                  unknowns, test images, environment tricks
 CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 ```
 
@@ -240,8 +260,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     vignette. Grain and structure don't show at thumbnail size, so they never carry a
     filter on their own.
     - **Rule:** every filter's nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
-      `scripts/print-look.py spread IMG…`, which prints the table and flags offenders.
-    - Today the nearest pairs are 0.067–0.075. That is more spread out than
+      `scripts/print-look.py spread IMG… [--cssgram] [--sheet out.jpg]`, which prints
+      the table, flags offenders, and can add CSSgram's table and a contact sheet. The
+      tuning loop and pitfalls are in `docs/film-looks.md`.
+    - Today the nearest pairs are 0.067–0.075 (B&W 0.063). That is more spread out than
       Instagram-style filters: CSSgram's 26 filters have a nearest-neighbour median of
       0.050 and a minimum of 0.021.
     - On a ColorChecker (CIE76) our colour filters are ≥ 14.9 from each other, vs a
@@ -597,3 +619,34 @@ to be wrong.
   - An "optical" (white bloom) halation mode.
   - Grain amplitude that varies with density.
   - Fitting against real reference pairs (see §4).
+
+---
+
+## 10. Tips for agents (learned the hard way)
+
+The film-look specifics are in `docs/film-looks.md` §8. Repo-wide:
+
+- **Other sessions merge to `main` constantly.** Always branch from a freshly fetched
+  `origin/main`. Merge `main` into any PR that lives longer than an hour before trusting
+  its CI.
+- **A PR with merge conflicts gets no CI at all** (no `pull_request` run). If Build never
+  starts, check `mergeable_state`; "dirty" means merge main in.
+- **The cloud container has no iOS toolchain.**
+  - `swiftc` for Linux (see `docs/film-looks.md` §8) compiles the Foundation-only files
+    (`FilmModel.swift`, `FilmStock+Stocks.swift`) for parity.
+  - Anything that imports UIKit, AVFoundation or Core Image can only be checked with
+    `swiftc -parse`.
+  - CI is the first real compile, so say "parses" or "compiles in CI", never "works".
+- **GitHub:** `gh api` REST works and GraphQL is blocked, so `gh pr create` and
+  `gh pr merge` may fail. Use REST: `pulls` POST to open, `pulls/N/merge` PUT with
+  `merge_method=merge` and `sha`.
+- **Clones are shallow and single-branch.** Fetch other branches by name. Push new branches
+  with `-u` so the stop hook sees a remote branch.
+- **Watch CI in the background** by head SHA (`actions/runs?head_sha=…`, workflow "Build").
+  Mac runs take 20–30 min plus queueing, so batch your pushes.
+- **Generated files** (`FilmStock+Stocks.swift`): on a merge conflict, regenerate with
+  `export-swift`; never hand-merge them.
+- **Show, don't tell.** For anything visual, send the owner a before/after sheet
+  (SendUserFile). They react to pictures.
+- **The scratchpad is not durable.** Tools you'll want again belong in `scripts/`; notes
+  belong here or in `docs/`.
