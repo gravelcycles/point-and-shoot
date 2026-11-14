@@ -135,16 +135,21 @@ final class ControlHitTargetTests: XCTestCase {
         waitForExpectations(timeout: 3)
     }
 
-    /// Manual controls stay out of the way until PRO is tapped, and fold away again.
-    func testProRevealsAndHidesManualControls() {
-        XCTAssertFalse(app.buttons["strip.iso"].exists, "Pro controls should start collapsed")
-        let pro = app.buttons["strip.pro"]
-        tapOffLabel(pro, dx: 0.9, dy: 0.9)
-        XCTAssertTrue(app.buttons["strip.iso"].waitForExistence(timeout: 3), "PRO didn't reveal the manual controls")
-        XCTAssertTrue(app.buttons["strip.focus"].exists && app.buttons["strip.wb"].exists && app.buttons["strip.shutter"].exists)
-        tapOffLabel(pro, dx: 0.1, dy: 0.1)
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["strip.iso"])
-        waitForExpectations(timeout: 3)
+    /// All six controls share one row: every cell is on screen, at least 44 pt wide, and
+    /// none overlap.
+    func testAllControlsFitInOneRow() {
+        let ids = ["focus", "wb", "iso", "shutter", "ev", "look"]
+        let frames = ids.map { app.buttons["strip.\($0)"].frame }
+        let screen = app.windows.firstMatch.frame
+        for (id, f) in zip(ids, frames) {
+            XCTAssertTrue(app.buttons["strip.\(id)"].exists, "strip.\(id) missing")
+            XCTAssertTrue(screen.contains(f), "strip.\(id) is off screen: \(f)")
+            XCTAssertGreaterThanOrEqual(f.width, 44, "strip.\(id) is too narrow to tap: \(f)")
+            XCTAssertEqual(f.midY, frames[0].midY, accuracy: 2, "strip.\(id) isn't in the same row")
+        }
+        for (a, b) in zip(frames, frames.dropFirst()) {
+            XCTAssertLessThanOrEqual(a.maxX, b.minX + 0.5, "controls overlap")
+        }
     }
 
     /// The empty strip above the controls overlaps the bottom of the viewfinder. Taps there

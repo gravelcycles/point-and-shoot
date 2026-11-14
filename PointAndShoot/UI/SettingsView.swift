@@ -172,7 +172,6 @@ struct SettingsView: View {
 
     private var controlsSection: some View {
         Section {
-            Toggle("Pro controls (focus, WB, ISO, shutter)", isOn: camera.binding(\.proControls))
             Toggle("Save location (GPS)", isOn: camera.binding(\.saveLocation))
             Toggle("Volume buttons take photo", isOn: camera.binding(\.volumeShutter))
             Toggle("Haptics", isOn: camera.binding(\.haptics))

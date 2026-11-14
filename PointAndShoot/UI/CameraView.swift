@@ -621,7 +621,7 @@ struct GestureHints: View {
         ("arrow.left.and.right", "Swipe for Photo / Video"),
         ("arrow.up.left.and.arrow.down.right", "Pinch to zoom"),
         ("circle.inset.filled", "Hold the shutter for burst"),
-        ("slider.horizontal.3", "PRO reveals focus, WB, ISO and shutter dials"),
+        ("slider.horizontal.3", "Tap focus, WB, ISO, shutter, EV or FILTER to dial it in"),
         ("arrow.counterclockwise", "Double-tap any control to put it back on auto"),
         ("chevron.down.circle", "Tap the format pill up top for HEIF/JPEG, RAW and processing"),
     ]
