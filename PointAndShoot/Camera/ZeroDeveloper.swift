@@ -42,7 +42,14 @@ enum ZeroDeveloper {
         // PHPhotosErrorInvalidResource (3300).
         let fileOrientation = raw.orientation
         raw.orientation = .up
-        guard let image = raw.outputImage, !image.extent.isEmpty, !image.extent.isInfinite else { return nil }
+        guard var image = raw.outputImage else { return nil }
+        // Some decodes report an infinite or oversized extent: the picture is the sensor's
+        // native size (unrotated), so crop to that rather than giving up on the develop.
+        let native = CGRect(origin: .zero, size: raw.nativeSize)
+        if image.extent.isInfinite || image.extent.isEmpty || image.extent != native, !native.isEmpty {
+            image = image.cropped(to: native)
+        }
+        guard !image.extent.isEmpty, !image.extent.isInfinite else { return nil }
 
         var props: [String: Any] = [:]
         for (k, v) in raw.properties { if let key = k as? String { props[key] = v } }

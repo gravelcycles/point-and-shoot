@@ -72,7 +72,10 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
             ZeroDeveloper.configureNeutral(raw)
             XCTAssertNotNil(raw.outputImage, "\(kind): configureNeutral killed the image")
             raw.orientation = .up
-            XCTAssertNotNil(raw.outputImage, "\(kind): orientation .up killed the image")
+            let image = try XCTUnwrap(raw.outputImage, "\(kind): orientation .up killed the image")
+            XCTAssertEqual(raw.nativeSize, CGSize(width: 64, height: 48), "\(kind): native size")
+            XCTAssertNotNil(ZeroDeveloper.developImage(dng: dng),
+                            "\(kind): developImage failed; output extent was \(image.extent), native \(raw.nativeSize)")
         }
     }
 
