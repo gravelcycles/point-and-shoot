@@ -96,6 +96,20 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           du -sh build/ui/CompilationCache.noindex 2>/dev/null || echo "no compilation cache dir"
 
+      # The first launch on a cold simulator sometimes times out ("Failed to launch … Timed
+      # out"), failing whichever test runs first. Boot it and launch the app once after the
+      # build (booting during the build raced the test runner's install), then quit it.
+      - name: Warm up simulator
+        run: |
+          xcrun simctl boot "$SIM" 2>/dev/null || true
+          xcrun simctl bootstatus "$SIM" -b >/dev/null
+          APP=build/ui/Build/Products/Debug-iphonesimulator/PointAndShoot.app
+          BID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          xcrun simctl install "$SIM" "$APP"
+          xcrun simctl launch "$SIM" "$BID" -uitest >/dev/null || true
+          sleep 8
+          xcrun simctl terminate "$SIM" "$BID" || true
+
       # Drives the real UI in the iOS Simulator (no camera there; `-uitest` skips the session)
       # and taps every kind of control off-center to catch dead tap areas and tap-through.
       - name: UI tests (simulator)
@@ -107,7 +121,7 @@ jobs:
             -destination "id=$SIM" \
             -derivedDataPath build/ui \
             -resultBundlePath build/UITests.xcresult \
-            -retry-tests-on-failure -test-iterations 2 \
+            -retry-tests-on-failure -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee uitest.log | grep -E --line-buffered "error:|Test [Cc]ase .*(passed|failed)|TEST (EXECUTE )?(SUCCEEDED|FAILED)" || true
           grep -qE "TEST (EXECUTE )?SUCCEEDED" uitest.log

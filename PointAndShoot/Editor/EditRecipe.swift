@@ -40,6 +40,8 @@ struct EditRecipe: Codable, Equatable {
     var useRAW = true
     var rawInitialized = false
     var rawNoiseReduction: Double = 50
+    /// Film looks baked at capture never develop with less luminance noise reduction.
+    static let filmMinimumNoiseReduction: Double = 50
     var rawLocalTone: Double = 50
     var rawBoost: Double = 100
 
@@ -106,6 +108,8 @@ struct EditRecipe: Codable, Equatable {
 
 /// Settings of the film emulation that have no ordinary-edit equivalent.
 struct FilmRecipe: Codable, Equatable {
+    /// Which film stock (`FilmStock.all`). nil = Print (edits saved before stocks existed).
+    var stock: String?
     /// 0…100; 50 = the look as designed.
     var halation: Double = 50
     /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),
@@ -218,51 +222,56 @@ struct Look: Identifiable {
     let name: String
     /// One or two plain sentences shown in the filter guide.
     let detail: String
+    /// The camera shoots Bayer RAW for this look (Print). Other filters work on whatever
+    /// the camera's processing setting produces, and develop from RAW when there is one.
+    var capturesRAW = false
     let apply: (inout EditRecipe) -> Void
+
+    /// A film-stock filter: the stock (FilmStock+Stocks.swift) does tone, color, halation
+    /// and grain; `extra` adds ordinary adjustments on top (B&W, vignette, texture).
+    private static func film(_ stock: String, _ extra: @escaping (inout EditRecipe) -> Void = { _ in })
+        -> (inout EditRecipe) -> Void {
+        { r in
+            r.film = FilmRecipe(stock: stock)
+            r.grain = FilmRecipe.defaultGrain
+            extra(&r)
+        }
+    }
 
     static let all: [Look] = [
         Look(id: "none", name: "Original", detail: "No filter — the photo exactly as captured.") { _ in },
-        // Negative printed to print film, applied to the RAW sensor data when there is
-        // any (FilmModel.swift). Dense blacks, a long soft highlight shoulder, warm
-        // highlights over cool shadows, film color, halation and grain.
-        Look(id: "print", name: "Print", detail: "Film from the sensor: a cinema negative printed to print film. Dense blacks, soft highlights, warm-over-cool color, halation and fine grain. Shoots RAW.") { r in
+        // Negative printed to print film, applied to the RAW sensor data (FilmModel.swift).
+        // Dense blacks, a long soft highlight shoulder, warm highlights over cool shadows,
+        // film color, halation and grain.
+        Look(id: "print", name: "Print", detail: "Film from the sensor: a cinema negative printed to print film. Dense blacks, soft highlights, warm-over-cool color, halation and fine grain. Shoots RAW.",
+             capturesRAW: true) { r in
             r.film = FilmRecipe()
             r.grain = FilmRecipe.defaultGrain
-            r.rawNoiseReduction = 15
         },
-        Look(id: "natural", name: "Natural", detail: "Your photo, just cleaner: a touch more contrast and vibrance, highlights protected.") { r in
-            r.contrast = 8; r.vibrance = 12; r.highlights = -10
-        },
-        Look(id: "warm400", name: "Warm 400", detail: "Warm portrait film: golden cast, lifted shadows, softer contrast and gentle grain. Lovely for people and golden hour.") { r in
-            r.warmth = 18; r.fade = 14; r.contrast = -6; r.saturation = -8; r.shadows = 12; r.grain = 18; r.highlights = -15
-        },
-        Look(id: "portrait", name: "Skin", detail: "Flattering skin: slightly warm, softened texture, calmer highlights.") { r in
-            r.warmth = 8; r.saturation = -6; r.vibrance = 6; r.structure = -15; r.highlights = -12; r.contrast = -4
-        },
-        Look(id: "cool", name: "Cool Air", detail: "Crisp and cool: blue-leaning whites, firmer contrast, quieter color. Overcast days, cities, snow.") { r in
-            r.warmth = -16; r.tint = -4; r.contrast = 10; r.saturation = -12; r.blacks = -6
-        },
-        Look(id: "cine", name: "Cine", detail: "Movie grade: muted color, rolled-off highlights, a hint of warmth and a soft vignette.") { r in
-            r.contrast = 14; r.saturation = -16; r.warmth = 6; r.highlights = -22; r.shadows = -6; r.fade = 8; r.vignette = 22
-        },
-        Look(id: "chrome", name: "Chrome", detail: "Punchy slide film: deep blacks, rich saturation, strong contrast.") { r in
-            r.contrast = 22; r.saturation = 14; r.vibrance = -8; r.blacks = -12; r.vignette = 10
-        },
-        Look(id: "faded", name: "Faded", detail: "Matte and nostalgic: lifted blacks, low contrast, washed-out color, light grain.") { r in
-            r.fade = 36; r.contrast = -16; r.saturation = -22; r.warmth = 6; r.grain = 10
-        },
-        Look(id: "punch", name: "Punch", detail: "Bold and vivid: big contrast, saturated color, extra crunch in the detail.") { r in
-            r.contrast = 24; r.vibrance = 30; r.structure = 22; r.blacks = -8
-        },
-        Look(id: "mono400", name: "Mono 400", detail: "Classic black-and-white film: solid contrast and visible grain.") { r in
-            r.mono = true; r.contrast = 24; r.grain = 26; r.blacks = -10; r.structure = 10
-        },
-        Look(id: "noir", name: "Noir", detail: "High-drama black and white: crushed blacks, bright highlights, heavy vignette.") { r in
-            r.mono = true; r.contrast = 52; r.blacks = -30; r.highlights = 10; r.vignette = 38; r.grain = 14
-        },
-        Look(id: "silver", name: "Silver", detail: "Soft silver-print black and white: gentle contrast, open shadows, fine grain.") { r in
-            r.mono = true; r.contrast = -8; r.fade = 22; r.shadows = 20; r.grain = 12
-        },
+        // The rest are film stocks too (scripts/film-looks.json), each with its own tone
+        // curve, color balance and crossover, dye behavior, halation and grain.
+        Look(id: "natural", name: "Natural", detail: "A clean color-negative scan: a gentle film curve, open highlights, true color and a whisper of grain.",
+             apply: film("natural")),
+        Look(id: "warm400", name: "Warm 400", detail: "Golden-hour color negative: amber light, matte brown blacks, low contrast, visible grain and a soft vignette.",
+             apply: film("warm400") { $0.vignette = 22 }),
+        Look(id: "portrait", name: "Skin", detail: "Bright, soft portrait stock: high key, peach warmth, a gentle glow around highlights and smoothed texture.",
+             apply: film("portrait") { $0.structure = -12 }),
+        Look(id: "cool", name: "Cool Air", detail: "Cool, airy negative: blue-cyan shadows, crisp light, cool whites and quiet color. Overcast days, cities, snow.",
+             apply: film("cool")),
+        Look(id: "cine", name: "Cine", detail: "Tungsten cinema print: low key, teal shadows under amber highlights, a red glow around lights and a vignette.",
+             apply: film("cine") { $0.vignette = 22 }),
+        Look(id: "chrome", name: "Chrome", detail: "Slide film: deep blacks, hard contrast, rich saturated color and neutral-cool whites.",
+             apply: film("chrome") { $0.vignette = 16 }),
+        Look(id: "faded", name: "Faded", detail: "An old print left in the sun: milky indigo blacks, creamy dimmed whites and faded color.",
+             apply: film("faded") { $0.vignette = 15 }),
+        Look(id: "punch", name: "Punch", detail: "Vivid color negative pushed hard: maximum color, bold contrast, bright and clean, with extra crunch.",
+             apply: film("punch") { $0.structure = 15 }),
+        Look(id: "mono400", name: "Mono 400", detail: "Classic black-and-white 400 film: punchy mid-tones, a long toe into black and visible grain.",
+             apply: film("mono400") { $0.mono = true; $0.structure = 8 }),
+        Look(id: "noir", name: "Noir", detail: "Pushed black and white: inky cold-toned blacks, hard contrast, heavy grain, glow and a deep vignette.",
+             apply: film("noir") { $0.mono = true; $0.vignette = 34 }),
+        Look(id: "silver", name: "Silver", detail: "Sepia-toned black and white: soft contrast, open shadows, warm pearly highlights.",
+             apply: film("silver") { $0.mono = true }),
     ]
 }
 

@@ -27,6 +27,12 @@ enum RecipeBaker {
         var output: CIImage
         if recipe.film != nil, let raw = await rawFilter(rawData, asset: asset) {
             let defaults = EditPipeline.readDefaults(raw)
+            if !recipe.rawInitialized {
+                // Start from the camera's own noise reduction for this shot, as the editor
+                // does, never below the editor's default: a film look has no sharpening and
+                // brings its own grain, and a single-frame RAW at indoor ISOs is noisy.
+                recipe.rawNoiseReduction = max(Double(defaults.noiseReduction * 100), EditRecipe.filmMinimumNoiseReduction)
+            }
             recipe.rawInitialized = true
             recipe.rawLocalTone = Double(defaults.localTone * 100)
             recipe.rawBoost = Double(defaults.boost * 100)

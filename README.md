@@ -26,9 +26,24 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   means the camera is deciding, yellow means you set it. Tap one to dial it in.
 - **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, FILTER) to put it back on auto.
 - **Filters at capture time.** Tap **FILTER** for live square previews of each filter, and
-  **About** to read what each one does. Pick Print, Warm 400, Mono 400, Cine, Chrome, Noir
-  or another. You see it live in the viewfinder, and every shot is saved with the look as
-  an *editable edit*. The untouched original stays one tap away in the editor or Photos.
+  **About** to read what each one does. You see it live in the viewfinder, and every shot
+  is saved with the look as an *editable edit*. The untouched original stays one tap away
+  in the editor or Photos.
+  - **Every filter is a film stock,** not a set of slider moves. Each has its own tone
+    curve, color balance, film color (rich colors get denser, not louder), halation and
+    grain.
+    - **Natural:** a clean negative scan.
+    - **Warm 400:** golden hour: amber light, matte brown blacks, grain.
+    - **Skin:** bright, soft and peachy, with a gentle glow.
+    - **Cool Air:** airy, with blue-cyan shadows.
+    - **Cine:** low key, teal shadows under amber highlights, a red glow around lights.
+    - **Chrome:** slide film: dark, dense and richly saturated.
+    - **Faded:** a sun-faded print with milky indigo blacks.
+    - **Punch:** maximum color.
+    - **Mono 400, Noir, Silver:** black and white (neutral; inky and cold; soft sepia).
+  - **Each filter has its own shadows, brightness and color,** spaced at least as far
+    apart as Instagram-style filters, so they're easy to tell apart at a glance.
+  - **Bright skin stays skin-colored** instead of going gold.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
   - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.
@@ -49,6 +64,8 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
 - **Hold the shutter for burst.** Shots fire as fast as the camera keeps up, with a
   counter on the button. Burst frames skip RAW so they stay fast.
 - The app reopens on the lens you used last.
+- **Zoom stays at 1× in Print, Zero and Bayer RAW.** Those shoot the sensor's full frame,
+  which can't be digitally zoomed; pick a lens instead. Pinching just tells you why.
 - **Silent shutter by default.** No click, no sounds at all. Turn **Shutter sound** on in
   Settings if you want it. Muting needs iOS 18, and isn't allowed in some countries (e.g.
   Japan, Korea); there the click plays unless the phone is on silent.
@@ -118,7 +135,7 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
     the value, and a haptic ticks when you cross zero. Hold ◧ to compare with the original.
   - **Filters** (with an **About** guide explaining each): Print (the film emulation above),
     Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir, Silver,
-    with live thumbnails. On a photo with a DNG, Print develops from the sensor data.
+    with live thumbnails. On a photo with a DNG, every filter develops from the sensor data.
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.
   - **Details**: structure, sharpening, fade, grain, vignette.
