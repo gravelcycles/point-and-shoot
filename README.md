@@ -41,7 +41,7 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     - **Chrome:** slide film.
     - **Faded:** a sun-faded print.
     - **Punch:** vivid.
-    - **Mono 400, Noir, Silver:** black and white.
+    - **Mono 400, Noir, Silver:** black and white (neutral, cold-toned, warm-toned).
   - **Bright skin stays skin-colored** instead of going gold.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.

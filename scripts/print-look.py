@@ -112,7 +112,8 @@ def export_swift(stock_path=STOCK, out=SWIFT):
             f"            grainDensity: {float(st['grainDensity'])},",
             f"            grainChroma: {float(st['grainChroma'])},",
             f"            grainSize: {float(st['grain_size'])},",
-            f"            huePreserve: {float(st.get('huePreserve', 0.0))})",
+            f"            huePreserve: {float(st.get('huePreserve', 0.0))},",
+            f"            monoTone: {[float(v) for v in st.get('monoTone', [1.0, 1.0, 1.0])]})",
             "    }()",
             "",
         ]

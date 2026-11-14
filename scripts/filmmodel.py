@@ -133,9 +133,48 @@ def print_curves(stock, controls):
     return curves
 
 
+NEUTRAL_MAX, NEUTRAL_SAMPLES = 100.0, 1024      # exposure rel. grey; table in exposure^(1/4)
+NEUTRAL_ROOT = NEUTRAL_MAX ** 0.25
+
+
+def neutral_table(stock, controls):
+    """How the stock renders a neutral at each exposure (rel. 18% grey), tint included:
+    [NEUTRAL_SAMPLES + 1, 3] linear P3, sampled evenly in exposure^(1/4) (cheap to index:
+    two square roots). Hue protection keeps this cast."""
+    s = NEUTRAL_ROOT * np.arange(NEUTRAL_SAMPLES + 1) / NEUTRAL_SAMPLES
+    u = np.maximum(np.log10(np.maximum(s ** 4, 1e-12)), -6.0)
+    dn = np.stack([curve_density(stock["negative"][c], u) for c in range(3)], -1)
+    return _display_core(dn, stock, controls)
+
+
+def neutral_lookup(table, y):
+    t = np.sqrt(np.sqrt(np.minimum(y, NEUTRAL_MAX))) / NEUTRAL_ROOT * NEUTRAL_SAMPLES
+    i = np.minimum(t.astype(int), NEUTRAL_SAMPLES - 1)
+    f = (t - i)[..., None]
+    return table[i] + (table[i + 1] - table[i]) * f
+
+
 def display(dn, stock, controls=None):
     """Negative density (...x3) -> linear Display P3 (white = 1)."""
     controls = controls or {}
+    out = _display_core(dn, stock, controls)
+    # Highlight hue protection: film's per-channel shoulder turns bright warm colors
+    # yellow (red compresses first). Blend toward the scene's own hue — carrying the
+    # stock's own neutral cast at that brightness — scaled to the same luminance.
+    hp = stock.get("huePreserve", 0.0)
+    if hp > 0:
+        e = 10.0 ** np.stack([neg_log_exposure(stock["negative"][c], dn[..., c]) for c in range(3)], -1)
+        e = np.maximum(e @ hue_matrix(stock).T, 0)     # scene color (P3), saturation boost undone
+        ye = e @ LUM_P3
+        tgt = e / np.maximum(ye, 1e-9)[..., None] * neutral_lookup(neutral_table(stock, controls), ye)
+        yo, yt = out @ LUM_P3, tgt @ LUM_P3
+        tgt = tgt * (yo / np.maximum(yt, 1e-9))[..., None]
+        w = hp * smoothstep(0.2, 0.85, yo)
+        out = out + (tgt - out) * w[..., None]
+    return out
+
+
+def _display_core(dn, stock, controls):
     curves = print_curves(stock, controls)
     grey = grey_negative_density(stock)
     printer = stock.get("printer", [0.0, 0.0, 0.0])
@@ -158,19 +197,7 @@ def display(dn, stock, controls=None):
         ws = t * t * (3 - 2 * t)
         dm = dm + (-0.22 * h * wh - 0.45 * s * ws)
     t = 10.0 ** (-(dm - base))
-    out = t @ np.array(stock["display"]).reshape(3, 3).T
-    # Highlight hue protection: film's per-channel shoulder turns bright warm colors
-    # yellow (red compresses first). Blend toward the scene's own channel ratios as
-    # brightness rises, scaled to the same luminance.
-    hp = stock.get("huePreserve", 0.0)
-    if hp > 0:
-        e = 10.0 ** np.stack([neg_log_exposure(stock["negative"][c], dn[..., c]) for c in range(3)], -1)
-        e = np.maximum(e @ hue_matrix(stock).T, 0)     # scene color (P3), saturation boost undone
-        yo, ye = out @ LUM_P3, e @ LUM_P3
-        ratio = e * (yo / np.maximum(ye, 1e-9))[..., None]
-        w = hp * smoothstep(0.2, 0.85, yo)
-        out = out + (ratio - out) * w[..., None]
-    return out
+    return t @ np.array(stock["display"]).reshape(3, 3).T
 
 
 def encode_srgb(x):

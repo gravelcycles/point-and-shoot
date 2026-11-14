@@ -186,6 +186,8 @@ struct FilmStock: Hashable {
     /// 0…1: how much bright colors keep their scene hue instead of film's per-channel
     /// shoulder shift (which turns bright warm colors yellow). 0 = pure film (Print).
     var huePreserve: Double
+    /// RGB gains after the mono mix for black-and-white filters (warm or cool toning).
+    var monoTone: [Double]
 
     /// Density 18% grey produces on the negative, per layer.
     var greyNegativeDensity: (Double, Double, Double) {
@@ -283,17 +285,55 @@ enum FilmLUT {
         FilmMath.matmul(FilmMath.rec2020ToP3, FilmMath.inverse3(s.sensitivity))
     }
 
-    /// Blends a bright color toward the scene's own channel ratios at the same luminance,
-    /// more as it gets brighter (film's shoulder would otherwise shift its hue).
+    static let neutralMax = 100.0
+    static let neutralRoot = pow(neutralMax, 0.25)
+    static let neutralSamples = 1024
+
+    /// How the stock renders a neutral at each exposure (rel. 18% grey), its color cast
+    /// included: 3 × (neutralSamples + 1) linear P3 values, sampled evenly in
+    /// exposure^(1/4) so a lookup is two square roots. Hue protection keeps this cast, so a
+    /// warm or cool filter stays warm or cool in its highlights.
+    static func neutralTable(stock s: FilmStock, controls c: FilmControls) -> [Double] {
+        let curves = printCurves(stock: s, controls: c)
+        let grey = s.greyNegativeDensity
+        let n = neutralSamples
+        var table = [Double](repeating: 0, count: 3 * (n + 1))
+        for k in 0...n {
+            let r = neutralRoot * Double(k) / Double(n)
+            let u = max(log10(max(r * r * r * r, 1e-12)), -6.0)
+            let dp = (printDensity(s.negative[0].density(u), channel: 0, stock: s, curves: curves, grey: grey),
+                      printDensity(s.negative[1].density(u), channel: 1, stock: s, curves: curves, grey: grey),
+                      printDensity(s.negative[2].density(u), channel: 2, stock: s, curves: curves, grey: grey))
+            let out = display(print: dp, stock: s, curves: curves, controls: c)
+            table[3 * k] = out.0; table[3 * k + 1] = out.1; table[3 * k + 2] = out.2
+        }
+        return table
+    }
+
+    /// Blends a bright color toward the scene's own hue, carried by the stock's neutral
+    /// cast at that brightness and scaled to the same luminance; more as it gets brighter
+    /// (film's per-channel shoulder would otherwise turn bright warm colors yellow).
     static func protectHue(_ out: (Double, Double, Double), scene: (Double, Double, Double),
-                           amount: Double) -> (Double, Double, Double) {
+                           neutral table: [Double], amount: Double) -> (Double, Double, Double) {
         let l = FilmMath.lumP3
         let yo = l.0 * out.0 + l.1 * out.1 + l.2 * out.2
+        if yo <= 0.2 { return out }          // the blend weight is 0 below this
         let e = (max(scene.0, 0), max(scene.1, 0), max(scene.2, 0))
         let ye = l.0 * e.0 + l.1 * e.1 + l.2 * e.2
-        let k = yo / max(ye, 1e-9)
+        // Neutral cast at this exposure (table lookup in exposure^(1/4)).
+        let n = neutralSamples
+        let t = min(ye, neutralMax).squareRoot().squareRoot() / neutralRoot * Double(n)
+        let i = min(Int(t), n - 1), f = t - Double(i)
+        let c0 = table[3 * i] + (table[3 * i + 3] - table[3 * i]) * f
+        let c1 = table[3 * i + 1] + (table[3 * i + 4] - table[3 * i + 1]) * f
+        let c2 = table[3 * i + 2] + (table[3 * i + 5] - table[3 * i + 2]) * f
+        let inv = 1 / max(ye, 1e-9)
+        var tgt = (e.0 * inv * c0, e.1 * inv * c1, e.2 * inv * c2)
+        let yt = l.0 * tgt.0 + l.1 * tgt.1 + l.2 * tgt.2
+        let k = yo / max(yt, 1e-9)
+        tgt = (tgt.0 * k, tgt.1 * k, tgt.2 * k)
         let w = amount * FilmMath.smoothstep(0.2, 0.85, yo)
-        return (out.0 + (e.0 * k - out.0) * w, out.1 + (e.1 * k - out.1) * w, out.2 + (e.2 * k - out.2) * w)
+        return (out.0 + (tgt.0 - out.0) * w, out.1 + (tgt.1 - out.1) * w, out.2 + (tgt.2 - out.2) * w)
     }
 
     /// Scene light (Rec.2020 linear) → negative density per layer.
@@ -387,7 +427,8 @@ enum FilmLUT {
         guard s.huePreserve > 0 else { return out }
         let inv = s.negative.map { InverseCurve($0) }
         let e = (pow(10, inv[0].logExposure(dn.0)), pow(10, inv[1].logExposure(dn.1)), pow(10, inv[2].logExposure(dn.2)))
-        return protectHue(out, scene: FilmMath.mul(hueMatrix(s), e), amount: s.huePreserve)
+        return protectHue(out, scene: FilmMath.mul(hueMatrix(s), e), neutral: neutralTable(stock: s, controls: c),
+                          amount: s.huePreserve)
     }
 
     /// RGBA float cube, red fastest. Input: negative density / densityScale. Output:
@@ -463,15 +504,24 @@ enum FilmLUT {
         let d = stock.display
         // Highlight hue protection needs the scene color: exposure per axis (inverse
         // negative curve), mixed per cell through the hue matrix.
+        // The scene color is linear in the per-axis exposures, so precompute each axis's
+        // contribution: sa[(j*3 + i)*n + k] = hueMatrix[i][j] · exposure_j[k].
         let hp = stock.huePreserve
-        var ex = [Double](repeating: 0, count: 3 * n)
-        let hm = hp > 0 ? hueMatrix(stock) : [Double](repeating: 0, count: 9)
+        var sa = [Double](repeating: 0, count: 9 * n)
+        let neutral = hp > 0 ? neutralTable(stock: stock, controls: c) : []
         if hp > 0 {
-            for ch in 0..<3 {
-                let inv = InverseCurve(stock.negative[ch])
-                for k in 0..<n { ex[ch * n + k] = pow(10, inv.logExposure(Double(k) * step)) }
+            let hm = hueMatrix(stock)
+            for j in 0..<3 {
+                let inv = InverseCurve(stock.negative[j])
+                for k in 0..<n {
+                    let e = pow(10, inv.logExposure(Double(k) * step))
+                    for i in 0..<3 { sa[(j * 3 + i) * n + k] = hm[i * 3 + j] * e }
+                }
             }
         }
+        let lum = FilmMath.lumP3
+        let nSamples = neutralSamples
+        let rootScale = Double(nSamples) / neutralRoot
         let encode = FilmMath.encodeTable
         let last = Double(FilmMath.encodeTableSize)
         @inline(__always) func enc(_ v: Double) -> Float {
@@ -492,6 +542,10 @@ enum FilmLUT {
                         let p1 = b.1 * f[4 * n + gi] * f[5 * n + bi]
                         let p2 = b.2 * f[7 * n + gi] * f[8 * n + bi]
                         let rowNeutral = tone ? nw[n + gi] + nw[2 * n + bi] : 0
+                        // Green and blue axes' share of the scene color, once per row.
+                        let rs0 = hp > 0 ? sa[3 * n + gi] + sa[6 * n + bi] : 0
+                        let rs1 = hp > 0 ? sa[4 * n + gi] + sa[7 * n + bi] : 0
+                        let rs2 = hp > 0 ? sa[5 * n + gi] + sa[8 * n + bi] : 0
                         for ri in 0..<n {
                             var t0 = p0 * f[ri], t1 = p1 * f[3 * n + ri], t2 = p2 * f[6 * n + ri]
                             if tone {
@@ -503,12 +557,22 @@ enum FilmLUT {
                             var rgb = (d[0] * t0 + d[1] * t1 + d[2] * t2,
                                        d[3] * t0 + d[4] * t1 + d[5] * t2,
                                        d[6] * t0 + d[7] * t1 + d[8] * t2)
-                            if hp > 0 {
-                                let e0 = ex[ri], e1 = ex[n + gi], e2 = ex[2 * n + bi]
-                                let sc = (hm[0] * e0 + hm[1] * e1 + hm[2] * e2,
-                                          hm[3] * e0 + hm[4] * e1 + hm[5] * e2,
-                                          hm[6] * e0 + hm[7] * e1 + hm[8] * e2)
-                                rgb = protectHue(rgb, scene: sc, amount: hp)
+                            // Highlight hue protection (= protectHue, inlined for speed).
+                            let yo = lum.0 * rgb.0 + lum.1 * rgb.1 + lum.2 * rgb.2
+                            if hp > 0 && yo > 0.2 {
+                                let e0 = max(rs0 + sa[ri], 0), e1 = max(rs1 + sa[n + ri], 0), e2 = max(rs2 + sa[2 * n + ri], 0)
+                                let ye = lum.0 * e0 + lum.1 * e1 + lum.2 * e2
+                                let t = min(ye, 100.0).squareRoot().squareRoot() * rootScale
+                                let i = min(Int(t), nSamples - 1), fr = t - Double(i)
+                                let c0 = neutral[3 * i] + (neutral[3 * i + 3] - neutral[3 * i]) * fr
+                                let c1 = neutral[3 * i + 1] + (neutral[3 * i + 4] - neutral[3 * i + 1]) * fr
+                                let c2 = neutral[3 * i + 2] + (neutral[3 * i + 5] - neutral[3 * i + 2]) * fr
+                                let inv = 1 / max(ye, 1e-9)
+                                let g0 = e0 * inv * c0, g1 = e1 * inv * c1, g2 = e2 * inv * c2
+                                let k = yo / max(lum.0 * g0 + lum.1 * g1 + lum.2 * g2, 1e-9)
+                                let x = min(max((yo - 0.2) / 0.65, 0), 1)
+                                let w = hp * x * x * (3 - 2 * x)
+                                rgb = (rgb.0 + (g0 * k - rgb.0) * w, rgb.1 + (g1 * k - rgb.1) * w, rgb.2 + (g2 * k - rgb.2) * w)
                             }
                             out[o] = enc(rgb.0)
                             out[o + 1] = enc(rgb.1)

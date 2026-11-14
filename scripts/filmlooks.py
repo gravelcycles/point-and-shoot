@@ -74,9 +74,9 @@ def build_stock(name, spec, base):
         curve = derive_print_curve(base["negative"][1], Y, white)
         st["print"] = [curve, copy.deepcopy(curve), copy.deepcopy(curve)]
         st["display"] = [round(white, 5), 0, 0, 0, round(white, 5), 0, 0, 0, round(white, 5)]
-    if "printer" in spec:
-        r, b = spec["printer"]
-        st["printer"] = [r, 0.0, b]
+    if "printer" in spec:     # [red, blue] or [red, green, blue]
+        p = spec["printer"]
+        st["printer"] = [p[0], 0.0, p[1]] if len(p) == 2 else list(p)
     if "crossover" in spec:
         r, b = spec["crossover"]
         st["crossover"] = [r, 0.0, b]
@@ -92,6 +92,7 @@ def build_stock(name, spec, base):
     if "halation_spread" in spec:
         st["halation_spread"] = {**base["halation_spread"], **spec["halation_spread"]}
     st["huePreserve"] = spec.get("huePreserve", 0.0)
+    st["monoTone"] = spec.get("mono_tone", [1.0, 1.0, 1.0])
     for k_spec, k_stock in (("grain", "grainDensity"), ("grain_chroma", "grainChroma"), ("grain_size", "grain_size")):
         if k_spec in spec:
             st[k_stock] = spec[k_spec]

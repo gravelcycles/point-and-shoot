@@ -221,7 +221,11 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - interlayer saturation and dye crosstalk
   - halation and grain
   - B&W filters are color stocks followed by the existing mono mix, so the color mixer
-    still works like darkroom filters.
+    still works like darkroom filters. The stock's `monoTone` gains tone the result: Noir
+    is cold, Silver warm, Mono 400 neutral.
+  - Signatures are deliberately far apart: every pair of color filters differs by
+    ≥ 0.03 mean ΔE (Oklab), and most by 0.05–0.15. Keep it that way when tuning; the
+    first pass at 0.014–0.03 read as "they all look the same".
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
 - **Only Print captures RAW** (`Look.capturesRAW`). The others apply to whatever Photo
   mode's processing produced, and develop from RAW when the shot has a DNG.
@@ -234,6 +238,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   turns bright warm colors yellow, because red compresses first. Bright skin goes gold.
   - The print cube blends toward the scene's own color, with the interlayer saturation
     undone, as luminance rises.
+  - The scene color is carried by the stock's own neutral cast at that exposure
+    (`neutralTable`), so warm or cool filters keep their cast in the highlights instead
+    of being pulled back to neutral.
   - Print keeps 0 to stay faithful to Chromagraph. The color filters use 0.4–0.9.
 - **Source of truth:**
   - `scripts/print-stock.json` holds Print (fitted).
@@ -261,8 +268,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     CPU), so the FILTER strip's live previews never stall the viewfinder.
   - Both caches are small LRUs (16 negative, 18 print; 1.8 MB each).
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
-    highlights, shadows) and is cached. It rebuilds in ~3 ms, so editor sliders never
-    hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
+    highlights, shadows) and is cached. It rebuilds in ~2–3 ms (~5 ms with hue
+    protection), only when a film slider moves, so editor sliders don't hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
     are linear in density), with a 1-D table for highlights/shadows and a √-space table
     for the sRGB encode.
   - Don't shrink below 48³: at 40³ the grey ramp stops being monotone (banding).
