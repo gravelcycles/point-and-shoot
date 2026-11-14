@@ -418,6 +418,9 @@ private struct PhotoPage: View {
     let manager: PHCachingImageManager
 
     @State private var image: UIImage?
+    /// The revision the newest request is for; results for older revisions are dropped.
+    @State private var wantedKey: String?
+    @State private var requestID: PHImageRequestID?
     @State private var zoom: CGFloat = 1
     @State private var anchor: UnitPoint = .center
     @Environment(\.displayScale) private var displayScale
@@ -455,13 +458,21 @@ private struct PhotoPage: View {
     }
 
     private func load(size: CGSize) {
+        // An edit (e.g. a capture filter being baked) lands while the unedited image is
+        // still loading: cancel that request and ignore anything it still delivers, or
+        // its late result overwrites the edited one until you swipe away and back.
+        if let requestID { manager.cancelImageRequest(requestID) }
+        let key = asset.revisionKey
+        wantedKey = key
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.isNetworkAccessAllowed = true
         options.version = .current
         let target = CGSize(width: size.width * displayScale * 1.5, height: size.height * displayScale * 1.5)
-        manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFit, options: options) { img, _ in
-            if let img { image = img }
+        requestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFit, options: options) { img, info in
+            guard wantedKey == key, let img else { return }
+            if (info?[PHImageCancelledKey] as? Bool) == true { return }
+            image = img
         }
     }
 }

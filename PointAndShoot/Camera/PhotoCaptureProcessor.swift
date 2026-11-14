@@ -121,10 +121,13 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
                     self.completion("Nothing was captured", nil)
                     return
                 }
-                self.completion(note, assetID)
+                // Bake the filter/Print look *before* reporting the shot done: the viewer
+                // keeps "Developing…" up until then, instead of showing the plain photo and
+                // swapping in the filtered one a moment later.
                 if let look = plan.look, let assetID {
                     try? await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw, viewfinderKey: viewfinderKey)
                 }
+                self.completion(note, assetID)
             } catch {
                 self.completion("Couldn't save: \(error.localizedDescription)", nil)
             }
