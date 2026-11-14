@@ -22,9 +22,8 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
 - **The top bar** has big round buttons for flash, self-timer and settings (⚙︎), each with
   a haptic click. The **format pill** in the middle ("HEIF · Natural ▾") opens a panel with
   labelled choices for file type, RAW and processing.
-- **Clean by default, pro on tap.** The strip under the viewfinder shows EV and FILTER.
-  Tap **PRO** to reveal FOCUS, WB, ISO and SHUTTER; it stays that way until you fold it
-  again. A yellow dot on PRO means something is still on manual.
+- **One control row** under the viewfinder: FOCUS, WB, ISO, SHUTTER, EV and FILTER. White
+  means the camera is deciding, yellow means you set it. Tap one to dial it in.
 - **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, FILTER) to put it back on auto.
 - **Filters at capture time.** Tap **FILTER** for live square previews of each filter, and
   **About** to read what each one does. Pick Print, Warm 400, Mono 400, Cine, Chrome, Noir
