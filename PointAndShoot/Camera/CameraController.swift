@@ -180,6 +180,13 @@ final class CameraController: NSObject {
         start()
     }
 
+    /// The capture's own thumbnail only bridges the gap until the roll has the shot. After
+    /// that the roll is the source of truth, so deleting it (here or in Photos) updates the
+    /// camera's thumbnail button.
+    func releaseCaptureThumbnail() {
+        lastThumbnail = nil
+    }
+
     private func captureFinished() {
         capturesInFlight = max(0, capturesInFlight - 1)
         if capturesInFlight == 0 && suspendWhenIdle {
@@ -1172,7 +1179,12 @@ final class CameraController: NSObject {
                     guard let self else { return }
                     self.sessionQueue.async { self.inFlight[id] = nil }
                     DispatchQueue.main.async {
-                        if let assetID { self.lastSavedAssetID = assetID }
+                        if let assetID {
+                            self.lastSavedAssetID = assetID
+                        } else {
+                            // Nothing was saved: don't keep showing a thumbnail of it.
+                            self.lastThumbnail = nil
+                        }
                         self.captureFinished()
                         if let message { self.toast = message }
                     }

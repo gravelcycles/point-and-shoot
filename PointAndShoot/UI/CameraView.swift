@@ -64,6 +64,9 @@ struct CameraView: View {
             // developing has been saved.
             if open { camera.suspendForBrowsing() } else { camera.resumeAfterBrowsing() }
         }
+        .onChange(of: roll.latestThumbnailID) { _, _ in handOffThumbnail() }
+        .onChange(of: camera.capturesInFlight) { _, _ in handOffThumbnail() }
+        .onChange(of: camera.lastSavedAssetID) { _, _ in handOffThumbnail() }
         .fullScreenCover(isPresented: $showLibrary) {
             PhotoViewer(roll: roll, camera: camera)
         }
@@ -253,9 +256,18 @@ struct CameraView: View {
 
     /// Whichever is fresher: the instant preview from the shutter, or the roll's newest
     /// (which reflects edits and anything shot in other apps).
+    /// A just-taken shot shows instantly from the capture; once the roll has it (and has
+    /// rendered its thumbnail) the roll takes over, so deletes anywhere are reflected.
+    /// Without read access to Photos the capture's thumbnail is all there is.
     private var rollThumbnail: UIImage? {
-        if let shot = camera.lastThumbnail, camera.lastThumbnailDate > roll.latestThumbnailDate { return shot }
-        return roll.latestThumbnail ?? camera.lastThumbnail
+        camera.lastThumbnail ?? roll.latestThumbnail
+    }
+
+    private func handOffThumbnail() {
+        guard camera.lastThumbnail != nil, camera.capturesInFlight == 0,
+              let id = camera.lastSavedAssetID, roll.contains(id),
+              let shown = roll.latestThumbnailID, shown == roll.assets.first?.localIdentifier else { return }
+        camera.releaseCaptureThumbnail()
     }
 
     // MARK: - Actions
