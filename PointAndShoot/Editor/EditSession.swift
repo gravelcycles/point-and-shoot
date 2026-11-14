@@ -32,6 +32,9 @@ final class EditSession {
     private(set) var isSaving = false
     private(set) var lookThumbnails: [String: UIImage] = [:]
     var errorMessage: String?
+    /// The photo was deleted (here, in Photos or on another device) while it was open.
+    /// Saving onto it is impossible; the editor offers Save as New Photo instead.
+    var assetDeleted = false
 
     /// Downsampled, cached source for interactive preview (Apple's rendering).
     @ObservationIgnored private var previewBase: CIImage?
@@ -239,6 +242,10 @@ final class EditSession {
     @discardableResult
     func save() async -> Bool {
         guard let input else { return false }
+        if PhotoLibrary.isGone(asset) {
+            assetDeleted = true
+            return false
+        }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -259,7 +266,7 @@ final class EditSession {
             savedRecipe = recipe
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if PhotoLibrary.isGone(asset) { assetDeleted = true } else { errorMessage = error.localizedDescription }
             return false
         }
     }
@@ -288,6 +295,10 @@ final class EditSession {
     @discardableResult
     func revertToOriginal() async -> Bool {
         let asset = self.asset
+        if PhotoLibrary.isGone(asset) {
+            assetDeleted = true
+            return false
+        }
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest(for: asset).revertAssetContentToOriginal()

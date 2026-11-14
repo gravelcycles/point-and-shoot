@@ -94,10 +94,18 @@ enum PhotoLibrary {
 
     /// One system "Delete N Photos?" confirmation for the whole batch.
     static func delete(_ assets: [PHAsset]) async throws {
+        // Skip anything already deleted elsewhere: deleting a missing asset fails the batch.
+        let assets = assets.filter { !isGone($0) }
         guard !assets.isEmpty else { return }
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.deleteAssets(assets as NSArray)
         }
+    }
+
+    /// True when the asset no longer exists in the library (deleted here, in Photos, on
+    /// another device, or moved to Recently Deleted).
+    static func isGone(_ asset: PHAsset) -> Bool {
+        PHAsset.fetchAssets(withLocalIdentifiers: [asset.localIdentifier], options: nil).count == 0
     }
 
     /// The user tapping "Don't Allow"/"Cancel" on the system confirmation isn't an error.

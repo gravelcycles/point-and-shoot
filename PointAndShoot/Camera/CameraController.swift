@@ -1182,8 +1182,10 @@ final class CameraController: NSObject {
                         if let assetID {
                             self.lastSavedAssetID = assetID
                         } else {
-                            // Nothing was saved: don't keep showing a thumbnail of it.
+                            // Nothing was saved: don't keep showing a thumbnail of it, and
+                            // let a viewer waiting on "Developing…" stop waiting.
                             self.lastThumbnail = nil
+                            self.lastSavedAssetID = nil
                         }
                         self.captureFinished()
                         if let message { self.toast = message }

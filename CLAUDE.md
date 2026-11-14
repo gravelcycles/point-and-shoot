@@ -210,6 +210,22 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   for the viewer, the grid and the camera thumbnail. Views key image caches on
   `PHAsset.revisionKey` (localIdentifier + modificationDate), so edits refresh everywhere.
 
+### Deletes (every state)
+`RollStore` (a `PHPhotoLibraryChangeObserver`, plus a refetch on every return to the app)
+is the only source of truth for what exists. Everything else reacts to it.
+
+| Where / when | What happens |
+|---|---|
+| Viewer trash | iOS shows its own confirmation. Confirm → the roll drops it → the viewer lands on the neighbour (`lastIndex`). Don't Allow → nothing. The button is disabled while the request is up (no double delete). |
+| Grid Select → Delete | One confirmation for the batch; Select mode ends on success and stays (same picks) on Don't Allow. Items deleted elsewhere drop out of the selection; an empty roll shows "No photos". |
+| Deleted in Photos / another device, app open or backgrounded | Change observer (or the refetch on return) updates the roll → viewer moves to the neighbour, an open Info sheet closes, the camera thumbnail updates. |
+| Already-deleted asset deleted again | `PhotoLibrary.delete` skips assets that no longer exist (`isGone`), so no error. |
+| Open in the editor when deleted | Save/Revert detect it and offer **Save as New Photo** (renders from the editing input) or Discard. |
+| Camera thumbnail | A capture's own thumbnail shows instantly but only until the roll has the shot *and* has rendered it (`handOffThumbnail`); then the roll's newest item is shown, so deleting it anywhere updates the button (empty roll → empty button). A failed save clears it. Without read access the capture's thumbnail is all there is. |
+| Shot still developing | Can't be deleted (no asset yet). If its save fails, `lastSavedAssetID` is cleared so the viewer's "Developing…" page doesn't wait forever. A Print bake on a shot deleted meanwhile fails quietly. |
+| Lock Screen shots parked for import | Imported once: one import at a time, and imported file keys are remembered, so a deleted shot never comes back if its parked file couldn't be removed. |
+| Recently Deleted | Deleted items sit there for 30 days (Photos' behaviour). Recovering one re-inserts it through the change observer. |
+
 ### Print look (film emulation)
 - **Signal path:** scene-linear light → exposure → halation → shaper → negative cube →
   + grain → print cube → Display P3. See the header of `FilmModel.swift`.
@@ -465,6 +481,9 @@ to be wrong.
     - Shoot, then tap the thumbnail immediately: the placeholder resolves to the new shot.
     - Paging, swipe down, share (original file), favorite, delete (lands on the neighbour),
       Info sheet with map.
+    - Deletes (§4 "Deletes"): delete the newest shot in the app, then in Photos, and check
+      the camera thumbnail each time; delete everything; delete in Photos while the viewer,
+      the grid in Select mode, the Info sheet or the editor is open; tap Don't Allow.
 11. **Editor**
     - Each tool. Swipe gestures feel right. Color mixer: try Blue Luminance with Mono 400.
     - Save → shows Edited in Photos → reopen restores sliders → Revert works.

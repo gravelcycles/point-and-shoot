@@ -71,8 +71,20 @@ struct RollGrid: View {
                     .accessibilityIdentifier("grid.select")
                 }
             }
+            .overlay {
+                if roll.isLoaded && roll.assets.isEmpty {
+                    ContentUnavailableView("No photos", systemImage: "photo.on.rectangle",
+                                           description: Text("Everything here has been deleted."))
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 if selecting { selectionBar }
+            }
+            // Items deleted elsewhere (Photos, another device) drop out of the selection.
+            .onChange(of: roll.assets) { _, assets in
+                let live = Set(assets.map(\.localIdentifier))
+                if !selected.isSubset(of: live) { selected.formIntersection(live) }
+                if assets.isEmpty, selecting { selecting = false }
             }
             .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil },
                                                                 set: { if !$0 { errorMessage = nil } })) {
@@ -147,16 +159,21 @@ struct RollGrid: View {
 
     private func deleteSelected() {
         let assets = selectedAssets
+        guard !assets.isEmpty, !working else { return }
+        working = true
         Task {
+            defer { working = false }
             do {
                 try await PhotoLibrary.delete(assets)
                 withAnimation(.snappy(duration: 0.2)) {
                     selected.removeAll()
                     selecting = false
                 }
-            } catch where !PhotoLibrary.isUserCancel(error) {
+            } catch where PhotoLibrary.isUserCancel(error) {
+                // Kept them: stay in Select with the same items picked.
+            } catch {
                 errorMessage = "Couldn't delete: \(error.localizedDescription)"
-            } catch {}
+            }
         }
     }
 }
