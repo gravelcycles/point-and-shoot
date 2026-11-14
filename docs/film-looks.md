@@ -27,12 +27,17 @@ order:
    the nearest pair is now 0.067 ΔE.
 4. "normal print mode photos are super grainy". Print forced 15% noise reduction on a
    single-frame RAW; #20 fixes this.
+5. "what I see through the viewfinder is a lot brighter than what actually is published.
+   I like what I see through the viewfinder". The viewfinder (Apple's processed video,
+   un-rendered by a gentle inverse curve) and the photo (linear RAW) landed at different
+   brightness. Each shot is now matched to the viewfinder (`rawFilmExposure`; CLAUDE.md §4,
+   "Brightness matches the viewfinder").
 
 **What to ask the owner next:**
 - Do indoor Print shots look clean now?
 - Is there still visible grain at 100%? If there's none at all, see §6.
 - Do the filters now read as different at thumbnail size?
-- Is Print's brightness right (the 18% grey placement)?
+- Does the saved Print photo now match the viewfinder's brightness, including at night?
 
 ## 2. The owner's taste (from their own words)
 
@@ -196,6 +201,15 @@ pairs"): the same scene shot with Point & Shoot (DNG kept) and with Chromagraph,
   single-frame Bayer RAW (`.speed`, 12 MP, no multi-frame NR), and the baker forced 15%
   luminance NR. Now it uses the camera's own default for the shot, floored at 50, and
   film looks get at least 0.5 chroma NR.
+
+**Viewfinder brightness match: assumptions to check on device:**
+- The video frames and the Bayer RAW share the same exposure (one device, continuous
+  AE). If the photo output exposes differently, the match is off by that difference.
+- Video frames are a slightly different crop than the 4:3 photo. That's harmless for a
+  geometric mean unless the edges are very different from the centre.
+- How it was checked: simulated on the iPhone 12 Pro DNG with viewfinder curves brighter
+  than assumed. The saved brightness came out within ±0.01 of the viewfinder, against
+  0.08–0.2 too dark before.
 
 **Unverified Core Image assumptions** (only the device can tell):
 - The grain path makes noise opaque with `settingAlphaOne` and adds it with
