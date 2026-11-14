@@ -34,6 +34,20 @@
                ReferencedContainer = "container:PointAndShoot.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "A10000000000000000000060"
+               BuildableName = "PointAndShootTests.xctest"
+               BlueprintName = "PointAndShootTests"
+               ReferencedContainer = "container:PointAndShoot.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -49,6 +63,16 @@
                   BlueprintIdentifier = "A10000000000000000000050"
                   BuildableName = "PointAndShootUITests.xctest"
                   BlueprintName = "PointAndShootUITests"
+                  ReferencedContainer = "container:PointAndShoot.xcodeproj">
+               </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+               <BuildableReference
+                  BuildableIdentifier = "primary"
+                  BlueprintIdentifier = "A10000000000000000000060"
+                  BuildableName = "PointAndShootTests.xctest"
+                  BlueprintName = "PointAndShootTests"
                   ReferencedContainer = "container:PointAndShoot.xcodeproj">
                </BuildableReference>
          </TestableReference>

@@ -223,6 +223,8 @@ struct CameraView: View {
                 ThumbnailButton(image: rollThumbnail, rotation: motion.iconRotation) {
                     showLibrary = true
                 }
+                .accessibilityIdentifier("camera.thumbnail")
+                .overlay(alignment: .top) { RollCountProbe(roll: roll).offset(y: -12) }
                 .disabled(camera.isRecording)
                 Spacer()
                 ShutterButton(mode: camera.settings.mode, isRecording: camera.isRecording,
@@ -273,11 +275,15 @@ struct CameraView: View {
     }
 
     private func handOffThumbnail() {
-        guard camera.lastThumbnail != nil, camera.capturesInFlight == 0,
-              let id = camera.lastSavedAssetID, roll.contains(id),
-              !camera.developingAssetIDs.contains(id),
-              let shown = roll.latestThumbnailID, shown == roll.assets.first?.localIdentifier else { return }
-        camera.releaseCaptureThumbnail()
+        let release = ThumbnailHandoff.shouldRelease(
+            hasCaptureThumbnail: camera.lastThumbnail != nil,
+            capturesInFlight: camera.capturesInFlight,
+            lastSavedAssetID: camera.lastSavedAssetID,
+            developingIDs: camera.developingAssetIDs,
+            rollContains: roll.contains,
+            latestThumbnailID: roll.latestThumbnailID,
+            newestAssetID: roll.assets.first?.localIdentifier)
+        if release { camera.releaseCaptureThumbnail() }
     }
 
     // MARK: - Actions

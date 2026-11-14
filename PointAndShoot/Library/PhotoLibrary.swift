@@ -154,10 +154,16 @@ enum PhotoLibrary {
     }
 
     static func hasRAW(_ asset: PHAsset) -> Bool {
-        PHAssetResource.assetResources(for: asset).contains { r in
-            let uti = r.uniformTypeIdentifier.lowercased()
-            return uti.contains("raw-image") || uti.contains("dng")
-        }
+        PHAssetResource.assetResources(for: asset).contains(where: isRAWResource)
+    }
+
+    /// The RAW half of a RAW+processed pair always sits in the `.alternatePhoto` slot; a
+    /// RAW-only asset is recognised by its type (Photos doesn't label every DNG
+    /// "com.adobe.raw-image": the CI test DNG came back with another UTI).
+    static func isRAWResource(_ r: PHAssetResource) -> Bool {
+        if r.type == .alternatePhoto { return true }
+        let uti = r.uniformTypeIdentifier.lowercased()
+        return uti.contains("raw-image") || uti.contains("dng")
     }
 
     /// Writes the original file (HEIC/JPEG/DNG/MOV, full quality and metadata) to a temp
@@ -205,10 +211,7 @@ enum PhotoLibrary {
     /// Fetches the RAW (DNG) bytes behind an asset if it has any.
     static func rawData(for asset: PHAsset) async -> Data? {
         let resources = PHAssetResource.assetResources(for: asset)
-        let rawResource = resources.first { r in
-            let uti = r.uniformTypeIdentifier.lowercased()
-            return uti.contains("raw-image") || uti.contains("dng")
-        }
+        let rawResource = resources.first { $0.type == .alternatePhoto } ?? resources.first(where: isRAWResource)
         guard let rawResource else { return nil }
         return await withCheckedContinuation { cont in
             var data = Data()

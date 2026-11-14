@@ -24,7 +24,7 @@ struct PhotoViewer: View {
     @State private var savedBanner: String?
     @State private var lastIndex = 0
 
-    private static let pendingID = "__pending__"
+    private static let pendingID = ViewerSelection.pendingID
 
     init(roll: RollStore, camera: CameraController) {
         self.roll = roll
@@ -77,6 +77,7 @@ struct PhotoViewer: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(chromeHidden)
+        .overlay(alignment: .topLeading) { RollCountProbe(roll: roll).padding(.top, 2) }
         .task {
             if roll.status == .notDetermined { await roll.requestAccess() }
             reconcileSelection()
@@ -186,20 +187,14 @@ struct PhotoViewer: View {
 
     /// Keep the viewer pointed at the right photo while a just-taken shot finishes saving.
     private func reconcileSelection() {
-        if awaitingCapture, camera.capturesInFlight == 0 {
-            if let id = camera.lastSavedAssetID, roll.contains(id) {
-                awaitingCapture = false
-                if selectedID == Self.pendingID || selectedID == nil { selectedID = id }
-            } else if camera.lastSavedAssetID == nil {
-                awaitingCapture = false
-            }
-        }
-        if !awaitingCapture, let id = selectedID, id == Self.pendingID || !roll.contains(id) {
-            // Deleted (or pending resolved): land on the neighbor, like the Photos app.
-            let i = min(lastIndex, roll.assets.count - 1)
-            selectedID = i >= 0 ? roll.assets[i].localIdentifier : nil
-        }
-        if selectedID == nil { selectedID = roll.assets.first?.localIdentifier }
+        let next = ViewerSelection.reconcile(
+            .init(awaitingCapture: awaitingCapture, selectedID: selectedID),
+            capturesInFlight: camera.capturesInFlight,
+            lastSavedAssetID: camera.lastSavedAssetID,
+            assetIDs: roll.assets.map(\.localIdentifier),
+            lastIndex: lastIndex)
+        if next.awaitingCapture != awaitingCapture { awaitingCapture = next.awaitingCapture }
+        if next.selectedID != selectedID { selectedID = next.selectedID }
     }
 
     // MARK: Chrome
@@ -212,6 +207,7 @@ struct PhotoViewer: View {
                     .frame(width: 40, height: 40)
                     .background(.ultraThinMaterial, in: Circle())
             }
+            .accessibilityIdentifier("viewer.close")
             Spacer()
             VStack(spacing: 1) {
                 if let asset = selectedAsset, let date = asset.creationDate {
@@ -236,6 +232,7 @@ struct PhotoViewer: View {
                     .frame(width: 40, height: 40)
                     .background(.ultraThinMaterial, in: Circle())
             }
+            .accessibilityIdentifier("viewer.grid")
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 16)
@@ -258,7 +255,7 @@ struct PhotoViewer: View {
         let asset = selectedAsset
         let isPhoto = asset?.mediaType == .image
         return HStack {
-            barButton(preparingShare ? "hourglass" : "square.and.arrow.up") { share() }
+            barButton(preparingShare ? "hourglass" : "square.and.arrow.up", id: "viewer.share") { share() }
                 .disabled(asset == nil || preparingShare)
             Spacer()
             barButton(asset?.isFavorite == true ? "heart.fill" : "heart",
@@ -287,7 +284,7 @@ struct PhotoViewer: View {
             .disabled(!isPhoto)
             .opacity(isPhoto ? 1 : 0.35)
             Spacer()
-            barButton("trash") {
+            barButton("trash", id: "viewer.delete") {
                 // iOS's own confirmation is modal, so it can't be double-sent; no busy flag
                 // that could get stuck and leave the button dead.
                 guard let asset else { return }
@@ -306,7 +303,7 @@ struct PhotoViewer: View {
             }
             .disabled(asset == nil)
             Spacer()
-            barButton("info.circle") {
+            barButton("info.circle", id: "viewer.info") {
                 if let asset { infoAsset = AssetItem(asset: asset) }
             }
             .disabled(asset == nil)
@@ -321,7 +318,8 @@ struct PhotoViewer: View {
         )
     }
 
-    private func barButton(_ symbol: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
+    private func barButton(_ symbol: String, tint: Color = .white, id: String? = nil,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 19, weight: .medium))
@@ -330,6 +328,7 @@ struct PhotoViewer: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(PressScaleStyle())
+        .accessibilityIdentifier(id ?? symbol)
     }
 
     private var accessDenied: some View {

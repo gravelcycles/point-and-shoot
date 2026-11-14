@@ -106,16 +106,23 @@ jobs:
           APP=build/ui/Build/Products/Debug-iphonesimulator/PointAndShoot.app
           BID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
           xcrun simctl install "$SIM" "$APP"
+          # The Photos integration tests and the roll UI tests use the simulator's real
+          # library: grant access up front so no permission prompt blocks them.
+          xcrun simctl privacy "$SIM" grant photos "$BID" || true
+          xcrun simctl privacy "$SIM" grant photos-add "$BID" || true
           xcrun simctl launch "$SIM" "$BID" -uitest >/dev/null || true
           sleep 8
           xcrun simctl terminate "$SIM" "$BID" || true
 
-      # Drives the real UI in the iOS Simulator (no camera there; `-uitest` skips the session)
-      # and taps every kind of control off-center to catch dead tap areas and tap-through.
-      - name: UI tests (simulator)
+      # Unit tests (PointAndShootTests: settings, recipes, capture planner, roll logic, the
+      # film pipeline, and Photos-library integration), then the UI tests: the real UI in the
+      # iOS Simulator (no camera there; `-uitest` skips the session), off-center taps, and the
+      # roll's viewer/grid/delete flows against seeded photos.
+      # TEST_RUNNER_CI makes the integration tests fail (not skip) if Photos access is missing.
+      - name: Tests (simulator)
         run: |
           set -o pipefail
-          xcodebuild test-without-building \
+          TEST_RUNNER_CI=1 xcodebuild test-without-building \
             -project PointAndShoot.xcodeproj \
             -scheme PointAndShoot \
             -destination "id=$SIM" \
@@ -130,9 +137,9 @@ jobs:
         if: always()
         run: |
           [ -f uitest.log ] || exit 0
-          echo "## UI tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Tests" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -E "Test [Cc]ase .*(passed|failed)|error:|TEST (EXECUTE )?(SUCCEEDED|FAILED)" uitest.log | sed "s|$GITHUB_WORKSPACE/||" | head -80 >> "$GITHUB_STEP_SUMMARY" || true
+          grep -E "Test [Cc]ase .*(passed|failed)|error:|TEST (EXECUTE )?(SUCCEEDED|FAILED)" uitest.log | sed "s|$GITHUB_WORKSPACE/||" | head -200 >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

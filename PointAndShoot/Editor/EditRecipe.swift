@@ -74,6 +74,19 @@ struct EditRecipe: Codable, Equatable {
         set { mixer = newValue.allSatisfy { $0 == 0 } ? nil : newValue }
     }
 
+    /// Decodes a saved edit from any app version: fields it lacks take their defaults
+    /// (including inside `film`), unknown ones are ignored. Never use plain JSONDecoder for
+    /// stored recipes: it fails on the first missing key.
+    static func decodeSaved(_ data: Data) -> EditRecipe? {
+        TolerantJSON.decode(EditRecipe.self, from: data, defaults: EditRecipe()) { saved in
+            var saved = saved
+            if let film = saved["film"] as? [String: Any], let base = TolerantJSON.object(FilmRecipe()) {
+                saved["film"] = TolerantJSON.merging(film, over: base)
+            }
+            return saved
+        }
+    }
+
     var isGeometryIdentity: Bool {
         crop == CGRect(x: 0, y: 0, width: 1, height: 1) && straighten == 0 && quarterTurns % 4 == 0 && !flipped
     }

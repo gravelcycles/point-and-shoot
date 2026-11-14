@@ -297,18 +297,14 @@ struct CameraSettings: Codable, Equatable {
     /// (so an app update never wipes your setup).
     static func load() -> CameraSettings {
         if TestHooks.isUITest { return CameraSettings() }
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let defaultsData = try? JSONEncoder().encode(CameraSettings()),
-              var merged = try? JSONSerialization.jsonObject(with: defaultsData) as? [String: Any] else {
-            return CameraSettings()
-        }
-        merged.merge(saved) { _, stored in stored }
-        guard let mergedData = try? JSONSerialization.data(withJSONObject: merged),
-              let s = try? JSONDecoder().decode(CameraSettings.self, from: mergedData) else {
-            return CameraSettings()
-        }
-        return s
+        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return CameraSettings() }
+        return decodeSaved(data) ?? CameraSettings()
+    }
+
+    /// Saved settings from any app version: missing options take their defaults, removed
+    /// ones (e.g. `proControls`) are ignored.
+    static func decodeSaved(_ data: Data) -> CameraSettings? {
+        TolerantJSON.decode(CameraSettings.self, from: data, defaults: CameraSettings())
     }
 
     func save() {

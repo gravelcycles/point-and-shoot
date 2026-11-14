@@ -74,7 +74,7 @@ final class EditSession {
 
         var loaded = EditRecipe()
         if let adjustment = input.adjustmentData, adjustment.formatIdentifier == EditRecipe.formatID,
-           let saved = try? JSONDecoder().decode(EditRecipe.self, from: adjustment.data) {
+           let saved = EditRecipe.decodeSaved(adjustment.data) {
             loaded = saved
         }
 
