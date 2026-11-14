@@ -97,13 +97,14 @@ struct EditRecipe: Codable, Equatable {
     /// not a film look). Called when an edit is baked or saved.
     mutating func freezeFilmTuning() {
         guard var f = film, f.tuning == nil else { return }
-        f.tuning = FilmStock.named(f.stock)
+        f.tuning = FilmStock.resolved(for: f)
+        if f.engine == nil { f.engine = FilmRecipe.currentEngine }
         film = f
     }
 
-    /// The tuning to render with: the pinned one, else the stock's current tuning.
+    /// The tuning to render with: the pinned one, else the one the edit was made with.
     var filmStock: FilmStock? {
-        film.map { $0.tuning ?? FilmStock.named($0.stock) }
+        film.map { FilmStock.resolved(for: $0) }
     }
 
     var isGeometryIdentity: Bool {
@@ -148,13 +149,19 @@ struct EditRecipe: Codable, Equatable {
 struct FilmRecipe: Codable, Equatable {
     /// Which film stock (`FilmStock.all`). nil = Print (edits saved before stocks existed).
     var stock: String?
-    /// The stock's full tuning as it was when this edit was baked or saved (a few KB).
-    /// Rendering uses it instead of the stock's current tuning in code, so retuning a look
-    /// later never changes an older photo, even when it's reopened in the editor.
-    /// nil = use the current tuning (edits from before this existed, or a look just picked
-    /// in the editor and not yet saved). Picking the look again drops it: that's how a
-    /// photo moves to the newest tuning.
+    /// The stock's full tuning, pinned when the look is picked (a few KB). Rendering uses it
+    /// instead of the stock's current tuning in code, so retuning a look later never
+    /// changes an older photo, even when it's reopened and re-saved in the editor.
+    /// nil = an edit from before tunings were pinned: `FilmStock.resolved(for:)` finds the
+    /// exact tuning it was made with in the frozen history (`FilmStock.Legacy`).
+    /// Picking the look again pins its current tuning: how a photo moves to the newest.
     var tuning: FilmStock?
+    /// The film math's version when the tuning was pinned (`FilmRecipe.currentEngine`).
+    /// nil = before versioning. A future change to the film *math* (not just a stock's
+    /// numbers) that would alter older photos must keep the old behaviour for older engines.
+    var engine: Int?
+
+    static let currentEngine = 1
     /// 0…100; 50 = the look as designed.
     var halation: Double = 50
     /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),
@@ -277,7 +284,8 @@ struct Look: Identifiable {
     private static func film(_ stock: String, _ extra: @escaping (inout EditRecipe) -> Void = { _ in })
         -> (inout EditRecipe) -> Void {
         { r in
-            r.film = FilmRecipe(stock: stock)
+            // Pin the stock's tuning as it is right now (see FilmRecipe.tuning).
+            r.film = FilmRecipe(stock: stock, tuning: FilmStock.named(stock), engine: FilmRecipe.currentEngine)
             r.grain = FilmRecipe.defaultGrain
             extra(&r)
         }
@@ -348,5 +356,18 @@ enum CropAspect: String, CaseIterable, Identifiable {
         }
         guard let base else { return nil }
         return imageAspect >= 1 ? base : 1 / base
+    }
+}
+
+extension FilmStock {
+    /// The tuning an edit renders with: its pinned tuning, or, for edits saved before
+    /// tunings were pinned, the exact one it was made with (the stocks changed exactly once
+    /// in that time: Print's grain, 0.012 → 0.008 in #20):
+    /// - a stock id but no pinned tuning → the stocks as shipped from #15/#20;
+    /// - no stock id (Print before #15) → Print as it shipped in #9.
+    static func resolved(for film: FilmRecipe) -> FilmStock {
+        if let pinned = film.tuning { return pinned }
+        guard let id = film.stock else { return Legacy.printV1 }
+        return Legacy.v2[id] ?? named(id)
     }
 }

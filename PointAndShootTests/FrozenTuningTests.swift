@@ -40,11 +40,17 @@ final class FrozenTuningTests: XCTestCase {
         }
     }
 
-    func testFreezingPinsTheCurrentTuningOnce() {
+    func testPickingALookPinsItsCurrentTuning() {
+        for look in Look.all {
+            let r = look.recipe
+            guard let film = r.film else { continue }
+            XCTAssertEqual(film.tuning, FilmStock.named(film.stock), "\(look.id): tuning not pinned at pick time")
+            XCTAssertEqual(film.engine, FilmRecipe.currentEngine)
+        }
+    }
+
+    func testFreezingNeverReplacesAPinnedTuning() {
         var r = printRecipe
-        XCTAssertNil(r.film?.tuning)
-        r.freezeFilmTuning()
-        XCTAssertEqual(r.film?.tuning, FilmStock.printLook)
         var older = FilmStock.printLook
         older.exposure += 1
         r.film?.tuning = older
@@ -54,6 +60,54 @@ final class FrozenTuningTests: XCTestCase {
         var plain = EditRecipe()
         plain.freezeFilmTuning()
         XCTAssertNil(plain.film, "Non-film edits stay as they are")
+    }
+
+    // MARK: Photos taken before tunings were pinned
+
+    /// A Print edit saved by the first Print build (#9): no stock id, no tuning.
+    private var printV1Edit: EditRecipe {
+        var r = printRecipe
+        r.film = FilmRecipe(stock: nil, halation: 50, crossover: 0, tuning: nil, engine: nil)
+        return r
+    }
+
+    func testPrintFromBeforeStockIDsResolvesToPrintAsItShipped() {
+        let stock = FilmStock.resolved(for: printV1Edit.film!)
+        XCTAssertEqual(stock, FilmStock.Legacy.printV1)
+        XCTAssertEqual(stock.grainDensity, 0.012, "#9 shipped Print with 0.012 D grain")
+    }
+
+    func testStockEditsFromBeforePinningResolveToTheStocksAsShipped() {
+        for id in FilmStock.all.keys {
+            let film = FilmRecipe(stock: id, tuning: nil, engine: nil)
+            XCTAssertEqual(FilmStock.resolved(for: film), FilmStock.Legacy.v2[id], id)
+        }
+    }
+
+    func testSavingAnOlderEditPinsTheTuningItWasMadeWith() {
+        var r = printV1Edit
+        r.freezeFilmTuning()
+        XCTAssertEqual(r.film?.tuning, FilmStock.Legacy.printV1, "Re-saving must keep its original look")
+    }
+
+    /// The frozen history must never change: it's what older photos re-render with.
+    func testFrozenHistoryIsUntouched() {
+        func fnv(_ s: String) -> UInt64 {
+            var h: UInt64 = 0xcbf29ce484222325
+            for b in s.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
+            return h
+        }
+        XCTAssertEqual(fnv(FilmStock.Legacy.printV1JSON), FilmStock.Legacy.printV1Fingerprint,
+                       "FilmStock+Legacy.swift was edited: older Print photos would change")
+        XCTAssertEqual(fnv(FilmStock.Legacy.v2JSON), FilmStock.Legacy.v2Fingerprint,
+                       "FilmStock+Legacy.swift was edited: older filter photos would change")
+        XCTAssertEqual(FilmStock.Legacy.v2.count, 12, "every stock that existed is in the history")
+    }
+
+    func testOlderPrintEditRendersWithItsOwnGrain() {
+        // Same tone and colour as today's Print (only grain changed), so with grain off the
+        // older edit renders the same; the stock it resolves to carries the old grain.
+        XCTAssertLessThan(maxDiff(pixels(printV1Edit), pixels(printRecipe)), 1e-4)
     }
 
     func testPinnedTuningRendersExactlyLikeTheCurrentOne() {
@@ -104,6 +158,6 @@ final class FrozenTuningTests: XCTestCase {
         older.exposure += 1
         r.film?.tuning = older
         Look.named(CameraSettings.printLookID)!.apply(&r)
-        XCTAssertNil(r.film?.tuning, "Re-picking a look should use its current tuning")
+        XCTAssertEqual(r.film?.tuning, FilmStock.printLook, "Re-picking a look should pin its current tuning")
     }
 }

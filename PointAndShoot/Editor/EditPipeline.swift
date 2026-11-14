@@ -128,7 +128,8 @@ enum EditPipeline {
         if let film = r.film {
             var fs = FilmPipeline.Settings()
             fs.stockID = film.stock ?? FilmStock.printLook.id
-            fs.tuning = film.tuning
+            // The tuning this photo was made with (pinned, or from the frozen history).
+            fs.tuning = FilmStock.resolved(for: film)
             fs.source = developedFromRAW ? .sceneLinear : .displayReferred
             fs.exposure = developedFromRAW ? 0 : r.exposure / 50   // RAW: already in the develop
             fs.halation = film.halation / 50
