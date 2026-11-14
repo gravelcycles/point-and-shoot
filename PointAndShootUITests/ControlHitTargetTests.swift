@@ -152,6 +152,28 @@ final class ControlHitTargetTests: XCTestCase {
         }
     }
 
+    /// Print shoots Bayer RAW, which crashes AVFoundation when zoomed (#18): pinching in
+    /// Print must not zoom, and must say why.
+    func testPinchInPrintIsLockedAndExplained() {
+        app.buttons["mode.print"].tap()
+        let viewfinder = app.otherElements["viewfinder"]
+        XCTAssertTrue(viewfinder.waitForExistence(timeout: 3))
+        viewfinder.pinch(withScale: 2.5, velocity: 2)
+        let toast = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'No zoom in Print'")).firstMatch
+        XCTAssertTrue(toast.waitForExistence(timeout: 3), "Pinching in Print showed no zoom-lock message")
+    }
+
+    /// The silent-shutter option exists and can be turned on.
+    func testShutterSoundToggleIsInSettings() {
+        tapOffLabel(app.buttons["topbar.settings"], dx: 0.5, dy: 0.5)
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 4))
+        let toggle = app.switches["Shutter sound"]
+        var swipes = 0
+        while !toggle.isHittable && swipes < 10 { app.swipeUp(); swipes += 1 }
+        XCTAssertTrue(toggle.exists, "Settings has no Shutter sound toggle")
+        XCTAssertEqual(toggle.value as? String, "0", "The shutter should be silent by default")
+    }
+
     /// The empty strip above the controls overlaps the bottom of the viewfinder. Taps there
     /// belong to the controls area and must not trigger tap-to-focus.
     func testTapsInControlsAreaDoNotFallThroughToViewfinder() {

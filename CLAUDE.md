@@ -118,7 +118,8 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Camera/CaptureSettings.swift    all persisted settings + enums + photographic stop tables
   Camera/PreviewRenderer.swift    Metal viewfinder: CI pipeline, peaking, zebras, histogram, Log LUT,
                                   live capture Look, lens-switch blur
-  Camera/PhotoCaptureProcessor.swift  AVCapturePhotoCaptureDelegate; GPS EXIF; save; bake Look
+  Camera/PhotoCaptureProcessor.swift  AVCapturePhotoCaptureDelegate; GPS EXIF; save; bake Look (BakeQueue)
+  Camera/PhotoPlanner.swift       pure capture decisions (RAW kind, prioritization, flash, 12 MP) — unit-tested
   Camera/ZeroDeveloper.swift      "Zero" processing: neutral CIRAWFilter develop of Bayer DNG
   Camera/VideoRecorder.swift      AVAssetWriter recorder (video+audio, location metadata)
   Camera/LocationTagger.swift     CoreLocation GPS + compass; EXIF/ISO6709 builders
@@ -137,6 +138,9 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Library/PhotoInfoSheet.swift    EXIF + map info panel
   Library/PhotoLibrary.swift      save/share/favorite/delete/RAW-fetch helpers (returns asset IDs)
   Library/LockedCaptureImporter.swift  imports Lock Screen shots parked by the extension
+  Library/RollLogic.swift         pure viewer selection + thumbnail handoff rules — unit-tested
+  App/TolerantJSON.swift          decodes saved settings/recipes from any app version (missing keys → defaults)
+  App/TestHooks.swift             -uitest, unit-test host, -uitest-seed N photo seeding, roll.count probe
   Editor/EditorView.swift         Snapseed-style editor UI (swipe ↕ choose / ↔ adjust)
   Editor/EditSession.swift        loads asset (+RAW), preview graph, non-destructive save/copy/revert
   Editor/EditPipeline.swift       the edit as a Core Image graph (geometry → tone → color → detail → fx)
@@ -147,7 +151,9 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/FilmStock+Stocks.swift   GENERATED film stocks: Print + every photo filter (from scripts/*.json)
   Editor/FilmPipeline.swift       Print look in Core Image: halation, neg cube, grain, print cube
   Editor/CropOverlay.swift, MetalImageView.swift
-PointAndShootUITests/             simulator UI tests (tap targets, tap-through); run with -uitest
+PointAndShootTests/               unit + integration tests, hosted in the app (@testable import): settings,
+                                  recipe back-compat, capture planner, roll logic, film pipeline, Photos library
+PointAndShootUITests/             simulator UI tests (tap targets, tap-through, roll/viewer/delete flows); -uitest
 Shared/CameraCaptureIntent.swift  CameraCaptureIntent (compiled into app + both extensions)
 Shared/OpenVideoControlIntent.swift  "Record Video" control's intent (opens the app in Video mode)
 PointAndShootWidgets/             ControlWidget extension: Camera + Record Video controls (Control Center /
@@ -231,6 +237,13 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   `mixer: [Double]?`).
 - **Settings persistence:** `CameraSettings.load()` merges the saved JSON over the defaults,
   so new fields never wipe the user's setup. Keep it that way.
+- **Saved data is decoded tolerantly.** Swift's synthesized `Decodable` fails on any missing
+  key, even for properties with defaults. Decode stored settings with
+  `CameraSettings.decodeSaved` and stored edits with `EditRecipe.decodeSaved` (both via
+  `TolerantJSON`), never plain `JSONDecoder`. Tests remove each key in turn to enforce it.
+- **Capture decisions live in `PhotoPlanner.decide`** (pure). `makePhotoSettings` only
+  applies them. Change rules there, and `PhotoPlannerTests` checks every combination of
+  settings × hardware × burst × zoom against the crash invariants.
 - **Bundle IDs:** the project-level `APP_BUNDLE_ID` drives the app and both extensions.
   CI overrides `APP_BUNDLE_ID`. Never override `PRODUCT_BUNDLE_IDENTIFIER` on the command
   line: that would give the extensions the app's ID.
@@ -485,8 +498,17 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **`build.yml`:** unsigned `xcodebuild build -target PointAndShoot -sdk iphoneos` on PRs and
   on pushes to `main` (feature branches build only through their PR: one run per change),
   using the newest Xcode on `macos-15`. The same job (one Mac, one queue wait) then runs
-  `xcodebuild test` on the newest iPhone simulator (`.github/scripts/pick-simulator.py`). When it fails, the
-  errors appear in the run summary. The `build-log` artifact holds the full log; grep it for
+  every test on the newest iPhone simulator (`.github/scripts/pick-simulator.py`):
+  - `PointAndShootTests` (unit + integration, hosted in the app): settings and recipe
+    back-compat, the capture planner's crash invariants, viewer/thumbnail logic, every
+    filter through the film pipeline on the simulator GPU, and the real Photos library
+    (save, RAW pairs with a generated DNG, Zero develop orientation, baking a look).
+  - `PointAndShootUITests`: tap targets, Print zoom lock, settings, and the roll flows
+    (viewer, delete with iOS's confirmation, Don't Allow, grid batch delete) against
+    photos seeded with `-uitest-seed N`.
+  - The warm-up step grants the app Photos access (`simctl privacy`), and
+    `TEST_RUNNER_CI=1` makes integration tests fail rather than skip without it.
+  - When it fails, the errors appear in the run summary. The `build-log` artifact holds the full log; grep it for
   `SwiftCompile` / `in target '…'` to confirm what was actually built.
 - **macOS runners are scarce on the free plan** (a few concurrent Mac jobs per account).
   Don't add Mac jobs that could run on Linux, and cancel superseded runs; queued Mac jobs
@@ -548,6 +570,10 @@ is the only source of truth for what exists. Everything else reacts to it.
   - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass
     `-only-testing:PointAndShootUITests/<Class>/<test>` to run a single test. CI runs the
     same tests after the device build.
+- **Every device bug gets a test** where the simulator can reproduce it: a pure-logic
+  rule (extract it, like `PhotoPlanner` / `ViewerSelection`), a Photos-library
+  integration test, or a UI flow with seeded photos. The simulator has no camera, so
+  AVFoundation capture itself stays device-only; test the decisions around it instead.
 
 ---
 

@@ -1249,60 +1249,45 @@ final class CameraController: NSObject {
 
     private func makePhotoSettings(_ s: CameraSettings, device: AVCaptureDevice,
                                    burst: Bool = false) -> (AVCapturePhotoSettings, PhotoPlan) {
-        // Bursts trade RAW and heavy processing for speed.
-        // Zero processing and film looks develop the Bayer RAW themselves.
-        let wantsZero = s.developsBayerRAW && !burst
-        let rawMode: RawMode = burst ? .off : (wantsZero ? .bayer : s.rawMode)
+        // The decisions live in PhotoPlanner (pure, unit-tested); this applies them.
         let rawTypes = photoOutput.availableRawPhotoPixelFormatTypes
-        // Bayer RAW is the sensor's full frame: AVFoundation throws (an instant crash) if it's
-        // requested while digitally zoomed (pinch zoom, the front camera zoomed in, or a
-        // cropped lens like 48 mm). Zoomed shots use the processed photo instead.
-        let zoomed = device.videoZoomFactor > 1.001
-        var rawType: OSType?
-        switch rawMode {
-        case .off: rawType = nil
-        case .bayer: rawType = zoomed ? nil : rawTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
-        case .proRAW: rawType = rawTypes.first { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) }
+        let bayerType = rawTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
+        let proRAWType = rawTypes.first { AVCapturePhotoOutput.isAppleProRAWPixelFormat($0) }
+        let caps = PhotoPlanner.Capabilities(
+            bayerRAW: bayerType != nil,
+            proRAW: proRAWType != nil,
+            hevc: photoOutput.availablePhotoCodecTypes.contains(.hevc),
+            flash: device.hasFlash && photoOutput.supportedFlashModes.contains(s.flash.avMode),
+            zoomed: device.videoZoomFactor > 1.001)
+        let d = PhotoPlanner.decide(s, burst: burst, caps: caps)
+
+        let processedFormat: [String: Any] = [AVVideoCodecKey: d.heif ? AVVideoCodecType.hevc : .jpeg]
+        let rawType: OSType? = switch d.raw {
+        case .none: nil
+        case .bayer: bayerType
+        case .proRAW: proRAWType
         }
 
-        let codec: AVVideoCodecType = (s.photoFormat == .heif && photoOutput.availablePhotoCodecTypes.contains(.hevc)) ? .hevc : .jpeg
-        let processedFormat: [String: Any] = [AVVideoCodecKey: codec]
-
         var plan = PhotoPlan()
+        plan.fallbackNote = d.fallbackNote
         let photoSettings: AVCapturePhotoSettings
         if let rawType {
             plan.expectsRAW = true
-            plan.zeroDevelop = wantsZero
-            // A film look's edit re-develops from the DNG, so it's always kept.
-            plan.storeRAW = wantsZero ? (s.zeroKeepsDNG || s.captureLookNeedsRAW) : true
-            plan.zeroAsHEIF = codec == .hevc
-            if wantsZero || !s.keepProcessedWithRAW {
-                photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType)
-            } else {
+            plan.zeroDevelop = d.zeroDevelop
+            plan.storeRAW = d.storeRAW
+            plan.zeroAsHEIF = d.heif
+            if d.withProcessed {
                 photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType, processedFormat: processedFormat)
                 plan.expectsProcessed = true
+            } else {
+                photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType)
             }
         } else {
             photoSettings = AVCapturePhotoSettings(format: processedFormat)
             plan.expectsProcessed = true
-            if wantsZero {
-                if zoomed {
-                    plan.fallbackNote = s.processing == .zero
-                        ? "Zoomed in: RAW needs 1×, so this shot used Natural"
-                        : "Zoomed in: RAW needs 1×, so the look went on the processed photo"
-                } else {
-                    plan.fallbackNote = s.processing == .zero
-                        ? "Zero needs Bayer RAW — this lens used Natural"
-                        : "No Bayer RAW on this lens — Print look applied to the processed photo"
-                }
-            } else if rawMode == .bayer && zoomed {
-                plan.fallbackNote = "Zoomed in: RAW needs 1×, so this shot is HEIF/JPEG only"
-            }
         }
 
-        // Bayer RAW can't go through multi-frame fusion; ask for the honest single frame.
-        let isBayer = rawType.map { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) } ?? false
-        let wanted: AVCapturePhotoOutput.QualityPrioritization = (isBayer || burst) ? .speed : s.processing.prioritization
+        let wanted = d.prioritization
         photoSettings.photoQualityPrioritization =
             wanted.rawValue <= photoOutput.maxPhotoQualityPrioritization.rawValue ? wanted : photoOutput.maxPhotoQualityPrioritization
 
@@ -1311,14 +1296,14 @@ final class CameraController: NSObject {
             photoSettings.isShutterSoundSuppressionEnabled = !s.shutterSound
         }
 
-        if !burst, device.hasFlash, photoOutput.supportedFlashModes.contains(s.flash.avMode) {
+        if d.flash {
             photoSettings.flashMode = s.flash.avMode
         }
 
         let all = device.activeFormat.supportedMaxPhotoDimensions.sorted { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) }
         let standard = all.last { Int($0.width) * Int($0.height) <= 13_000_000 } ?? all.first
         let maxDims = photoOutput.maxPhotoDimensions
-        if isBayer || burst || s.resolution == .standard, let standard {
+        if d.standardDimensions, let standard {
             photoSettings.maxPhotoDimensions = standard
         } else {
             photoSettings.maxPhotoDimensions = maxDims

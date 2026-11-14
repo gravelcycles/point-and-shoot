@@ -51,11 +51,14 @@ struct RollGrid: View {
                             }
                             .contentShape(Rectangle())
                             .onTapGesture { tap(asset) }
+                            .accessibilityElement()
                             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                            .accessibilityIdentifier("grid.cell")
                     }
                 }
             }
             .navigationTitle(selecting ? (selected.isEmpty ? "Select Items" : "\(selected.count) Selected") : "Roll")
+            .overlay(alignment: .topLeading) { RollCountProbe(roll: roll) }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
