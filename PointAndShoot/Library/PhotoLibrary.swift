@@ -2,6 +2,7 @@ import AVFoundation
 import CoreLocation
 import OSLog
 import Photos
+import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
 
