@@ -12,6 +12,10 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
     /// Thumbnail of the newest item, for the camera's roll button.
     private(set) var latestThumbnail: UIImage?
     private(set) var latestThumbnailDate = Date.distantPast
+    /// Which asset `latestThumbnail` shows (nil when the roll is empty or not loaded yet).
+    private(set) var latestThumbnailID: String?
+    /// True once the first fetch has been published.
+    private(set) var isLoaded = false
 
     let imageManager = PHCachingImageManager()
 
@@ -76,17 +80,22 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
         result.enumerateObjects { asset, _, _ in list.append(asset) }
         DispatchQueue.main.async {
             self.assets = list
+            self.isLoaded = true
             self.refreshLatestThumbnail()
         }
     }
 
     private func refreshLatestThumbnail() {
         guard let newest = assets.first else {
+            // Everything deleted: no stale thumbnail, and re-render whatever comes next.
             latestThumbnail = nil
+            latestThumbnailID = nil
+            latestKey = nil
+            latestThumbnailDate = Date()
             return
         }
         // Re-render when the newest item changes *or* gets edited.
-        let key = "\(newest.localIdentifier)|\(newest.modificationDate?.timeIntervalSince1970 ?? 0)"
+        let key = newest.revisionKey
         guard key != latestKey else { return }
         latestKey = key
         let options = PHImageRequestOptions()
@@ -97,7 +106,10 @@ final class RollStore: NSObject, PHPhotoLibraryChangeObserver {
                                   contentMode: .aspectFill, options: options) { [weak self] image, _ in
             guard let self, let image else { return }
             DispatchQueue.main.async {
+                // A slow request for an item that's since been deleted or replaced: drop it.
+                guard self.latestKey == key else { return }
                 self.latestThumbnail = image
+                self.latestThumbnailID = newest.localIdentifier
                 self.latestThumbnailDate = Date()
             }
         }

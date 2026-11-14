@@ -99,6 +99,21 @@ struct EditorView: View {
         } message: {
             Text(session.errorMessage ?? "")
         }
+        // Own anchor: one presentation per view.
+        .background {
+            Color.clear
+                .alert("This photo was deleted", isPresented: Binding(
+                    get: { session.assetDeleted },
+                    set: { if !$0 { session.assetDeleted = false } })) {
+                    Button("Save as New Photo") {
+                        Task { if await session.saveCopy() { finish("Saved as a new photo") } }
+                    }
+                    Button("Discard Edits", role: .destructive) { dismiss() }
+                    Button("Keep Editing", role: .cancel) {}
+                } message: {
+                    Text("It's no longer in your library (check Recently Deleted in Photos). Your edit can still be saved as a new photo.")
+                }
+        }
     }
 
     // MARK: Header

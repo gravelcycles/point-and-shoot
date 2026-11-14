@@ -23,6 +23,8 @@ struct PhotoViewer: View {
     @State private var assetHasRAW = false
     @State private var savedBanner: String?
     @State private var lastIndex = 0
+    /// The system delete confirmation is up / the delete is in flight: no second request.
+    @State private var deleting = false
 
     private static let pendingID = "__pending__"
 
@@ -81,7 +83,11 @@ struct PhotoViewer: View {
             if roll.status == .notDetermined { await roll.requestAccess() }
             reconcileSelection()
         }
-        .onChange(of: roll.assets) { _, _ in reconcileSelection() }
+        .onChange(of: roll.assets) { _, _ in
+            reconcileSelection()
+            // Deleted elsewhere (Photos, another device, the grid) while its info was open.
+            if let info = infoAsset, !roll.contains(info.id) { infoAsset = nil }
+        }
         .onChange(of: camera.capturesInFlight) { _, _ in reconcileSelection() }
         .onChange(of: camera.lastSavedAssetID) { _, _ in reconcileSelection() }
         .onChange(of: selectedID) { _, id in
@@ -283,16 +289,23 @@ struct PhotoViewer: View {
             .opacity(isPhoto ? 1 : 0.35)
             Spacer()
             barButton("trash") {
-                guard let asset else { return }
+                guard let asset, !deleting else { return }
+                deleting = true
                 Task {
+                    defer { deleting = false }
                     do {
                         try await PhotoLibrary.delete(asset)
-                    } catch where !PhotoLibrary.isUserCancel(error) {
+                        // The change observer moves the viewer to the neighbor.
+                    } catch where PhotoLibrary.isUserCancel(error) {
+                        // Tapped Don't Allow on the system confirmation: nothing to do.
+                    } catch where !roll.contains(asset.localIdentifier) || PhotoLibrary.isGone(asset) {
+                        // Already deleted (in Photos, or a double tap): the roll catches up.
+                    } catch {
                         show(banner: "Couldn't delete: \(error.localizedDescription)")
-                    } catch {}
+                    }
                 }
             }
-            .disabled(asset == nil)
+            .disabled(asset == nil || deleting)
             Spacer()
             barButton("info.circle") {
                 if let asset { infoAsset = AssetItem(asset: asset) }
