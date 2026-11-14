@@ -78,6 +78,8 @@ final class CameraController: NSObject {
     private(set) var supportsManualFocus = false
     private(set) var supportsCustomWB = false
     private(set) var supportsCustomExposure = false
+    /// iOS 18+ lets the app mute the shutter click, except where the law requires it.
+    private(set) var canSilenceShutter = false
     private(set) var supportedFrameRates: [Int] = [24, 25, 30]
     private(set) var supportedColors: [VideoColor] = [.sdr]
     private(set) var supportedCodecs: [VideoCodec] = [.hevc, .h264]
@@ -604,6 +606,7 @@ final class CameraController: NSObject {
 
     private struct Capabilities {
         var bayer = false, proRAW = false, flash = false, manualFocus = false, customWB = false, customExposure = false
+        var silentShutter = false
         var frameRates: [Int] = []
         var colors: [VideoColor] = []
         var codecs: [VideoCodec] = []
@@ -619,9 +622,11 @@ final class CameraController: NSObject {
             c.bayer = photoOutput.availableRawPhotoPixelFormatTypes.contains { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
             c.proRAW = photoOutput.isAppleProRAWSupported
             c.maxRes = Self.hasHighResSensor(device)
+            if #available(iOS 18.0, *) { c.silentShutter = photoOutput.isShutterSoundSuppressionSupported }
         } else {
             c.bayer = supportsBayerRAW
             c.proRAW = supportsProRAW
+            c.silentShutter = canSilenceShutter
         }
         c.flash = device.hasFlash
         c.manualFocus = device.isLockingFocusWithCustomLensPositionSupported
@@ -649,6 +654,7 @@ final class CameraController: NSObject {
         supportsManualFocus = c.manualFocus
         supportsCustomWB = c.customWB
         supportsCustomExposure = c.customExposure
+        canSilenceShutter = c.silentShutter
         supportedFrameRates = c.frameRates.isEmpty ? [30] : c.frameRates
         supportedColors = c.colors.isEmpty ? [.sdr] : c.colors
         supportedCodecs = c.codecs
@@ -1222,6 +1228,11 @@ final class CameraController: NSObject {
         let wanted: AVCapturePhotoOutput.QualityPrioritization = (isBayer || burst) ? .speed : s.processing.prioritization
         photoSettings.photoQualityPrioritization =
             wanted.rawValue <= photoOutput.maxPhotoQualityPrioritization.rawValue ? wanted : photoOutput.maxPhotoQualityPrioritization
+
+        // Silent unless the user turned the shutter sound on (where iOS allows muting it).
+        if #available(iOS 18.0, *), photoOutput.isShutterSoundSuppressionSupported {
+            photoSettings.isShutterSoundSuppressionEnabled = !s.shutterSound
+        }
 
         if !burst, device.hasFlash, photoOutput.supportedFlashModes.contains(s.flash.avMode) {
             photoSettings.flashMode = s.flash.avMode

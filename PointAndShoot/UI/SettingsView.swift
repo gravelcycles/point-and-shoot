@@ -175,10 +175,16 @@ struct SettingsView: View {
             Toggle("Save location (GPS)", isOn: camera.binding(\.saveLocation))
             Toggle("Volume buttons take photo", isOn: camera.binding(\.volumeShutter))
             Toggle("Haptics", isOn: camera.binding(\.haptics))
+            // Where iOS can't mute it, the click always plays: show that honestly.
+            let canMute = camera.canSilenceShutter || TestHooks.isUITest
+            Toggle("Shutter sound", isOn: canMute ? camera.binding(\.shutterSound) : .constant(true))
+                .disabled(!canMute)
         } header: {
             Text("Controls")
         } footer: {
-            Text("Location uses the GPS chip and compass, so it works in airplane mode — the first fix can take a minute without signal, and works best outdoors. Tap the location icon in the top bar to see accuracy. Tap to focus and meter. Hold to lock AE/AF. Pinch to zoom. Swipe the viewfinder to switch Photo/Video. On iPhone 16, Camera Control adjusts zoom and exposure.")
+            Text((camera.canSilenceShutter || TestHooks.isUITest
+                  ? "The shutter is silent unless you turn Shutter sound on. "
+                  : "This iPhone or region doesn't let apps mute the shutter (it needs iOS 18, and some countries require the click); the Ring/Silent switch still mutes it. ") + "Location uses the GPS chip and compass, so it works in airplane mode — the first fix can take a minute without signal, and works best outdoors. Tap the location icon in the top bar to see accuracy. Tap to focus and meter. Hold to lock AE/AF. Pinch to zoom. Swipe the viewfinder to switch Photo/Video. On iPhone 16, Camera Control adjusts zoom and exposure.")
         }
     }
 }

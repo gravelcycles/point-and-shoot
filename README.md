@@ -49,6 +49,9 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
 - **Hold the shutter for burst.** Shots fire as fast as the camera keeps up, with a
   counter on the button. Burst frames skip RAW so they stay fast.
 - The app reopens on the lens you used last.
+- **Silent shutter by default.** No click, no sounds at all. Turn **Shutter sound** on in
+  Settings if you want it. Muting needs iOS 18, and isn't allowed in some countries (e.g.
+  Japan, Korea); there the click plays unless the phone is on silent.
 
 ## Exposure, like a camera body
 

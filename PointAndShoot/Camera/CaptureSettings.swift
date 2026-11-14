@@ -287,6 +287,9 @@ struct CameraSettings: Codable, Equatable {
     /// Geotag photos and videos (GPS works offline / in airplane mode).
     var saveLocation: Bool = true
     var haptics: Bool = true
+    /// Off = silent shutter (iOS 18+, where the region allows it). The phone's silent
+    /// switch mutes it too.
+    var shutterSound: Bool = false
 
     static let storageKey = "camera.settings.v1"
 
