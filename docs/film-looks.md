@@ -252,6 +252,17 @@ pairs"): the same scene shot with Point & Shoot (DNG kept) and with Chromagraph,
 `main.swift` that times `FilmLUT.printCube(stock:controls:)`. The parity harness in
 `scripts/film-parity/main.swift` already prints build times.
 
+## 7½. Older photos keep their tuning
+
+Each photo's recipe pins the full stock it was rendered with (`FilmRecipe.tuning`, ~4.2 KB,
+pinned when the look is picked), so retuning a look and regenerating
+`FilmStock+Stocks.swift` changes new shots and the viewfinder, never existing photos (see
+CLAUDE.md §4 "Film looks"). Photos from before pinning resolve to the frozen history in
+`FilmStock+Legacy.swift` (never edit it). To push a retune onto an old photo, pick the look
+again in the editor. When adding a `FilmStock` field, older pinned tunings get the current
+stock's value for it on decode, so prefer fields whose current values don't change how
+older photos look. Changing the film *math* is different: gate it on `FilmRecipe.engine`.
+
 ## 8. Environment tricks (cloud container)
 
 - **Python deps:** `numpy scipy pillow rawpy opencv-python-headless` (plus `pillow-heif`

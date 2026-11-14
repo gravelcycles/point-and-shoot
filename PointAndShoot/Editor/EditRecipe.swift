@@ -80,12 +80,30 @@ struct EditRecipe: Codable, Equatable {
     static func decodeSaved(_ data: Data) -> EditRecipe? {
         TolerantJSON.decode(EditRecipe.self, from: data, defaults: EditRecipe()) { saved in
             var saved = saved
-            if let film = saved["film"] as? [String: Any], let base = TolerantJSON.object(FilmRecipe()) {
+            if var film = saved["film"] as? [String: Any], let base = TolerantJSON.object(FilmRecipe()) {
+                // A pinned tuning from an older app version may lack fields stocks gained
+                // since: take those from the current stock of the same id.
+                if let tuning = film["tuning"] as? [String: Any],
+                   let current = TolerantJSON.object(FilmStock.named((tuning["id"] as? String) ?? (film["stock"] as? String))) {
+                    film["tuning"] = TolerantJSON.merging(tuning, over: current)
+                }
                 saved["film"] = TolerantJSON.merging(film, over: base)
             }
             return saved
         }
     }
+
+    /// Pins the film stock's current tuning into the recipe (no-op if already pinned or
+    /// not a film look). Called when an edit is baked or saved.
+    mutating func freezeFilmTuning() {
+        guard var f = film, f.tuning == nil else { return }
+        f.tuning = FilmStock.resolved(for: self)
+        if f.engine == nil { f.engine = FilmRecipe.currentEngine }
+        film = f
+    }
+
+    /// The tuning to render with: the pinned one, else the one the edit was made with.
+    var filmStock: FilmStock? { FilmStock.resolved(for: self) }
 
     var isGeometryIdentity: Bool {
         crop == CGRect(x: 0, y: 0, width: 1, height: 1) && straighten == 0 && quarterTurns % 4 == 0 && !flipped
@@ -129,6 +147,19 @@ struct EditRecipe: Codable, Equatable {
 struct FilmRecipe: Codable, Equatable {
     /// Which film stock (`FilmStock.all`). nil = Print (edits saved before stocks existed).
     var stock: String?
+    /// The stock's full tuning, pinned when the look is picked (a few KB). Rendering uses it
+    /// instead of the stock's current tuning in code, so retuning a look later never
+    /// changes an older photo, even when it's reopened and re-saved in the editor.
+    /// nil = an edit from before tunings were pinned: `FilmStock.resolved(for:)` finds the
+    /// exact tuning it was made with in the frozen history (`FilmStock.Legacy`).
+    /// Picking the look again pins its current tuning: how a photo moves to the newest.
+    var tuning: FilmStock?
+    /// The film math's version when the tuning was pinned (`FilmRecipe.currentEngine`).
+    /// nil = before versioning. A future change to the film *math* (not just a stock's
+    /// numbers) that would alter older photos must keep the old behaviour for older engines.
+    var engine: Int?
+
+    static let currentEngine = 1
     /// 0…100; 50 = the look as designed.
     var halation: Double = 50
     /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),
@@ -251,7 +282,8 @@ struct Look: Identifiable {
     private static func film(_ stock: String, _ extra: @escaping (inout EditRecipe) -> Void = { _ in })
         -> (inout EditRecipe) -> Void {
         { r in
-            r.film = FilmRecipe(stock: stock)
+            // Pin the stock's tuning as it is right now (see FilmRecipe.tuning).
+            r.film = FilmRecipe(stock: stock, tuning: FilmStock.named(stock), engine: FilmRecipe.currentEngine)
             r.grain = FilmRecipe.defaultGrain
             extra(&r)
         }
@@ -264,7 +296,9 @@ struct Look: Identifiable {
         // film color, halation and grain.
         Look(id: "print", name: "Print", detail: "Film from the sensor: a cinema negative printed to print film. Dense blacks, soft highlights, warm-over-cool color, halation and fine grain. Shoots RAW.",
              capturesRAW: true) { r in
-            r.film = FilmRecipe()
+            // Pin Print's tuning as it is right now (see FilmRecipe.tuning).
+            r.film = FilmRecipe(stock: FilmStock.printLook.id, tuning: FilmStock.printLook,
+                                engine: FilmRecipe.currentEngine)
             r.grain = FilmRecipe.defaultGrain
         },
         // The rest are film stocks too (scripts/film-looks.json), each with its own tone
@@ -322,5 +356,22 @@ enum CropAspect: String, CaseIterable, Identifiable {
         }
         guard let base else { return nil }
         return imageAspect >= 1 ? base : 1 / base
+    }
+}
+
+extension FilmStock {
+    /// The tuning an edit renders with (nil = not a film look): its pinned tuning, or, for
+    /// edits saved before tunings were pinned, the exact one it was made with. The stocks
+    /// changed exactly once in that time (Print's grain, 0.012 → 0.008 in #20):
+    /// - a stock id (the film-stock filters, #15+) → the stocks as shipped from #15/#20;
+    /// - no stock id: Print, which never stored one. #9's Print set 15% luminance noise
+    ///   reduction (kept in the recipe); from #20 the baker floors it at 50. So under 50 →
+    ///   Print as shipped in #9, otherwise Print as shipped from #20.
+    static func resolved(for recipe: EditRecipe) -> FilmStock? {
+        guard let film = recipe.film else { return nil }
+        if let pinned = film.tuning { return pinned }
+        if let id = film.stock { return Legacy.v2[id] ?? named(id) }
+        return recipe.rawNoiseReduction < EditRecipe.filmMinimumNoiseReduction
+            ? Legacy.printV1 : (Legacy.v2[printLook.id] ?? printLook)
     }
 }

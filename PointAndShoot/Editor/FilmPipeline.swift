@@ -13,6 +13,8 @@ enum FilmPipeline {
     struct Settings: Equatable {
         /// Which film stock (`FilmStock.all`); "print" is the Print look.
         var stockID = "print"
+        /// A photo's pinned tuning (`FilmRecipe.tuning`); overrides `stockID` when set.
+        var tuning: FilmStock?
         var source: FilmLUT.Source = .sceneLinear
         /// Stops, applied to scene light before the film.
         var exposure: Double = 0
@@ -52,12 +54,18 @@ enum FilmPipeline {
     private struct NegativeKey: Hashable { let stock: String; let source: FilmLUT.Source }
     private struct PrintKey: Hashable { let stock: String; let controls: FilmControls }
 
+    /// Cache identity: the id for a stock as it is in code, id + a hash of the values for a
+    /// photo's pinned older tuning (so the two never share tables).
+    static func cacheKey(_ stock: FilmStock) -> String {
+        FilmStock.all[stock.id] == stock ? stock.id : "\(stock.id)#\(stock.hashValue)"
+    }
+
     private static let lock = NSLock()
     private static let negativeCubes = TableCache<NegativeKey>(capacity: 16)
     private static let printCubes = TableCache<PrintKey>(capacity: 18)
 
     static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source) -> Data {
-        let key = NegativeKey(stock: stock.id, source: source)
+        let key = NegativeKey(stock: cacheKey(stock), source: source)
         lock.lock()
         if let cube = negativeCubes.get(key) { lock.unlock(); return cube }
         lock.unlock()
@@ -69,7 +77,7 @@ enum FilmPipeline {
     }
 
     static func printCube(_ stock: FilmStock, _ controls: FilmControls) -> Data {
-        let key = PrintKey(stock: stock.id, controls: controls)
+        let key = PrintKey(stock: cacheKey(stock), controls: controls)
         lock.lock()
         if let cube = printCubes.get(key) { lock.unlock(); return cube }
         lock.unlock()
@@ -102,7 +110,7 @@ enum FilmPipeline {
     /// a RAW develop with no tone curve, or a display-referred image for `.displayReferred`.
     /// `unit` is the long side / 1000, so spatial effects scale with the picture.
     static func apply(_ image: CIImage, settings s: Settings, unit: CGFloat) -> CIImage {
-        let stock = FilmStock.named(s.stockID)
+        let stock = s.tuning ?? FilmStock.named(s.stockID)
         let bounds = image.extent
         var x = image
         let ev = s.exposure + stock.exposure

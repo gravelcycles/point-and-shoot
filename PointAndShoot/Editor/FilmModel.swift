@@ -21,11 +21,29 @@ import Foundation
 /// (log exposure, density) points, flat beyond the ends. `gamma` scales the slope about
 /// log exposure 0 (the exposure 18% grey gets), which is how contrast and color crossover
 /// are applied.
-struct FilmCurve: Hashable {
+struct FilmCurve: Hashable, Codable {
     let x: [Double]
     let y: [Double]
     private let m: [Double]
     var gamma: Double
+
+    private enum CodingKeys: String, CodingKey { case x, y, gamma }
+
+    /// Stored as its points (tangents are recomputed), so a photo can keep the exact
+    /// curve it was rendered with (`FilmRecipe.tuning`).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(x: try c.decode([Double].self, forKey: .x),
+                  y: try c.decode([Double].self, forKey: .y),
+                  gamma: try c.decodeIfPresent(Double.self, forKey: .gamma) ?? 1)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(x, forKey: .x)
+        try c.encode(y, forKey: .y)
+        try c.encode(gamma, forKey: .gamma)
+    }
 
     init(x: [Double], y: [Double], gamma: Double = 1) {
         precondition(x.count == y.count && x.count >= 2)
@@ -138,11 +156,13 @@ enum FilmMath {
 }
 
 /// One film system: a negative printed onto a print stock, plus its grain and halation.
-struct FilmStock: Hashable {
+/// Codable so each photo can store the exact tuning it was rendered with
+/// (`FilmRecipe.tuning`): tuning a look in code later doesn't change older photos.
+struct FilmStock: Hashable, Codable {
     /// The id recipes store (`FilmRecipe.stock`): "print", "warm400", …
     var id: String
 
-    struct HalationSpread: Hashable {
+    struct HalationSpread: Hashable, Codable {
         /// Scene-linear level above which clipped highlights get boosted (sensors clip
         /// where film doesn't), and the boost.
         var threshold: Double

@@ -244,6 +244,9 @@ final class EditSession {
         guard let input else { return false }
         isSaving = true
         defer { isSaving = false }
+        // Pin the film look's current tuning into the saved edit (no-op if the photo
+        // already carries one), so later retuning in code never changes this photo.
+        recipe.freezeFilmTuning()
         do {
             let image = try await renderFullResolution()
             let output = PHContentEditingOutput(contentEditingInput: input)

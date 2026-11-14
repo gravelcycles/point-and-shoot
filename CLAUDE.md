@@ -406,6 +406,29 @@ is the only source of truth for what exists. Everything else reacts to it.
       switching looks keeps it.
     - Flash shots, and shots with no recent viewfinder key, match the processed photo
       instead.
+- **Photos keep the tuning they were made with.** `FilmRecipe.tuning` stores the whole
+  `FilmStock` (~4.2 KB), pinned the moment a look is picked (`Look.film`) and kept through
+  every save. Rendering uses `FilmStock.resolved(for:)`, so retuning a stock in code (or
+  regenerating `FilmStock+Stocks.swift`) never changes an older photo, even when it's
+  reopened and re-saved in the editor.
+  - **Photos from before pinning** (no `tuning`) resolve to the exact tuning they were made
+    with, from the frozen history in `FilmStock+Legacy.swift`:
+    - a stock id (film-stock filters, #15+) → the stocks as shipped from #15/#20;
+    - no stock id is Print, which never stored one before pinning: luminance NR under 50
+      (#9's Print set 15%) → Print as shipped in #9 (grain 0.012); otherwise (the #20+
+      baker floors NR at 50) → Print as shipped from #20 (grain 0.008).
+    - Saving such an edit pins that same tuning. **Never edit or regenerate
+      `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
+  - Picking the look again in the editor pins its current tuning: that's how a photo moves
+    to the newest version.
+  - `FilmRecipe.engine` records the film-math version (`currentEngine`, now 1). Pinning
+    freezes a stock's numbers, not the code: a future change to the math that would alter
+    older photos must keep the old behaviour for older engines.
+  - Table caches key pinned tunings by id + value hash (`FilmPipeline.cacheKey`), so they
+    never share LUTs with the current stock.
+  - A pinned tuning missing fields that stocks gained later decodes with those fields taken
+    from the current stock (`EditRecipe.decodeSaved`). Give new `FilmStock` fields values
+    that keep older photos looking the same where possible.
 - **Recipe:** `EditRecipe.film` (optional, so old edits decode).
   - Tune's exposure, contrast, highlights, shadows and saturation act inside the film
     model; grain is the film grain.
