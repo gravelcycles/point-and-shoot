@@ -242,10 +242,6 @@ final class EditSession {
     @discardableResult
     func save() async -> Bool {
         guard let input else { return false }
-        if PhotoLibrary.isGone(asset) {
-            assetDeleted = true
-            return false
-        }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -295,17 +291,13 @@ final class EditSession {
     @discardableResult
     func revertToOriginal() async -> Bool {
         let asset = self.asset
-        if PhotoLibrary.isGone(asset) {
-            assetDeleted = true
-            return false
-        }
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest(for: asset).revertAssetContentToOriginal()
             }
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            if PhotoLibrary.isGone(asset) { assetDeleted = true } else { errorMessage = error.localizedDescription }
             return false
         }
     }

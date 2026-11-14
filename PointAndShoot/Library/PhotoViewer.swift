@@ -23,8 +23,6 @@ struct PhotoViewer: View {
     @State private var assetHasRAW = false
     @State private var savedBanner: String?
     @State private var lastIndex = 0
-    /// The system delete confirmation is up / the delete is in flight: no second request.
-    @State private var deleting = false
 
     private static let pendingID = "__pending__"
 
@@ -289,23 +287,23 @@ struct PhotoViewer: View {
             .opacity(isPhoto ? 1 : 0.35)
             Spacer()
             barButton("trash") {
-                guard let asset, !deleting else { return }
-                deleting = true
+                // iOS's own confirmation is modal, so it can't be double-sent; no busy flag
+                // that could get stuck and leave the button dead.
+                guard let asset else { return }
                 Task {
-                    defer { deleting = false }
                     do {
                         try await PhotoLibrary.delete(asset)
                         // The change observer moves the viewer to the neighbor.
                     } catch where PhotoLibrary.isUserCancel(error) {
                         // Tapped Don't Allow on the system confirmation: nothing to do.
-                    } catch where !roll.contains(asset.localIdentifier) || PhotoLibrary.isGone(asset) {
+                    } catch where PhotoLibrary.isGone(asset) {
                         // Already deleted (in Photos, or a double tap): the roll catches up.
                     } catch {
                         show(banner: "Couldn't delete: \(error.localizedDescription)")
                     }
                 }
             }
-            .disabled(asset == nil || deleting)
+            .disabled(asset == nil)
             Spacer()
             barButton("info.circle") {
                 if let asset { infoAsset = AssetItem(asset: asset) }

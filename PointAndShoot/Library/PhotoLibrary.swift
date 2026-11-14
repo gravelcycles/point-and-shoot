@@ -93,19 +93,34 @@ enum PhotoLibrary {
     }
 
     /// One system "Delete N Photos?" confirmation for the whole batch.
+    ///
+    /// Always asks Photos to delete exactly what was tapped; it never silently skips (a
+    /// pre-check that wrongly reported photos as already gone made Delete do nothing). Only
+    /// if Photos refuses does it look for items deleted elsewhere meanwhile and retry with
+    /// the rest.
     static func delete(_ assets: [PHAsset]) async throws {
-        // Skip anything already deleted elsewhere: deleting a missing asset fails the batch.
-        let assets = assets.filter { !isGone($0) }
         guard !assets.isEmpty else { return }
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.deleteAssets(assets as NSArray)
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(assets as NSArray)
+            }
+        } catch where !isUserCancel(error) {
+            let live = assets.filter { !isGone($0) }
+            guard !live.isEmpty, live.count < assets.count else { throw error }
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(live as NSArray)
+            }
         }
     }
 
     /// True when the asset no longer exists in the library (deleted here, in Photos, on
     /// another device, or moved to Recently Deleted).
+    /// Only consulted after an operation fails, never to decide whether to try.
     static func isGone(_ asset: PHAsset) -> Bool {
-        PHAsset.fetchAssets(withLocalIdentifiers: [asset.localIdentifier], options: nil).count == 0
+        let options = PHFetchOptions()
+        options.includeHiddenAssets = true
+        options.includeAssetSourceTypes = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
+        return PHAsset.fetchAssets(withLocalIdentifiers: [asset.localIdentifier], options: options).count == 0
     }
 
     /// The user tapping "Don't Allow"/"Cancel" on the system confirmation isn't an error.
