@@ -89,8 +89,7 @@ final class ShotStore {
             guard let id = UUID(uuidString: dir.lastPathComponent), !ids.contains(id) else { continue }
             // Only folders that never got a record. One whose record exists but didn't
             // decode (a future format, a read error) is left alone: never delete a real shot.
-            if fm.fileExists(atPath: dir.appendingPathComponent("shot.json").path)
-                || fm.fileExists(atPath: dir.appendingPathComponent("recipe.json").path) { continue }
+            if fm.fileExists(atPath: dir.appendingPathComponent("shot.json").path) { continue }
             let modified = (try? dir.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
             if Date().timeIntervalSince(modified) > 3600 {
                 try? fm.removeItem(at: dir)
@@ -157,6 +156,9 @@ final class ShotStore {
     func setRecipe(_ recipe: EditRecipe, for id: UUID) -> Bool {
         var r = recipe
         r.freezeFilmTuning()
+        // Pin the brightness the editor showed: a film grade with no match yet was seen at
+        // +0, and a later full settle (an archive import, a re-develop) must not match it.
+        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = 0 }
         let url = dir(id).appendingPathComponent("recipe.json")
         do { try JSONEncoder().encode(r).write(to: url, options: .atomic) } catch {
             Diag.error(.editor, "couldn't save the grade of \(id.uuidString.prefix(8))", error)
