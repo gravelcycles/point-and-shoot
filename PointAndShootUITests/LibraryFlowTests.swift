@@ -114,6 +114,83 @@ final class LibraryFlowTests: XCTestCase {
         try XCTUnwrap(systemAlertButton("Don"), "trash stopped responding after Don't Allow").tap()
     }
 
+    // MARK: Zoom
+
+    /// The viewer's zoom state, as the app sees it (a -uitest probe).
+    private func zoomProbe() -> String {
+        let probe = app.staticTexts.matching(identifier: "viewer.zoomProbe").firstMatch
+        return probe.exists ? probe.label : "no probe"
+    }
+
+    /// The viewer's recent gesture decisions (readable from the camera screen too).
+    private func viewerEvents() -> String {
+        let probe = app.staticTexts.matching(identifier: "viewer.events").firstMatch
+        return probe.exists ? probe.label : "no probe"
+    }
+
+    func testPinchZoomInTheViewerPansInsteadOfDismissing() {
+        openViewer()
+        let photo = app.descendants(matching: .any).matching(identifier: "viewer.photo").firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 6), "the photo page isn't zoomable")
+        photo.pinch(withScale: 3, velocity: 2)
+        Thread.sleep(forTimeInterval: 0.8)
+        let afterZoom = zoomProbe()
+        XCTAssertTrue(afterZoom.hasPrefix("zoomed=1"), "pinching didn't zoom: \(afterZoom)")
+        // Zoomed in, a downward drag moves around the photo; it mustn't close the viewer.
+        photo.swipeDown()
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertTrue(app.buttons["viewer.close"].exists, "a drag while zoomed dismissed the viewer (\(afterZoom))")
+        // Double-tap back to fit.
+        photo.doubleTap()
+        Thread.sleep(forTimeInterval: 0.8)
+        let afterFit = zoomProbe()
+        XCTAssertTrue(afterFit.hasPrefix("zoomed=0"), "double-tap didn't go back to fit: \(afterFit)")
+        // Hide the controls with a tap first: XCUITest starts a pinch-in at the corners of
+        // the element, which would land on the close button in the top bar.
+        photo.tap()
+        let close = app.buttons["viewer.close"]
+        var deadline = Date().addingTimeInterval(3)
+        while close.exists && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
+        XCTAssertFalse(close.exists, "a single tap didn't hide the controls (\(zoomProbe()))")
+        // Pinching in below fit bounces back. The top finger moves down the screen, but it's
+        // a pinch, not a swipe-down: the viewer stays open.
+        photo.pinch(withScale: 0.5, velocity: -2)
+        Thread.sleep(forTimeInterval: 1)
+        // The viewer's own probe exists only while the viewer is up (the camera screen can
+        // stay in the accessibility tree underneath a full-screen cover).
+        let viewerOpen = app.staticTexts.matching(identifier: "viewer.zoomProbe").firstMatch.exists
+        XCTAssertTrue(viewerOpen, "pinching in at fit closed the viewer (before: \(afterFit); events: \(viewerEvents()))")
+        XCTAssertTrue(photo.exists, "the photo vanished after pinching in at fit (\(zoomProbe()); events: \(viewerEvents()))")
+        // Tap brings the controls back, and they work.
+        photo.tap()
+        let trash = app.buttons["viewer.delete"]
+        deadline = Date().addingTimeInterval(3)
+        while !(trash.exists && trash.isHittable) && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
+        XCTAssertTrue(trash.exists && trash.isHittable, "controls didn't come back (\(zoomProbe()))")
+    }
+
+    func testPinchZoomInTheEditorDoesNotAdjustAnything() {
+        openViewer()
+        app.buttons["viewer.edit"].tap()
+        let canvas = app.descendants(matching: .any).matching(identifier: "editor.canvas").firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 8), "editor didn't open")
+        // A tool whose one-finger swipes adjust a slider.
+        let tune = app.buttons["editor.tool.tune"]
+        XCTAssertTrue(tune.waitForExistence(timeout: 4))
+        tune.tap()
+        Thread.sleep(forTimeInterval: 2)   // the photo finishes loading; zoom turns on
+        canvas.pinch(withScale: 3, velocity: 2)
+        canvas.doubleTap()
+        canvas.doubleTap()
+        canvas.pinch(withScale: 0.6, velocity: -2)
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertEqual(app.state, .runningForeground)
+        // Zooming is not an edit: Save stays disabled.
+        let save = app.buttons["editor.save"]
+        XCTAssertTrue(save.exists)
+        XCTAssertFalse(save.isEnabled, "pinch-zooming changed the edit")
+    }
+
     func testGridSelectAndDeleteTwo() throws {
         openViewer()
         let before = rollCount()
