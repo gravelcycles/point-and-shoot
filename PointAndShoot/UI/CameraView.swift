@@ -3,7 +3,7 @@ import SwiftUI
 
 struct CameraView: View {
     let camera: CameraController
-    let roll: RollStore
+    let store: ShotStore
 
     @State private var motion = MotionManager()
     @State private var activeDial: DialKind?
@@ -20,6 +20,9 @@ struct CameraView: View {
     @State private var panStartEV: Float = 0
     @State private var evIndicator: Float?
     @State private var evHideTask: Task<Void, Never>?
+    /// The library's newest shot, rendered (the thumbnail button once the capture's own
+    /// preview hands over).
+    @State private var newestThumb: (id: UUID, image: UIImage)?
 
     private enum PanAxis { case vertical, horizontal }
     @Environment(\.scenePhase) private var scenePhase
@@ -50,7 +53,7 @@ struct CameraView: View {
             case .active where !showLibrary:
                 camera.start()
                 motion.start()
-                roll.activateIfAuthorized()
+                store.applyRetention(storeForever: camera.settings.storeForever)
                 Task { await LockedCaptureImporter.importPending() }
             case .background:
                 camera.stop()
@@ -67,12 +70,12 @@ struct CameraView: View {
         .onChange(of: camera.toast) { _, toast in
             if let toast { Diag.log(.ui, "toast: \(toast)") }
         }
-        .onChange(of: roll.latestThumbnailID) { _, _ in handOffThumbnail() }
+        .task(id: newestKey) { await loadNewestThumb() }
         .onChange(of: camera.capturesInFlight) { _, _ in handOffThumbnail() }
-        .onChange(of: camera.lastSavedAssetID) { _, _ in handOffThumbnail() }
-        .onChange(of: camera.developingAssetIDs) { _, _ in handOffThumbnail() }
+        .onChange(of: camera.lastSavedShotID) { _, _ in handOffThumbnail() }
+        .onChange(of: store.developing) { _, _ in handOffThumbnail() }
         .fullScreenCover(isPresented: $showLibrary) {
-            PhotoViewer(roll: roll, camera: camera)
+            PhotoViewer(store: store, camera: camera)
         }
         .preferredColorScheme(.dark)
     }
@@ -227,7 +230,7 @@ struct CameraView: View {
                     showLibrary = true
                 }
                 .accessibilityIdentifier("camera.thumbnail")
-                .overlay(alignment: .top) { RollCountProbe(roll: roll).offset(y: -12) }
+                .overlay(alignment: .top) { RollCountProbe(store: store).offset(y: -12) }
                 .disabled(camera.isRecording)
                 Spacer()
                 ShutterButton(mode: camera.settings.mode, isRecording: camera.isRecording,
@@ -268,24 +271,35 @@ struct CameraView: View {
         )
     }
 
-    /// Whichever is fresher: the instant preview from the shutter, or the roll's newest
-    /// (which reflects edits and anything shot in other apps).
-    /// A just-taken shot shows instantly from the capture; once the roll has it (and has
-    /// rendered its thumbnail) the roll takes over, so deletes anywhere are reflected.
-    /// Without read access to Photos the capture's thumbnail is all there is.
+    /// A just-taken shot shows instantly from the capture; once the library has developed
+    /// it the library takes over, so deletes and edits are reflected.
     private var rollThumbnail: UIImage? {
-        camera.lastThumbnail ?? roll.latestThumbnail
+        camera.lastThumbnail ?? (newestThumb?.id == store.newest?.id ? newestThumb?.image : nil)
+    }
+
+    private var newestKey: String {
+        store.newest.map { "\($0.id)-\($0.revision)" } ?? "none"
+    }
+
+    private func loadNewestThumb() async {
+        guard let newest = store.newest else {
+            newestThumb = nil
+            handOffThumbnail()
+            return
+        }
+        if let image = await store.image(newest, .thumb) { newestThumb = (newest.id, image) }
+        handOffThumbnail()
     }
 
     private func handOffThumbnail() {
         let release = ThumbnailHandoff.shouldRelease(
             hasCaptureThumbnail: camera.lastThumbnail != nil,
             capturesInFlight: camera.capturesInFlight,
-            lastSavedAssetID: camera.lastSavedAssetID,
-            developingIDs: camera.developingAssetIDs,
-            rollContains: roll.contains,
-            latestThumbnailID: roll.latestThumbnailID,
-            newestAssetID: roll.assets.first?.localIdentifier)
+            lastSavedID: camera.lastSavedShotID,
+            developing: store.developing,
+            libraryContains: { store.shot($0)?.trashedAt == nil && store.shot($0) != nil },
+            shownID: newestThumb?.id,
+            newestID: store.newest?.id)
         if release { camera.releaseCaptureThumbnail() }
     }
 

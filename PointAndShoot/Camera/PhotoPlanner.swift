@@ -4,21 +4,18 @@ import AVFoundation
 /// the settings and what the hardware offers, so each combination can be unit-tested
 /// without a camera. AVFoundation throws an uncatchable exception (an instant crash) on an
 /// invalid `AVCapturePhotoSettings` combination, so these rules are load-bearing:
-/// - Bayer RAW is never requested while zoomed (crashed on device, #18).
+/// - Every photo is a RAW (Bayer by default, ProRAW when chosen); a processed photo only
+///   where the lens offers no RAW at all.
+/// - Bayer RAW is never requested while zoomed (crashed on device, #18): ProRAW stands in.
 /// - Bayer RAW always uses `.speed` and 12 MP dimensions.
 /// - Bursts never use RAW or flash.
 struct PhotoDecision: Equatable {
     enum RAW: Equatable { case none, bayer, proRAW }
 
-    var raw: RAW = .none
-    /// A processed HEIF/JPEG is requested (alongside the RAW, or on its own).
-    var withProcessed = true
-    /// We develop the Bayer DNG ourselves (Zero, film looks).
-    var zeroDevelop = false
-    /// Keep the DNG in the library.
-    var storeRAW = true
+    var raw: RAW = .bayer
+    /// Format of a processed-only photo (no RAW available).
     var heif = true
-    var prioritization: AVCapturePhotoOutput.QualityPrioritization = .balanced
+    var prioritization: AVCapturePhotoOutput.QualityPrioritization = .speed
     var flash = false
     /// 12 MP-class dimensions instead of the sensor's maximum.
     var standardDimensions = true
@@ -38,45 +35,35 @@ enum PhotoPlanner {
 
     static func decide(_ s: CameraSettings, burst: Bool, caps: Capabilities) -> PhotoDecision {
         var d = PhotoDecision()
-        // Bursts trade RAW and heavy processing for speed.
-        // Zero processing and film looks develop the Bayer RAW themselves.
-        let wantsZero = s.developsBayerRAW && !burst
-        let rawMode: RawMode = burst ? .off : (wantsZero ? .bayer : s.rawMode)
-        switch rawMode {
-        case .off: d.raw = .none
-        case .bayer: d.raw = (caps.zoomed || !caps.bayerRAW) ? .none : .bayer
-        case .proRAW: d.raw = caps.proRAW ? .proRAW : .none
-        }
-        d.heif = s.photoFormat == .heif && caps.hevc
-
-        if d.raw != .none {
-            d.zeroDevelop = wantsZero
-            // A film look's edit re-develops from the DNG, so it's always kept.
-            d.storeRAW = wantsZero ? (s.zeroKeepsDNG || s.captureLookNeedsRAW) : true
-            d.withProcessed = !(wantsZero || !s.keepProcessedWithRAW)
+        d.heif = caps.hevc
+        if burst {
+            d.raw = .none
+        } else if s.shootsProRAW && caps.proRAW {
+            d.raw = .proRAW
+        } else if caps.bayerRAW && !caps.zoomed {
+            d.raw = .bayer
+        } else if caps.proRAW {
+            d.raw = .proRAW
+            d.fallbackNote = caps.zoomed ? "Zoomed in: Bayer RAW needs 1×, so this shot is ProRAW"
+                                         : "No Bayer RAW on this lens, so this shot is ProRAW"
         } else {
-            d.withProcessed = true
-            d.zeroDevelop = false
-            if wantsZero {
-                if caps.zoomed {
-                    d.fallbackNote = s.processing == .zero
-                        ? "Zoomed in: RAW needs 1×, so this shot used Natural"
-                        : "Zoomed in: RAW needs 1×, so the look went on the processed photo"
-                } else {
-                    d.fallbackNote = s.processing == .zero
-                        ? "Zero needs Bayer RAW — this lens used Natural"
-                        : "No Bayer RAW on this lens — Print look applied to the processed photo"
-                }
-            } else if rawMode == .bayer && caps.zoomed {
-                d.fallbackNote = "Zoomed in: RAW needs 1×, so this shot is HEIF/JPEG only"
-            }
+            d.raw = .none
+            d.fallbackNote = "No RAW on this lens, so this shot is \(caps.hevc ? "HEIF" : "JPEG")"
         }
 
-        // Bayer RAW can't go through multi-frame fusion; ask for the honest single frame.
-        let isBayer = d.raw == .bayer
-        d.prioritization = (isBayer || burst) ? .speed : s.processing.prioritization
+        switch d.raw {
+        case .bayer:
+            // Bayer RAW can't go through multi-frame fusion; ask for the honest single frame.
+            d.prioritization = .speed
+            d.standardDimensions = true
+        case .proRAW:
+            d.prioritization = .quality
+            d.standardDimensions = s.resolution == .standard
+        case .none:
+            d.prioritization = burst ? .speed : .balanced
+            d.standardDimensions = burst || s.resolution == .standard
+        }
         d.flash = !burst && caps.flash && s.flash != .off
-        d.standardDimensions = isBayer || burst || s.resolution == .standard
         return d
     }
 }

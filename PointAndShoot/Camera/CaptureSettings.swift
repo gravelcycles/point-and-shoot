@@ -291,6 +291,17 @@ struct CameraSettings: Codable, Equatable {
     /// switch mutes it too.
     var shutterSound: Bool = false
 
+    // Library (the app keeps every shot as a RAW until exported).
+    /// Off = photos not tagged Keep go to the trash 30 days after they were taken.
+    var storeForever: Bool = false
+    /// Render every shot with its look and save it to Photos right after capture.
+    var autoExport: Bool = false
+    var exportFormat: ShotRenderer.ExportFormat = .heif
+    /// Longest side of exported photos in pixels; 0 = the photo's own size.
+    var exportMaxSide: Int = 2880
+    /// 0…1.
+    var exportQuality: Double = 1.0
+
     static let storageKey = "camera.settings.v1"
 
     /// Loads saved settings, filling any options added since they were saved with defaults
@@ -417,21 +428,18 @@ extension CameraSettings {
         }
     }
 
-    /// The active look shoots the sensor's Bayer RAW and develops it itself (Print, like
-    /// Zero processing), so the film model gets real scene light.
+    /// Every photo is a RAW (the app's own library develops it). Bayer RAW is the default;
+    /// ProRAW only when chosen.
+    var shootsProRAW: Bool { rawMode == .proRAW }
+    /// The active look is a film stock (it develops from scene light).
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
-    /// We capture Bayer RAW and develop it ourselves: Zero processing, or a film look.
-    var developsBayerRAW: Bool { processing == .zero || captureLookNeedsRAW }
+    /// We capture Bayer RAW and develop it ourselves.
+    var developsBayerRAW: Bool { !shootsProRAW }
 
     /// Bayer RAW is the sensor's full frame, and AVFoundation throws (an instant crash) if
-    /// it's captured while digitally zoomed. Modes that shoot it lock zoom at 1×.
-    var zoomLocked: Bool { mode.isStill && (developsBayerRAW || rawMode == .bayer) }
+    /// it's captured while digitally zoomed. Bayer RAW locks zoom at 1×; ProRAW zooms.
+    var zoomLocked: Bool { mode.isStill && !shootsProRAW }
 
     /// What to call the zoom-locked mode in a toast.
-    var zoomLockReason: String {
-        if mode == .print { return "Print" }
-        if processing == .zero { return "Zero" }
-        if captureLookNeedsRAW { return "this filter" }
-        return "Bayer RAW"
-    }
+    var zoomLockReason: String { "Bayer RAW" }
 }

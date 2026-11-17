@@ -156,9 +156,13 @@ final class LockedCamera: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         queue.async {
             guard self.captureSession.isRunning else { return }
+            // RAW like the app (Bayer, developed when it's imported into the app's library);
+            // a processed photo where the camera offers no Bayer RAW.
             let codec: AVVideoCodecType = self.output.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
-            let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
-            settings.photoQualityPrioritization = .balanced
+            let bayer = self.output.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
+            let settings = bayer.map { AVCapturePhotoSettings(rawPixelFormatType: $0) }
+                ?? AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
+            settings.photoQualityPrioritization = bayer != nil ? .speed : .balanced
             // Silent, like the app's default (where iOS allows muting the shutter).
             if #available(iOS 18.0, *), self.output.isShutterSoundSuppressionSupported {
                 settings.isShutterSoundSuppressionEnabled = true
@@ -184,12 +188,12 @@ final class LockedCamera: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             self.shotCount += 1
             if let thumb { self.thumbnail = thumb }
         }
-        let ext = output.availablePhotoCodecTypes.contains(.hevc) ? "heic" : "jpg"
+        let ext = photo.isRawPhoto ? "dng" : (output.availablePhotoCodecTypes.contains(.hevc) ? "heic" : "jpg")
         let spillover = self.spillover
         Task.detached(priority: .utility) {
-            // Straight into Photos when allowed; otherwise park it for the app to import.
-            if await Self.saveToPhotos(data) { return }
-            guard let spillover else { return }
+            // Parked for the app, which moves it into its own library on next open. Only
+            // without a parking folder does it go straight to Photos.
+            guard let spillover else { _ = await Self.saveToPhotos(data); return }
             let file = spillover.appendingPathComponent("\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)")
             try? data.write(to: file)
         }

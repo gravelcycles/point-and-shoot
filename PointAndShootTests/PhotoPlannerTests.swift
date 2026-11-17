@@ -74,14 +74,16 @@ final class PhotoPlannerTests: XCTestCase {
                         XCTAssertEqual(d.prioritization, .speed, "Bursts use .speed: \(ctx)")
                         XCTAssertTrue(d.standardDimensions, "Bursts are 12 MP: \(ctx)")
                     }
-                    if d.zeroDevelop {
-                        XCTAssertEqual(d.raw, .bayer, "We can only develop a Bayer DNG: \(ctx)")
-                        XCTAssertFalse(d.withProcessed, "Zero/film develops ask for RAW only: \(ctx)")
-                    }
-                    if d.raw == .none {
-                        XCTAssertTrue(d.withProcessed, "Without RAW there must be a processed photo: \(ctx)")
-                        if s.developsBayerRAW && !burst {
-                            XCTAssertNotNil(d.fallbackNote, "Falling back from Zero/Print must say so: \(ctx)")
+                    if !burst {
+                        // RAW only: a processed photo only when the lens has no RAW at all.
+                        if caps.bayerRAW || caps.proRAW {
+                            XCTAssertNotEqual(d.raw, .none, "Every photo is a RAW: \(ctx)")
+                        } else {
+                            XCTAssertEqual(d.raw, .none, ctx)
+                            XCTAssertNotNil(d.fallbackNote, "Falling back to a processed photo must say so: \(ctx)")
+                        }
+                        if s.shootsProRAW && caps.proRAW {
+                            XCTAssertEqual(d.raw, .proRAW, "ProRAW chosen and available: \(ctx)")
                         }
                     }
                 }
@@ -90,39 +92,39 @@ final class PhotoPlannerTests: XCTestCase {
         XCTAssertGreaterThan(checked, 1000)
     }
 
-    func testPrintModeShootsBayerAndKeepsTheDNG() {
-        var s = CameraSettings()
-        s.mode = .print
-        let d = PhotoPlanner.decide(s, burst: false, caps: .init())
+    func testDefaultShootsBayerRAW() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init())
         XCTAssertEqual(d.raw, .bayer)
-        XCTAssertTrue(d.zeroDevelop)
-        XCTAssertTrue(d.storeRAW, "Print's edit re-develops from the DNG")
-        XCTAssertFalse(d.withProcessed)
+        XCTAssertEqual(d.prioritization, .speed)
+        XCTAssertTrue(d.standardDimensions)
+        XCTAssertNil(d.fallbackNote)
     }
 
-    func testZoomedPrintFallsBackToProcessedWithANote() {
+    func testPrintModeShootsBayerRAW() {
         var s = CameraSettings()
         s.mode = .print
-        let d = PhotoPlanner.decide(s, burst: false, caps: .init(zoomed: true))
+        XCTAssertEqual(PhotoPlanner.decide(s, burst: false, caps: .init()).raw, .bayer)
+    }
+
+    func testZoomedBayerFallsBackToProRAWWithANote() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(zoomed: true))
+        XCTAssertEqual(d.raw, .proRAW)
+        XCTAssertNotNil(d.fallbackNote)
+    }
+
+    func testNoRAWAtAllFallsBackToProcessed() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(bayerRAW: false, proRAW: false))
         XCTAssertEqual(d.raw, .none)
         XCTAssertNotNil(d.fallbackNote)
     }
 
-    func testPlainPhotoIsProcessedOnly() {
-        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init())
-        XCTAssertEqual(d.raw, .none)
-        XCTAssertTrue(d.withProcessed)
-        XCTAssertTrue(d.heif)
-        XCTAssertNil(d.fallbackNote)
-    }
-
-    func testProRAWWithAndWithoutCompanion() {
+    func testProRAWWhenChosen() {
         var s = CameraSettings()
         s.rawMode = .proRAW
-        s.keepProcessedWithRAW = true
-        XCTAssertEqual(PhotoPlanner.decide(s, burst: false, caps: .init()).raw, .proRAW)
-        XCTAssertTrue(PhotoPlanner.decide(s, burst: false, caps: .init()).withProcessed)
-        s.keepProcessedWithRAW = false
-        XCTAssertFalse(PhotoPlanner.decide(s, burst: false, caps: .init()).withProcessed)
+        s.resolution = .max
+        let d = PhotoPlanner.decide(s, burst: false, caps: .init())
+        XCTAssertEqual(d.raw, .proRAW)
+        XCTAssertFalse(d.standardDimensions)
+        XCTAssertFalse(s.zoomLocked, "ProRAW zooms")
     }
 }

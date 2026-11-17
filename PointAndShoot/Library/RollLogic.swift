@@ -39,16 +39,16 @@ enum ViewerSelection {
 }
 
 /// When the camera's thumbnail button stops showing the capture's own preview and hands
-/// over to the roll (so later deletes anywhere are reflected).
+/// over to the library (so later deletes and edits are reflected).
 enum ThumbnailHandoff {
     static func shouldRelease(hasCaptureThumbnail: Bool, capturesInFlight: Int,
-                              lastSavedAssetID: String?, developingIDs: Set<String>,
-                              rollContains: (String) -> Bool,
-                              latestThumbnailID: String?, newestAssetID: String?) -> Bool {
-        guard hasCaptureThumbnail, capturesInFlight == 0,
-              let id = lastSavedAssetID, rollContains(id),
-              !developingIDs.contains(id),
-              let shown = latestThumbnailID, shown == newestAssetID else { return false }
-        return true
+                              lastSavedID: UUID?, developing: Set<UUID>,
+                              libraryContains: (UUID) -> Bool,
+                              shownID: UUID?, newestID: UUID?) -> Bool {
+        guard hasCaptureThumbnail, capturesInFlight == 0 else { return false }
+        // Not saved, or deleted since: the capture's preview has nothing to stand for.
+        guard let id = lastSavedID, libraryContains(id) else { return true }
+        // Saved: wait until the library has developed it and is showing it.
+        return !developing.contains(id) && shownID == id && newestID == id
     }
 }

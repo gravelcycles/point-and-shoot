@@ -46,11 +46,8 @@ final class CameraController: NSObject {
     private(set) var capturesInFlight = 0
     private(set) var lastThumbnail: UIImage?
     private(set) var lastThumbnailDate = Date.distantPast
-    /// Library ID of the most recent photo/video this app saved — the viewer opens on it.
-    private(set) var lastSavedAssetID: String?
-    /// Saved shots whose filter/Print look is still being baked on. The viewer shows
-    /// "Developing…" over them; the camera thumbnail waits for the developed version.
-    private(set) var developingAssetIDs: Set<String> = []
+    /// The most recent photo stored in the app's library — the viewer opens on it.
+    private(set) var lastSavedShotID: UUID?
     private(set) var countdown: Int?
     private(set) var burstCount = 0
     /// Estimated recording time left on the phone at the current video settings.
@@ -183,23 +180,11 @@ final class CameraController: NSObject {
         start()
     }
 
-    /// The capture's own thumbnail only bridges the gap until the roll has the shot. After
-    /// that the roll is the source of truth, so deleting it (here or in Photos) updates the
+    /// The capture's own thumbnail only bridges the gap until the library has rendered the
+    /// shot. After that the library is the source of truth, so deleting it updates the
     /// camera's thumbnail button.
     func releaseCaptureThumbnail() {
         lastThumbnail = nil
-    }
-
-    private func setDeveloping(_ id: String, _ developing: Bool) {
-        if developing {
-            developingAssetIDs.insert(id)
-            // Never leave a shot looking stuck if a bake hangs: give up on the overlay.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
-                self?.developingAssetIDs.remove(id)
-            }
-        } else {
-            developingAssetIDs.remove(id)
-        }
     }
 
     private func captureFinished() {
@@ -301,7 +286,6 @@ final class CameraController: NSObject {
             || Self.proRAWActive(old) != Self.proRAWActive(s)
         // Photo ↔ Print share the photo pipeline: switch instantly, no session rebuild.
         let stillSwap = old.mode.isStill && s.mode.isStill
-        if old.mode != s.mode && s.mode == .print { ensurePhotosAccessForLooks() }
 
         if old.mode != s.mode && !stillSwap {
             // Entering video with a 180° shutter: classic cinematographer default.
@@ -757,39 +741,12 @@ final class CameraController: NSObject {
 
     /// ProRAW is switched on in the photo output only while it's what we'll capture.
     static func proRAWActive(_ s: CameraSettings) -> Bool {
-        s.rawMode == .proRAW && !s.developsBayerRAW
+        s.rawMode == .proRAW
     }
 
-    /// Print mode bakes its look on as an editable edit, which needs full Photos access.
-    private func ensurePhotosAccessForLooks() {
-        guard !TestHooks.isUITest else { return }
-        Task { @MainActor in
-            let status = await PhotoLibrary.requestReadWrite()
-            if status != .authorized && status != .limited {
-                self.toast = "Print saves its look as an editable edit — allow full Photos access in Settings"
-            }
-        }
-    }
-
-    /// Looks are saved as editable edits on top of the original, which needs full Photos
-    /// access — ask for it the first time one is picked.
+    /// The look new shots start with. Every shot keeps its RAW, so the look stays editable.
     func setCaptureLook(_ id: String?) {
-        guard let id, id != "none" else {
-            update { $0.captureLook = nil }
-            return
-        }
-        if TestHooks.isUITest {
-            update { $0.captureLook = id }
-            return
-        }
-        Task { @MainActor in
-            let status = await PhotoLibrary.requestReadWrite()
-            if status == .authorized || status == .limited {
-                self.update { $0.captureLook = id }
-            } else {
-                self.toast = "Looks are saved as editable edits — allow full Photos access in Settings"
-            }
-        }
+        update { $0.captureLook = (id == nil || id == "none") ? nil : id }
     }
 
     // MARK: - Lens & zoom
@@ -1177,6 +1134,8 @@ final class CameraController: NSObject {
     /// Hold the shutter: fires processed (non-RAW), fast-prioritized frames as quickly as
     /// the pipeline keeps up, without ever queueing a backlog.
     func startBurst() {
+        // Every photo is a RAW now; RAW can't burst. Holding the shutter does nothing.
+        guard Self.burstEnabled else { return }
         guard settings.mode == .photo, !isRecording, countdown == nil else { return }
         burstTimer?.invalidate()
         burstCount = 0
@@ -1192,6 +1151,8 @@ final class CameraController: NSObject {
         if burstCount > 1 { toast = "Burst: \(burstCount) shots" }
         burstCount = 0
     }
+
+    static let burstEnabled = false
 
     private func fireBurstShot() {
         guard burstCount < 60 else { stopBurst(); return }
@@ -1230,25 +1191,23 @@ final class CameraController: NSObject {
                     self?.lastThumbnail = image
                     self?.lastThumbnailDate = Date()
                 },
-                developing: { [weak self] assetID, isDeveloping in
-                    DispatchQueue.main.async { self?.setDeveloping(assetID, isDeveloping) }
-                },
-                completion: { [weak self] message, assetID in
-                    if let assetID {
-                        Diag.log(.save, "saved \(assetID.prefix(8))\(message.map { " · " + $0 } ?? "")")
+                completion: { [weak self] message, shotID in
+                    if let shotID {
+                        Diag.log(.save, "saved \(shotID.uuidString.prefix(8))\(message.map { " · " + $0 } ?? "")")
                     } else {
                         Diag.error(.save, "not saved: \(message ?? "no reason")")
                     }
                     guard let self else { return }
                     self.sessionQueue.async { self.inFlight[id] = nil }
                     DispatchQueue.main.async {
-                        if let assetID {
-                            self.lastSavedAssetID = assetID
+                        if let shotID {
+                            self.lastSavedShotID = shotID
+                            if s.autoExport {
+                                Task { await ShotExporter.autoExport(shotID, store: .shared, options: .init(s)) }
+                            }
                         } else {
-                            // Nothing was saved: don't keep showing a thumbnail of it, and
-                            // let a viewer waiting on "Developing…" stop waiting.
+                            // Nothing was saved: don't keep showing a thumbnail of it.
                             self.lastThumbnail = nil
-                            self.lastSavedAssetID = nil
                         }
                         self.captureFinished()
                         if let message { self.toast = message }
@@ -1272,7 +1231,7 @@ final class CameraController: NSObject {
             flash: device.hasFlash && photoOutput.supportedFlashModes.contains(s.flash.avMode),
             zoomed: device.videoZoomFactor > 1.001)
         let d = PhotoPlanner.decide(s, burst: burst, caps: caps)
-        Diag.log(.capture, "shot: mode \(s.mode.rawValue) look \(s.activeLook ?? "-") processing \(s.processing.rawValue) raw \(d.raw) withProcessed \(d.withProcessed) zeroDevelop \(d.zeroDevelop) burst \(burst) zoomed \(caps.zoomed) lens \(device.localizedName)\(d.fallbackNote.map { " · " + $0 } ?? "")")
+        Diag.log(.capture, "shot: mode \(s.mode.rawValue) look \(s.activeLook ?? "-") raw \(d.raw) burst \(burst) zoomed \(caps.zoomed) lens \(device.localizedName)\(d.fallbackNote.map { " · " + $0 } ?? "")")
 
         let processedFormat: [String: Any] = [AVVideoCodecKey: d.heif ? AVVideoCodecType.hevc : .jpeg]
         let rawType: OSType? = switch d.raw {
@@ -1283,21 +1242,15 @@ final class CameraController: NSObject {
 
         var plan = PhotoPlan()
         plan.fallbackNote = d.fallbackNote
+        plan.heif = d.heif
         let photoSettings: AVCapturePhotoSettings
         if let rawType {
-            plan.expectsRAW = true
-            plan.zeroDevelop = d.zeroDevelop
-            plan.storeRAW = d.storeRAW
-            plan.zeroAsHEIF = d.heif
-            if d.withProcessed {
-                photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType, processedFormat: processedFormat)
-                plan.expectsProcessed = true
-            } else {
-                photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType)
-            }
+            // RAW only: the app develops it (`ShotStore`), nothing processed is kept.
+            plan.rawKind = d.raw == .proRAW ? .proRAW : .bayerRAW
+            photoSettings = AVCapturePhotoSettings(rawPixelFormatType: rawType)
         } else {
+            plan.rawKind = nil
             photoSettings = AVCapturePhotoSettings(format: processedFormat)
-            plan.expectsProcessed = true
         }
 
         let wanted = d.prioritization
@@ -1325,8 +1278,9 @@ final class CameraController: NSObject {
         if let previewType = photoSettings.availablePreviewPhotoPixelFormatTypes.first {
             photoSettings.previewPhotoFormat = [
                 kCVPixelBufferPixelFormatTypeKey as String: previewType,
-                kCVPixelBufferWidthKey as String: 240,
-                kCVPixelBufferHeightKey as String: 240,
+                // Shown instantly, and the stand-in for the RAW until it's developed.
+                kCVPixelBufferWidthKey as String: 1440,
+                kCVPixelBufferHeightKey as String: 1440,
             ]
         }
         return (photoSettings, plan)
@@ -1420,7 +1374,7 @@ final class CameraController: NSObject {
                                 self.lastThumbnail = thumb
                                 self.lastThumbnailDate = Date()
                             }
-                            if let assetID { self.lastSavedAssetID = assetID }
+                            _ = assetID
                         }
                     } catch {
                         self.post("Couldn't save video: \(error.localizedDescription)")
