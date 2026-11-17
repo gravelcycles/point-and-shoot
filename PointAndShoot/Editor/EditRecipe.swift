@@ -299,7 +299,7 @@ enum LookSet: String, CaseIterable, Identifiable {
         case .essentials: "Print (when it isn't a mode), Phromagraph, Punch and Noir."
         case .stocks: "Real film stocks: each renders skin, foliage and skies its own way, with dense blacks and dye-dense color."
         case .movie: "Movie grades built like film: Technicolor, teal and orange, tungsten night, bleach bypass."
-        case .grades: "The first cinematic pass (PR #35): color casts, split toning and softer blacks. Here to compare."
+        case .grades: "An earlier, softer pass: color casts, split toning and lifted blacks. Here to compare."
         }
     }
 

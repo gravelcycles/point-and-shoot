@@ -332,9 +332,10 @@ is the only source of truth for what exists. Everything else reacts to it.
     - Stocks that use it take a per-cell path in `printCube` (~5–9 ms), since the pivot
       isn't a product of per-axis terms.
     - A grey with three equal densities is untouched, but printer lights and crossover give
-      a stock's greys a cast, which dye saturation scales by 1 + amount (Slide's grey
-      lands ~0.08 stop darker than its `grey` target). The looks were tuned on the real
-      output, so `grey` is approximate for dye-saturated stocks.
+      a stock's greys a cast, which dye saturation scales by 1 + amount, and it darkens
+      grey a little (Slide's by ~0.08 stop against the same stock without it). The looks
+      were tuned on the real output, so `grey` is approximate: Lush lands ~0.12 stop and
+      Night 800 ~0.21 stop under their `grey` targets.
   - interlayer saturation, an optional scene channel mix (`channel_mix`, folded into the
     sensitivity matrix), dye crosstalk, and Technicolor's key black (`key_black`, folded
     into crosstalk; Three-Strip). None of these three needs app code.
@@ -360,9 +361,9 @@ is the only source of truth for what exists. Everything else reacts to it.
     - Hue twists and dye saturation are stock fields (off when absent), so they need no
       engine.
   - **Table caches** (`FilmPipeline.tableCapacity` = stock count + 6, ~1.8 MB a table).
-    The LOOK strip's "All" previews touch every stock every 2 s on the render queue, so a
-    cache smaller than the stock count would rebuild tables there and stall the
-    viewfinder. Adding stocks grows it automatically.
+    The LOOK strip's "All" previews touch every stock every 2 s (on their own queue), so a
+    cache smaller than the stock count would evict the viewfinder's tables, which then
+    rebuild on the render queue and stall it. Adding stocks grows it automatically.
   - **Older photos:** `hueTwists` and `dyeSaturation` are optional, and nil means off.
     `EditRecipe.decodeSaved` never fills them in from today's stock
     (`FilmStock.offWhenMissing`), so tunings pinned before they existed render as they did.
@@ -466,9 +467,11 @@ is the only source of truth for what exists. Everything else reacts to it.
   - Both caches are LRUs sized `FilmPipeline.tableCapacity` = stock count + 6 (1.8 MB a
     table, ~45 MB each at 19 stocks). Print-cube keys use `FilmControls.canonical`, so
     prewarmed tables serve engine-3 looks. Tables with an edit's exposure baked in have
-    their own 4-slot cache, so an Exposure drag can't evict the viewfinder's.
-  - LOOK-strip thumbnails render on their own utility queue from a small copy of the
-    frame (`PreviewRenderer.filterThumbnails`), never on the viewfinder's render queue.
+    their own 4-slot cache, so an Exposure drag can't evict the viewfinder's (unless the
+    viewfinder's own look carries an exposure, as a default grade can).
+  - LOOK-strip thumbnails render on their own utility queue and Metal command queue from
+    a small copy of the frame (`PreviewRenderer.filterThumbnails`), never on the
+    viewfinder's, and stop refreshing while the session is stopped (roll or editor open).
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
     highlights, shadows) and is cached. It rebuilds in ~2 ms (Print) to ~7 ms (hue
     protection + split toning), only when a film slider moves, so editor sliders don't hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
@@ -511,7 +514,7 @@ is the only source of truth for what exists. Everything else reacts to it.
   - **Look:** Print is the first item under LOOK, and there is no Print mode.
   - `CameraSettings.activeLook` is what actually gets applied: Print in Print mode,
     otherwise the chosen look.
-  - The editor's Looks tool always includes Print.
+  - The editor's Looks tool always includes Print (under Essentials, or All).
 - **Capture:** the Print mode (or the Print look) makes the camera shoot Bayer RAW and
   keep the DNG (`CameraSettings.developsBayerRAW`). `RecipeBaker` then renders the edit
   from the in-memory DNG.
@@ -854,7 +857,7 @@ to be wrong.
       only when you zoom in.
     - Editor: Print from the Looks tool. Details → Grain/Halation/Crossover respond;
       Tune sliders behave. Revert in Photos gives the neutral Zero develop.
-    - Switch the look back to Natural: sharpening and the RAW tab's tone sliders return.
+    - Switch the look back to Original: sharpening and the RAW tab's tone sliders return.
 16. **Robustness:**
     - Background/foreground while recording; incoming call; low storage.
     - Deny each permission (camera, mic, photos, location) and confirm graceful messages.

@@ -155,9 +155,12 @@ struct DialPanel: View {
         // Refresh the previews from the live camera every couple of seconds while open,
         // for the looks on show (and at once when the set changes).
         .task {
+            refreshThumbnails()
             while !Task.isCancelled {
-                refreshThumbnails()
                 try? await Task.sleep(for: .seconds(TestHooks.isUITest ? 3600 : 2))
+                // While the roll or the editor covers the camera the session is stopped:
+                // re-rendering ~20 looks from a stale frame would only compete with them.
+                if camera.isSessionRunning { refreshThumbnails() }
             }
         }
         .onChange(of: camera.settings.lookSet) { refreshThumbnails() }

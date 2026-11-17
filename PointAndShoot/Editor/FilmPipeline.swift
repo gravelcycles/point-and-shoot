@@ -71,9 +71,9 @@ enum FilmPipeline {
     /// A display-referred viewfinder table for every stock, the RAW looks' tables, plus
     /// room for an edit's exposures on a processed photo (each exposure is its own table)
     /// and a few editor slider positions. Sized from the stock count: the LOOK strip's
-    /// "All" previews touch every stock every 2 s on the render queue, so a cache smaller
-    /// than that would evict and rebuild tables there and stall the viewfinder. ~1.8 MB a
-    /// table: ~45 MB each at 19 stocks.
+    /// "All" previews touch every stock every 2 s (on their own queue), so a smaller cache
+    /// would evict the viewfinder's tables, which would then rebuild on the render queue
+    /// and stall it. ~1.8 MB a table: ~45 MB each at 19 stocks.
     static let tableCapacity = FilmStock.all.count + 6
     private static let negativeCubes = TableCache<NegativeKey>(capacity: tableCapacity)
     private static let printCubes = TableCache<PrintKey>(capacity: tableCapacity)
