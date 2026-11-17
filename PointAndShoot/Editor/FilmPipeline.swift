@@ -90,7 +90,7 @@ enum FilmPipeline {
 
     /// Builds every stock's viewfinder tables off the main thread (~200 ms of CPU once),
     /// so neither the first frame with a filter nor the filter strip's live previews ever
-    /// wait for them. Print's RAW table too, since Print mode develops from RAW.
+    /// wait for them. The RAW tables too for the looks that shoot RAW (Print, Phromagraph).
     static func prewarm() {
         DispatchQueue.global(qos: .utility).async {
             let printStock = FilmStock.printLook
@@ -100,7 +100,9 @@ enum FilmPipeline {
                 _ = negativeCube(stock, .displayReferred)
                 _ = printCube(stock, FilmControls())
             }
-            _ = negativeCube(printStock, .sceneLinear)
+            for look in Look.all where look.capturesRAW {
+                if let id = look.recipe.film?.stock { _ = negativeCube(FilmStock.named(id), .sceneLinear) }
+            }
         }
     }
 

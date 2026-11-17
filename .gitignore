@@ -10,3 +10,6 @@ __pycache__/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Reference shoots for fitting looks (personal photos; never commit)
+Chromagraph RAW*/

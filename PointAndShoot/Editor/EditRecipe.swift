@@ -326,6 +326,12 @@ struct Look: Identifiable {
                                 engine: FilmRecipe.currentEngine)
             r.grain = FilmRecipe.defaultGrain
         },
+        // Fitted to Chromagraph Camera's own renders of its RAWs (scripts/phromagraph.py),
+        // separate from Print: Print is our film model tuned by eye; Phromagraph is the
+        // measured match. Grain starts off, as in Chromagraph; the Grain slider at 50
+        // gives Chromagraph's grain 1.25.
+        Look(id: "phromagraph", name: "Phromagraph", detail: "Matched to Chromagraph's own renders: creamy highlights, teal-leaning mid-tones, dense soft blacks and a faint glow. Grain off; add it with the Grain slider. Shoots RAW.",
+             capturesRAW: true, apply: film("phromagraph") { $0.grain = 0 }),
         Look(id: "punch", name: "Punch", detail: "Vivid color negative pushed hard: maximum color, bold contrast, bright and clean, with extra crunch.",
              apply: film("punch") { $0.structure = 15 }),
         // The rest are film stocks too (scripts/film-looks.json): each a film or a movie

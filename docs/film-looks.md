@@ -14,6 +14,7 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #9 | Print look (Chromagraph-style film emulation) and Print mode (PHOTO · PRINT · VIDEO) | merged |
 | #15 | Every photo filter is a film stock, plus split toning, spaced apart with a metric | merged |
 | #20 | Grainy Print photos: real RAW noise reduction, exact grain, finer grain | merged |
+| – | Phromagraph: a filter fitted to Chromagraph's own renders (§5½) | this PR |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
@@ -188,6 +189,86 @@ photos):
 **The most accurate next step** is refitting to real pairs (CLAUDE.md §4, "Refit to real
 pairs"): the same scene shot with Point & Shoot (DNG kept) and with Chromagraph, then
 `print-look.py fit DIR [--same-raw]`.
+
+## 5½. Phromagraph: Chromagraph, measured (2026-11-17)
+
+A separate stock, `phromagraph`, fitted to **Chromagraph's own renders of its own RAWs**.
+Print stays as it is: it was calibrated from public samples, and the two are kept apart on
+purpose.
+
+**The data.** The owner exported 13 Chromagraph shots: the DNG Chromagraph keeps, the HEIC
+it saved, and `settings.json` (Chromagraph 1.6.1's per-shot settings), all from an
+iPhone 12 Pro on iOS 18.7.3. Not committed (personal photos). Ask the owner for the folder
+"Chromagraph RAW + Settings 2026-11-17", or a new one.
+- The pairs match by capture time (`cgc_NNNNN.dng` ↔ `IMG_NNNN.HEIC`). One DNG is from
+  another app (VisionCamera) and was imported into Chromagraph.
+- Settings moved, from `settings.json` (and confirmed in the pixels: per-shot exposure
+  agrees to ±0.04 EV, no hidden colour bias): cgc_00014 has +0.44 EV and **Shadows 1**
+  (left out of the fit); 1303DFCB has −1.48 EV (applied). The first 8 shots have grain
+  1.25 / size 1; the last 5 have grain off (Chromagraph's default). One shot has a
+  digital-zoom crop, which the alignment finds.
+
+**What we learned about Chromagraph:**
+- **It shoots ProRAW** (linear DNGs, `PhotometricInterpretation` = Linear Raw), not Bayer.
+- **Its HEICs are untagged** (nclx with unspecified primaries and transfer); iOS and macOS
+  display them as sRGB. They're 8-bit 4:2:2 at 2880 px.
+- **No local tone mapping.** Once a global tone curve is applied, the residual maps are
+  flat. So a global transform (our film model) can match it.
+- **The look:** blue skies turn cream, mid-tones lean teal, blacks are dense, the curve is
+  steep (log-log slope ≈ 2.0) into a soft shoulder (white ≈ 0.88).
+- **Exposure:** it develops at a fixed +1.8 EV over a neutral CIRAWFilter develop of the
+  ProRAW, with no per-shot auto exposure.
+- **Halation is barely there.** No measurable red excess near lamps or bright edges. Our
+  model with *no* halation matches better than Print's. Phromagraph uses about a third of
+  Print's (`[0.05, 0.012, 0]`, boost 1).
+- **Grain 1.25** adds σ ≈ 3.6/255 of encoded luminance in the mid-tones at 2880 px, with
+  lag-1 autocorrelation 0.23 (fine and slightly sharpened). In our model that's
+  `grainDensity` 0.017 and `grain_size` 0.17 ‰, about twice Print's grain. Phromagraph
+  ships it at Grain slider 50, with the look's default grain at 0.
+- **Chromagraph's Shadows 1** ≈ our `shadows` 0.9 (one shot, so it's rough).
+
+**How it's fitted** (`scripts/phromagraph.py`, macOS):
+1. `prep DIR` develops each DNG with `scripts/raw-develop.swift`: CIRAWFilter exactly as
+   `EditPipeline.configure` does under a film look (boost 0, no local tone map, no
+   sharpening, NR floored). It then aligns to the HEIC (SIFT similarity transform) and
+   takes ~7k blurred samples per pair. The samples are stratified by brightness and kept
+   away from edges, clipping and halation.
+2. `fit` runs least squares in Oklab (chroma weighted 1.3) over tone (grey, slope,
+   shoulder, white, floor → derived print curve), printer lights, crossover, a full 3×3
+   layer sensitivity, crosstalk, split toning and hue protection, plus one develop
+   exposure shared by every pair. It writes `scripts/phromagraph-stock.json`. Then run
+   `print-look.py export-swift` and `parity`.
+3. `measure DIR` prints the exposure gap between the app's viewfinder match and
+   Chromagraph, and the grain statistics. `sheet OUT.jpg` draws neutral | Print |
+   Phromagraph | Chromagraph.
+
+**Results:** mean ΔE (Oklab) **0.0070** across the 12 fitted pairs (per pair
+0.005–0.013), against **0.0193** for Print with its best exposure.
+- What's left sits in near-whites (slightly dark and yellow) and blues (slightly flat).
+- More freedom bought little:
+  - a free 16-knot tone spline reached 0.0065, but ran above white where there's no data;
+  - per-channel paper white reached 0.0068, with a greenish white.
+  - Neither was kept.
+
+**Caveats:**
+- **Brightness per shot.** The app exposes each RAW to match the viewfinder, not
+  Chromagraph's fixed exposure. Using Apple's default render as a stand-in for the
+  viewfinder, the median gap is +0.09 EV (so the stock's exposure is 0). Per shot it's
+  ±0.5 EV:
+  - Apple keeps night scenes darker: the night alley lands ~1.4 EV under Chromagraph.
+  - Overcast scenes land ~0.6 EV under.
+  - Bright daytime scenes land ~0.3 EV over.
+  - If the owner prefers Chromagraph's fixed exposure, Phromagraph could use a constant
+    `rawFilmExposure`. The trade-off: the viewfinder would no longer match the saved
+    photo.
+- **Bayer vs ProRAW.** We fitted on ProRAW developed by CIRAWFilter; the app shoots Bayer
+  RAW. Both develop through Apple's colour pipeline, but Bayer is noisier and its exposure
+  scale may differ. Exposure doesn't matter (it's matched to the viewfinder); colour should
+  carry over.
+  - **Best next data:** the same scenes shot with Point & Shoot Phromagraph (DNG kept)
+    and Chromagraph back to back, from a tripod or steady hands.
+- **Highlights above the develop's clip** (CIRAWFilter with boost 0 tops out at 1.0) aren't
+  in the data, so the shoulder's very top is extrapolated.
 
 ## 6. Grain and noise: what's known and what isn't
 

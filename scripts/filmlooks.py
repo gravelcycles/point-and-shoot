@@ -118,9 +118,16 @@ def load_looks(path=LOOKS):
         return json.load(f)
 
 
+PHROMAGRAPH = os.path.join(HERE, "phromagraph-stock.json")
+
+
 def all_stocks(print_stock, looks_path=LOOKS):
-    """{id: stock} for Print plus every filter in film-looks.json."""
+    """{id: stock} for Print, Phromagraph (fitted on its own: scripts/phromagraph.py) and
+    every filter in film-looks.json."""
     out = {"print": print_stock}
+    if os.path.exists(PHROMAGRAPH):
+        with open(PHROMAGRAPH) as f:
+            out["phromagraph"] = json.load(f)
     for lid, spec in load_looks(looks_path)["looks"].items():
         out[lid] = build_stock(spec.get("name", lid), spec, print_stock)
     return out
