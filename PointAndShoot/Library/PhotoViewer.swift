@@ -23,6 +23,8 @@ struct PhotoViewer: View {
     @State private var assetHasRAW = false
     @State private var savedBanner: String?
     @State private var lastIndex = 0
+    /// The photo on screen is zoomed in: drags pan it instead of dismissing the viewer.
+    @State private var pageZoomed = false
 
     private static let pendingID = ViewerSelection.pendingID
 
@@ -90,6 +92,8 @@ struct PhotoViewer: View {
         .onChange(of: camera.capturesInFlight) { _, _ in reconcileSelection() }
         .onChange(of: camera.lastSavedAssetID) { _, _ in reconcileSelection() }
         .onChange(of: selectedID) { _, id in
+            // The page left behind snaps back to fit (ZoomableImageView.isCurrent).
+            pageZoomed = false
             if let id, let i = roll.assets.firstIndex(where: { $0.localIdentifier == id }) { lastIndex = i }
         }
         .task(id: selectedID) {
@@ -141,13 +145,24 @@ struct PhotoViewer: View {
                 if showPending, let thumb = camera.lastThumbnail {
                     PendingPage(image: thumb)
                         .containerRelativeFrame([.horizontal, .vertical])
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: toggleChrome)
                         .id(Self.pendingID)
                 }
                 ForEach(roll.assets, id: \.localIdentifier) { asset in
-                    AssetPage(asset: asset, manager: roll.imageManager, isCurrent: asset.localIdentifier == selectedID,
-                              developing: camera.developingAssetIDs.contains(asset.localIdentifier))
+                    let id = asset.localIdentifier
+                    // Taps are handled per page: a photo's own single tap waits for its
+                    // double-tap (zoom), which a tap on the whole pager would pre-empt.
+                    AssetPage(asset: asset, manager: roll.imageManager, isCurrent: id == selectedID,
+                              developing: camera.developingAssetIDs.contains(id),
+                              onTap: toggleChrome,
+                              onZoom: { scale in
+                                  guard id == selectedID else { return }
+                                  let zoomed = scale > 1.01
+                                  if zoomed != pageZoomed { pageZoomed = zoomed }
+                              })
                         .containerRelativeFrame([.horizontal, .vertical])
-                        .id(asset.localIdentifier)
+                        .id(id)
                 }
             }
             .scrollTargetLayout()
@@ -155,14 +170,13 @@ struct PhotoViewer: View {
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $selectedID)
         .ignoresSafeArea()
-        .onTapGesture {
-            withAnimation(.easeOut(duration: 0.2)) { chromeHidden.toggle() }
-        }
         .simultaneousGesture(
             // Global space: the pager itself moves with the finger, so local translation
             // would shrink as you drag (jitter, and twice the travel to dismiss).
             DragGesture(minimumDistance: 24, coordinateSpace: .global)
                 .onChanged { v in
+                    // Zoomed in, a drag pans the photo; it never dismisses.
+                    guard !pageZoomed else { return }
                     // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
                         dragY = v.translation.height
@@ -186,6 +200,10 @@ struct PhotoViewer: View {
     }
 
     /// Keep the viewer pointed at the right photo while a just-taken shot finishes saving.
+    private func toggleChrome() {
+        withAnimation(.easeOut(duration: 0.2)) { chromeHidden.toggle() }
+    }
+
     private func reconcileSelection() {
         let next = ViewerSelection.reconcile(
             .init(awaitingCapture: awaitingCapture, selectedID: selectedID),
@@ -295,6 +313,7 @@ struct PhotoViewer: View {
             .buttonStyle(PressScaleStyle(scale: 0.94))
             .disabled(!isPhoto)
             .opacity(isPhoto ? 1 : 0.35)
+            .accessibilityIdentifier("viewer.edit")
             Spacer()
             barButton("trash", id: "viewer.delete") {
                 // Never silent: every outcome shows something (delete did nothing on device
@@ -425,12 +444,17 @@ private struct AssetPage: View {
     let manager: PHCachingImageManager
     let isCurrent: Bool
     var developing = false
+    var onTap: () -> Void = {}
+    var onZoom: (CGFloat) -> Void = { _ in }
 
     var body: some View {
         if asset.mediaType == .video {
             VideoPage(asset: asset, isCurrent: isCurrent)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onTap)
         } else {
-            PhotoPage(asset: asset, manager: manager, developing: developing)
+            PhotoPage(asset: asset, manager: manager, isCurrent: isCurrent, developing: developing,
+                      onTap: onTap, onZoom: onZoom)
         }
     }
 }
@@ -438,58 +462,111 @@ private struct AssetPage: View {
 private struct PhotoPage: View {
     let asset: PHAsset
     let manager: PHCachingImageManager
+    var isCurrent = true
     /// Its filter/Print look is still being baked on: show the plain image blurred under
     /// "Developing…" rather than as if it were the finished shot.
     var developing = false
+    var onTap: () -> Void = {}
+    var onZoom: (CGFloat) -> Void = { _ in }
 
     @State private var image: UIImage?
     /// The revision the newest request is for; results for older revisions are dropped.
     @State private var wantedKey: String?
     @State private var requestID: PHImageRequestID?
-    @State private var zoom: CGFloat = 1
-    @State private var anchor: UnitPoint = .center
+    /// A sharper copy for zooming in, loaded the first time the page is zoomed.
+    @State private var detail: UIImage?
+    @State private var detailKey: String?
+    @State private var detailRequestID: PHImageRequestID?
     @Environment(\.displayScale) private var displayScale
+
+    /// The longest side worth decoding for zooming (a 12 MP photo at full size).
+    private static let detailMaxPixels: CGFloat = 4096
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .scaleEffect(zoom, anchor: anchor)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .blur(radius: developing ? 6 : 0)
-                        .opacity(developing ? 0.8 : 1)
-                        .animation(.easeOut(duration: 0.25), value: developing)
                     if developing {
+                        // Nothing to zoom into yet: the look is still being baked on.
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .blur(radius: 6)
+                            .opacity(0.8)
+                            .contentShape(Rectangle())
+                            .onTapGesture(perform: onTap)
                         VStack(spacing: 10) {
                             ProgressView().tint(.white).controlSize(.large)
                             Text("Developing…").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                         }
+                        .allowsHitTesting(false)
                         .transition(.opacity)
+                    } else {
+                        ZoomableImageView(
+                            image: detailKey == asset.revisionKey ? (detail ?? image) : image,
+                            pixelSize: CGSize(width: asset.pixelWidth, height: asset.pixelHeight),
+                            isCurrent: isCurrent,
+                            onTap: onTap,
+                            onZoom: { scale in
+                                onZoom(scale)
+                                if scale > 1.3 { loadDetail() }
+                            })
+                        .frame(width: geo.size.width, height: geo.size.height)
                     }
                 } else {
                     ProgressView().tint(.white)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: onTap)
                 }
             }
+            .animation(.easeOut(duration: 0.25), value: developing)
             .frame(width: geo.size.width, height: geo.size.height)
-            .contentShape(Rectangle())
-            // Pinch to peek at focus; springs back on release.
-            .gesture(
-                MagnifyGesture()
-                    .onChanged { v in
-                        anchor = v.startAnchor
-                        zoom = max(1, min(v.magnification, 6))
-                    }
-                    .onEnded { _ in
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { zoom = 1 }
-                    }
-            )
             // Reload when an edit lands, keeping the current image up meanwhile (favoriting
             // also bumps the revision, and used to flash a spinner).
             .task(id: asset.revisionKey) { load(size: geo.size) }
+            .onChange(of: isCurrent) { _, current in
+                // Off screen: drop the big copy (memory) and any request for it.
+                if !current { dropDetail() }
+            }
+            .onDisappear { dropDetail() }
         }
+    }
+
+    /// Zoomed in: fetch the photo at (up to) full size so it stays sharp.
+    private func loadDetail() {
+        let key = asset.revisionKey
+        guard detailKey != key, detailRequestID == nil, isCurrent, !developing else { return }
+        let px = CGSize(width: asset.pixelWidth, height: asset.pixelHeight)
+        let k = min(1, Self.detailMaxPixels / max(px.width, px.height, 1))
+        let target = CGSize(width: (px.width * k).rounded(), height: (px.height * k).rounded())
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        options.version = .current
+        options.resizeMode = .exact
+        let id = String(asset.localIdentifier.prefix(8))
+        detailRequestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFit,
+                                               options: options) { img, info in
+            detailRequestID = nil
+            if (info?[PHImageCancelledKey] as? Bool) == true { return }
+            guard let img else {
+                if let err = info?[PHImageErrorKey] as? Error { Diag.error(.viewer, "zoomed photo \(id) didn't load", err) }
+                return
+            }
+            // Only for the revision still on screen.
+            guard wantedKey == key, asset.revisionKey == key else { return }
+            detail = img
+            detailKey = key
+        }
+    }
+
+    private func dropDetail() {
+        if let detailRequestID { manager.cancelImageRequest(detailRequestID) }
+        detailRequestID = nil
+        detail = nil
+        detailKey = nil
     }
 
     private func load(size: CGSize) {
@@ -499,6 +576,7 @@ private struct PhotoPage: View {
         if let requestID { manager.cancelImageRequest(requestID) }
         let key = asset.revisionKey
         wantedKey = key
+        if detailKey != key { dropDetail() }
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.isNetworkAccessAllowed = true

@@ -114,6 +114,47 @@ final class LibraryFlowTests: XCTestCase {
         try XCTUnwrap(systemAlertButton("Don"), "trash stopped responding after Don't Allow").tap()
     }
 
+    // MARK: Zoom
+
+    func testPinchZoomInTheViewerPansInsteadOfDismissing() {
+        openViewer()
+        let photo = app.descendants(matching: .any).matching(identifier: "viewer.photo").firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 6), "the photo page isn't zoomable")
+        photo.pinch(withScale: 3, velocity: 2)
+        Thread.sleep(forTimeInterval: 0.8)
+        // Zoomed in, a downward drag moves around the photo; it mustn't close the viewer.
+        photo.swipeDown()
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertTrue(app.buttons["viewer.close"].exists, "a drag while zoomed dismissed the viewer")
+        // Double-tap back to fit; the viewer still works.
+        photo.doubleTap()
+        photo.pinch(withScale: 0.5, velocity: -2)
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertTrue(app.buttons["viewer.delete"].isHittable)
+    }
+
+    func testPinchZoomInTheEditorDoesNotAdjustAnything() {
+        openViewer()
+        app.buttons["viewer.edit"].tap()
+        let canvas = app.descendants(matching: .any).matching(identifier: "editor.canvas").firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 8), "editor didn't open")
+        // A tool whose one-finger swipes adjust a slider.
+        let tune = app.buttons["editor.tool.tune"]
+        XCTAssertTrue(tune.waitForExistence(timeout: 4))
+        tune.tap()
+        Thread.sleep(forTimeInterval: 2)   // the photo finishes loading; zoom turns on
+        canvas.pinch(withScale: 3, velocity: 2)
+        canvas.doubleTap()
+        canvas.doubleTap()
+        canvas.pinch(withScale: 0.6, velocity: -2)
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertEqual(app.state, .runningForeground)
+        // Zooming is not an edit: Save stays disabled.
+        let save = app.buttons["editor.save"]
+        XCTAssertTrue(save.exists)
+        XCTAssertFalse(save.isEnabled, "pinch-zooming changed the edit")
+    }
+
     func testGridSelectAndDeleteTwo() throws {
         openViewer()
         let before = rollCount()
