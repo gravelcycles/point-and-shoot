@@ -93,10 +93,17 @@ final class FrozenTuningTests: XCTestCase {
     }
 
     func testStockEditsFromBeforePinningResolveToTheStocksAsShipped() {
-        for id in FilmStock.all.keys {
+        for id in FilmStock.Legacy.v2.keys {
             var r = EditRecipe()
             r.film = FilmRecipe(stock: id, tuning: nil, engine: nil)
             XCTAssertEqual(FilmStock.resolved(for: r), FilmStock.Legacy.v2[id], id)
+        }
+        // Stocks added after pinning (Phromagraph) were always pinned; an unpinned one
+        // falls back to the stock as it is now.
+        for id in FilmStock.all.keys where FilmStock.Legacy.v2[id] == nil {
+            var r = EditRecipe()
+            r.film = FilmRecipe(stock: id, tuning: nil, engine: nil)
+            XCTAssertEqual(FilmStock.resolved(for: r), FilmStock.named(id), id)
         }
     }
 
