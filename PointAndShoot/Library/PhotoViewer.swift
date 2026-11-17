@@ -29,6 +29,8 @@ struct PhotoViewer: View {
     /// (a pinch taking over), which `onEnded` never hears about.
     @GestureState private var dismissDragActive = false
     @State private var dismissing = false
+    /// Two fingers pinched since the current drag began.
+    @State private var pinchedDuringDrag = false
 
     private static let pendingID = ViewerSelection.pendingID
 
@@ -101,7 +103,9 @@ struct PhotoViewer: View {
             if zoomed, dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
         }
         .onChange(of: dismissDragActive) { _, active in
-            if !active, !dismissing, dragY != 0 {
+            guard !active else { return }
+            pinchedDuringDrag = pageZoomed
+            if !dismissing, dragY != 0 {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
             }
         }
@@ -174,6 +178,9 @@ struct PhotoViewer: View {
                                   guard id == selectedID else { return }
                                   let zoomed = scale > 1.01
                                   if zoomed != pageZoomed { pageZoomed = zoomed }
+                                  // Remember a pinch for the rest of this drag: its fingers
+                                  // must never count as a swipe-down when they lift.
+                                  if zoomed { pinchedDuringDrag = true } else if !dismissDragActive { pinchedDuringDrag = false }
                               })
                         .containerRelativeFrame([.horizontal, .vertical])
                         .id(id)
@@ -191,13 +198,17 @@ struct PhotoViewer: View {
                 .updating($dismissDragActive) { _, active, _ in active = true }
                 .onChanged { v in
                     // Zoomed in (or pinching), a drag pans the photo; it never dismisses.
-                    guard !pageZoomed else { return }
+                    guard !pageZoomed, !pinchedDuringDrag else { return }
                     // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
                         dragY = v.translation.height
                     }
                 }
                 .onEnded { v in
+                    if pageZoomed || pinchedDuringDrag {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
+                        return
+                    }
                     if dragY > 130 || v.predictedEndTranslation.height > 420 && dragY > 40 {
                         // Back to wherever the photo was opened from: the grid or the camera.
                         if cameFromGrid {
