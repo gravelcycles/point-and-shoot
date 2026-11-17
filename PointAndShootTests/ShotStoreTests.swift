@@ -196,13 +196,23 @@ final class ShotStoreTests: XCTestCase {
         XCTAssertEqual(store.shots.map(\.id), [kept.id])
     }
 
-    func testRestoringFromTheTrashStartsAFresh30Days() async throws {
+    func testRestoringAShotPastIts30DaysStartsAFresh30() async throws {
+        let shot = try await addShot()
+        let later = Date().addingTimeInterval(31 * 86_400)
+        store.applyRetention(storeForever: false, now: later)
+        XCTAssertEqual(store.trash.map(\.id), [shot.id])
+        store.restore([shot.id], now: later)
+        store.applyRetention(storeForever: false, now: later.addingTimeInterval(10 * 86_400))
+        XCTAssertNotNil(store.shots.first { $0.id == shot.id }, "put back past its 30 days, it gets a fresh 30")
+    }
+
+    func testUndoKeepsTheDaysAShotHad() async throws {
         let shot = try await addShot()
         store.moveToTrash([shot.id])
         store.restore([shot.id])
-        // Even a shot past its 30 days stays a while after being put back.
-        store.applyRetention(storeForever: false, now: Date().addingTimeInterval(29 * 86_400))
-        XCTAssertNotNil(store.shots.first { $0.id == shot.id })
+        XCTAssertNil(store.shot(shot.id)?.restoredAt, "an Undo doesn't reset its 30 days")
+        store.applyRetention(storeForever: false, now: Date().addingTimeInterval(31 * 86_400))
+        XCTAssertTrue(store.shots.isEmpty)
     }
 
     func testStoreForeverNeverTrashes() async throws {
