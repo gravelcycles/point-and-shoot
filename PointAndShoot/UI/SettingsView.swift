@@ -367,7 +367,7 @@ struct DefaultGradeSection: View {
     }
 
     private func group<Content: View>(_ id: String, _ title: String, summary: String,
-                                      @ViewBuilder content: () -> Content) -> some View {
+                                      @ViewBuilder content: @escaping () -> Content) -> some View {
         DisclosureGroup(isExpanded: Binding(get: { open.contains(id) },
                                             set: { if $0 { open.insert(id) } else { open.remove(id) } })) {
             content()
