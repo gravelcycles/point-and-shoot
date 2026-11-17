@@ -36,6 +36,10 @@ struct Shot: Codable, Identifiable, Hashable {
     var keep = false
     var trashedAt: Date?
     var exportedAt: Date?
+    /// When it entered this library (an import of an older RAW is new here).
+    var added: Date?
+    /// When it was last put back from the Trash.
+    var restoredAt: Date?
     /// Bumped whenever the grade changes, so image caches refresh.
     var revision = 0
 
@@ -60,6 +64,12 @@ struct Shot: Codable, Identifiable, Hashable {
 
     var isRAW: Bool { kind != .processed }
 
+    /// When its 30 days started: taken, added to the library (imports of older RAWs) or put
+    /// back from the Trash, whichever is latest.
+    var retentionStart: Date {
+        max(captured, added ?? captured, restoredAt ?? .distantPast)
+    }
+
     /// "1/121 s · f/1.6 · ISO 40 · 6080 K", whatever is known.
     var exposureLine: String {
         var parts: [String] = []
@@ -74,7 +84,7 @@ struct Shot: Codable, Identifiable, Hashable {
 
     // Tolerant decoding: a shot.json written by any version of the app loads.
     private enum CodingKeys: String, CodingKey {
-        case id, captured, kind, original, keep, trashedAt, exportedAt, revision
+        case id, captured, kind, original, keep, trashedAt, exportedAt, revision, added, restoredAt
         case pixelWidth, pixelHeight, lens, focalLength35, exposureTime, fNumber, iso, kelvin, latitude, longitude
     }
 
@@ -87,6 +97,8 @@ struct Shot: Codable, Identifiable, Hashable {
         keep = try c.decodeIfPresent(Bool.self, forKey: .keep) ?? false
         trashedAt = try c.decodeIfPresent(Date.self, forKey: .trashedAt)
         exportedAt = try c.decodeIfPresent(Date.self, forKey: .exportedAt)
+        added = try c.decodeIfPresent(Date.self, forKey: .added)
+        restoredAt = try c.decodeIfPresent(Date.self, forKey: .restoredAt)
         revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 0
         pixelWidth = try c.decodeIfPresent(Int.self, forKey: .pixelWidth)
         pixelHeight = try c.decodeIfPresent(Int.self, forKey: .pixelHeight)
@@ -137,7 +149,7 @@ enum ShotRetention {
     static func dueForTrash(_ shots: [Shot], now: Date, storeForever: Bool) -> [UUID] {
         guard !storeForever else { return [] }
         let cutoff = now.addingTimeInterval(-Double(keepDays) * 86_400)
-        return shots.filter { $0.trashedAt == nil && !$0.keep && $0.captured < cutoff }.map(\.id)
+        return shots.filter { $0.trashedAt == nil && !$0.keep && $0.retentionStart < cutoff }.map(\.id)
     }
 
     /// Trashed shots to delete for good: in the trash for 30 days.
@@ -149,7 +161,7 @@ enum ShotRetention {
     /// Days left before an unkept shot goes to the trash (nil when it never will).
     static func daysLeft(_ shot: Shot, now: Date, storeForever: Bool) -> Int? {
         guard !storeForever, !shot.keep, shot.trashedAt == nil else { return nil }
-        let due = shot.captured.addingTimeInterval(Double(keepDays) * 86_400)
+        let due = shot.retentionStart.addingTimeInterval(Double(keepDays) * 86_400)
         return max(0, Int(ceil(due.timeIntervalSince(now) / 86_400)))
     }
 }

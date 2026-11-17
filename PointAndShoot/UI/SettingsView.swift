@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var importing = false
     @State private var importMessage: String?
     @State private var confirmReset: ResetKind?
+    /// Turning Store Forever off would move this many photos to the Trash right away.
+    @State private var confirmStopStoring = 0
 
     enum Tab: String, CaseIterable, Identifiable {
         case general, camera, processing
@@ -110,8 +112,25 @@ struct SettingsView: View {
     @ViewBuilder
     private func general(_ s: CameraSettings) -> some View {
         Section {
-            Toggle("Store New Photos Forever", isOn: camera.binding(\.storeForever))
+            Toggle("Store New Photos Forever", isOn: Binding(
+                get: { camera.settings.storeForever },
+                set: { on in
+                    let due = on ? 0 : ShotRetention.dueForTrash(ShotStore.shared.shots, now: Date(), storeForever: false).count
+                    if due > 0 { confirmStopStoring = due } else { camera.update { $0.storeForever = on } }
+                }))
                 .accessibilityIdentifier("settings.storeForever")
+                // Its own anchor (one presentation per view).
+                .confirmationDialog(
+                    confirmStopStoring == 1 ? "1 photo is older than 30 days" : "\(confirmStopStoring) photos are older than 30 days",
+                    isPresented: Binding(get: { confirmStopStoring > 0 }, set: { if !$0 { confirmStopStoring = 0 } }),
+                    titleVisibility: .visible) {
+                    Button("Move to Trash", role: .destructive) {
+                        camera.update { $0.storeForever = false }
+                        ShotStore.shared.applyRetention(storeForever: false)
+                    }
+                } message: {
+                    Text("Without Store Forever, photos not tagged Keep move to the Trash after 30 days. These are already past that. Tag the ones you want with Keep first, or cancel.")
+                }
         } header: {
             Text("RAW File Storage")
         } footer: {
@@ -424,20 +443,13 @@ struct DefaultGradeSection: View {
         camera.settings.defaultGrade ?? Look.named(camera.settings.captureLook)?.recipe ?? EditRecipe()
     }
 
-    private func binding(_ kp: WritableKeyPath<EditRecipe, Double>) -> Binding<Double> {
-        Binding(get: { base[keyPath: kp] },
-                set: { v in
-                    var g = base
-                    g[keyPath: kp] = v
-                    camera.update { $0.defaultGrade = g }
-                })
-    }
-
     private func slider(_ id: String) -> some View {
         let a = Adjustment.catalog[id]!
-        let fallback = id == "grain" && base.film != nil ? FilmRecipe.defaultGrain : EditRecipe()[keyPath: a.keyPath]
-        return GradeSlider(adjustment: a, value: binding(a.keyPath), defaultValue: fallback)
-            .padding(.vertical, 2)
+        return SettingsGradeRow(adjustment: a, value: base[keyPath: a.keyPath]) { v in
+            var g = base
+            g[keyPath: a.keyPath] = v
+            camera.update { $0.defaultGrade = g }
+        }
     }
 
     private func group<Content: View>(_ id: String, _ title: String, summary: String,
@@ -497,6 +509,37 @@ struct DefaultGradeSection: View {
         } footer: {
             Text("The look and settings every new photo starts with, and what the editor's Reset This Image restores. Picking another look in the camera starts from that look instead. Changing this doesn't affect photos you've already taken.")
         }
+    }
+}
+
+/// A default-grade slider for the Form: the system slider (it scrolls with the list and
+/// only moves on a horizontal drag), saved once when the drag ends, not on every tick.
+private struct SettingsGradeRow: View {
+    let adjustment: Adjustment
+    let value: Double
+    let commit: (Double) -> Void
+    @State private var draft: Double?
+
+    var body: some View {
+        let v = draft ?? value
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(adjustment.name)
+                Spacer()
+                Text(adjustment.id == "exposure" ? String(format: "%+.1f", v / 50)
+                     : (adjustment.isBipolar && v > 0 ? "+\(Int(v.rounded()))" : "\(Int(v.rounded()))"))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: Binding(get: { draft ?? value }, set: { draft = $0.rounded() }),
+                   in: adjustment.range) { editing in
+                if !editing, let d = draft {
+                    commit(d)
+                    draft = nil
+                }
+            }
+        }
+        .accessibilityIdentifier("settings.grade.\(adjustment.id)")
     }
 }
 

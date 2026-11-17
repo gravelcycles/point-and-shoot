@@ -54,6 +54,7 @@ struct CameraView: View {
                 camera.start()
                 motion.start()
                 store.applyRetention(storeForever: camera.settings.storeForever)
+                store.redevelopMissing()
                 Task { await LockedCaptureImporter.importPending() }
             case .background:
                 camera.stop()
