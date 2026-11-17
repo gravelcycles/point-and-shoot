@@ -1,7 +1,6 @@
 import CoreImage
 import ImageIO
 import Observation
-import Photos
 import UIKit
 
 enum EditError: LocalizedError {
@@ -14,13 +13,14 @@ enum EditError: LocalizedError {
     }
 }
 
-/// Main-actor isolated: in Swift 5 mode a plain class's async methods run on the
-/// background pool, which wrote `recipe` / `isSaving` etc. while SwiftUI read them.
-/// Heavy work stays in the explicit `Task.detached` blocks.
+/// Edits one shot's grade. Main-actor isolated; heavy work stays in explicit
+/// `Task.detached` blocks. Saving writes the grade to the app's library (instant,
+/// non-destructive: the RAW is never touched); exporting renders it into Photos.
 @MainActor
 @Observable
 final class EditSession {
-    let asset: PHAsset
+    let shot: Shot
+    let store: ShotStore
 
     var recipe = EditRecipe()
     /// The recipe as it was when opened (or last saved) — for "discard changes?".
@@ -32,17 +32,17 @@ final class EditSession {
     private(set) var isSaving = false
     private(set) var lookThumbnails: [String: UIImage] = [:]
     var errorMessage: String?
-    /// The photo was deleted (here, in Photos or on another device) while it was open.
-    /// Saving onto it is impossible; the editor offers Save as New Photo instead.
+    /// The shot was moved to the trash while it was open.
     var assetDeleted = false
 
-    /// Downsampled, cached source for interactive preview (Apple's rendering).
+    /// Downsampled processed source (the camera's preview of a RAW shot, or a processed
+    /// original): the compare image, and the source when there's no decodable RAW.
     @ObservationIgnored private var previewBase: CIImage?
     @ObservationIgnored private var previewRAW: CIRAWFilter?
-    @ObservationIgnored private var rawData: Data?
     @ObservationIgnored private var rawDefaults = RAWDefaults()
-    @ObservationIgnored private var input: PHContentEditingInput?
     @ObservationIgnored private var previewMaxPixels: CGFloat = 2048
+    /// Size of the (upright, uncropped) preview source.
+    @ObservationIgnored private var sourceSize: CGSize = .zero
     /// Sharper sources for zooming in (`loadDetail`), used while `zoomedIn`.
     @ObservationIgnored private var detailBase: CIImage?
     @ObservationIgnored private var detailRAW: CIRAWFilter?
@@ -52,59 +52,60 @@ final class EditSession {
     var zoomedIn = false
     private var useDetail: Bool { zoomedIn && detailReady }
 
-    init(asset: PHAsset) {
-        self.asset = asset
+    init(shot: Shot, store: ShotStore) {
+        self.shot = shot
+        self.store = store
     }
 
-    var developsFromRAW: Bool { hasRAW && recipe.useRAW }
+    private var dir: URL { store.dir(shot.id) }
+    /// A RAW shot always develops from its RAW (its only processed image is the camera's
+    /// small preview).
+    var developsFromRAW: Bool { hasRAW }
     var hasChanges: Bool { !isLoading && recipe != savedRecipe }
-    var canRevert: Bool { asset.hasAdjustments }
+    /// Something to reset: the grade isn't the untouched original.
+    var canRevert: Bool { savedRecipe.look != nil || savedRecipe.film != nil || savedRecipe != Self.blank(savedRecipe) }
+
+    /// A fresh grade keeping the RAW develop settled for this shot.
+    private static func blank(_ r: EditRecipe) -> EditRecipe {
+        var b = EditRecipe()
+        b.useRAW = r.useRAW
+        b.rawInitialized = r.rawInitialized
+        b.rawNoiseReduction = r.rawNoiseReduction
+        b.rawLocalTone = r.rawLocalTone
+        b.rawBoost = r.rawBoost
+        // Matched to the viewfinder at capture and never recomputed: keep it, or a film look
+        // picked again later would come out darker than the viewfinder showed.
+        b.rawFilmExposure = r.rawFilmExposure
+        return b
+    }
 
     // MARK: Loading
 
     func load(maxPixels: CGFloat) async {
         previewMaxPixels = maxPixels
-        loadPlaceholder(maxPixels: maxPixels)
-        let options = PHContentEditingInputRequestOptions()
-        options.isNetworkAccessAllowed = true
-        options.canHandleAdjustmentData = { data in
-            data.formatIdentifier == EditRecipe.formatID && data.formatVersion == EditRecipe.formatVersion
+        if let image = await store.image(shot, .preview) {
+            placeholder = CIImage(image: image, options: [.applyOrientationProperty: true])
         }
-        let input: PHContentEditingInput? = await withCheckedContinuation { cont in
-            asset.requestContentEditingInput(with: options) { input, _ in cont.resume(returning: input) }
-        }
-        guard let input, let url = input.fullSizeImageURL else {
-            errorMessage = EditError.couldNotLoad.localizedDescription
-            Diag.error(.editor, "couldn't load \(asset.localIdentifier.prefix(8)) for editing")
-            isLoading = false
-            return
-        }
-        self.input = input
-
-        var loaded = EditRecipe()
-        if let adjustment = input.adjustmentData, adjustment.formatIdentifier == EditRecipe.formatID,
-           let saved = EditRecipe.decodeSaved(adjustment.data) {
-            loaded = saved
-        }
+        let shot = self.shot
+        let dir = self.dir
+        var loaded = store.recipe(for: shot.id)
 
         let base = await Task.detached(priority: .userInitiated) {
-            Self.decodeSource(url, maxPixels: maxPixels)
+            Self.decodeSource(dir.appendingPathComponent(shot.isRAW ? "capture.jpg" : shot.original), maxPixels: maxPixels)
         }.value
-
-        guard let base else {
-            errorMessage = EditError.couldNotLoad.localizedDescription
-            Diag.error(.editor, "couldn't load \(asset.localIdentifier.prefix(8)) for editing")
-            isLoading = false
-            return
-        }
         previewBase = base
 
-        if let data = await PhotoLibrary.rawData(for: asset),
-           let raw = CIRAWFilter(imageData: data, identifierHint: nil) {
-            rawData = data
-            rawDefaults = EditPipeline.readDefaults(raw)
+        // Parsing a 25–75 MB DNG is too slow for the main thread.
+        let opened = await Task.detached(priority: .userInitiated) { () -> RAWBox? in
+            guard let raw = ShotRenderer.rawFilter(shot, in: dir) else { return nil }
             let native = raw.nativeSize
             raw.scaleFactor = Float(min(1, maxPixels / max(native.width, native.height, 1)))
+            return RAWBox(raw: raw, defaults: EditPipeline.readDefaults(raw),
+                          size: raw.outputImage?.extent.size ?? .zero)
+        }.value
+        if let opened {
+            let raw = opened.raw
+            rawDefaults = opened.defaults
             previewRAW = raw
             hasRAW = true
             if !loaded.rawInitialized {
@@ -115,6 +116,13 @@ final class EditSession {
             }
         } else {
             loaded.useRAW = false
+        }
+        sourceSize = opened?.size ?? previewBase?.extent.size ?? .zero
+        guard previewRAW != nil || previewBase != nil else {
+            errorMessage = EditError.couldNotLoad.localizedDescription
+            Diag.error(.editor, "couldn't load \(shot.id.uuidString.prefix(8)) for editing")
+            isLoading = false
+            return
         }
 
         recipe = loaded
@@ -141,51 +149,38 @@ final class EditSession {
     /// The long side of the sharper source used while zoomed in (12 MP photos at full size).
     static let detailMaxPixels: CGFloat = 4096
 
-    /// Loads the sharper source for zooming in. The screen-size preview stays in use at fit,
-    /// where it's all the screen can show and much cheaper to re-render per slider step.
+    /// Loads the sharper source for zooming in: the RAW at (up to) full size. The
+    /// screen-size preview stays in use at fit, where it's much cheaper per slider step.
     func loadDetail() async {
-        guard !detailLoading, !detailReady, !isLoading, let url = input?.fullSizeImageURL else { return }
+        guard !detailLoading, !detailReady, !isLoading else { return }
         detailLoading = true
         defer { detailLoading = false }
         let started = Date()
         let maxPixels = Self.detailMaxPixels
-        let decoded = await Task.detached(priority: .userInitiated) {
-            Self.decodeSource(url, maxPixels: maxPixels)
-        }.value
-        guard let base = decoded else {
-            Diag.error(.editor, "couldn't load the zoomed-in source for \(asset.localIdentifier.prefix(8))")
-            return
-        }
-        detailBase = base
-        if let data = rawData, let raw = CIRAWFilter(imageData: data, identifierHint: nil) {
+        let shot = self.shot
+        let dir = self.dir
+        detailRAW = await Task.detached(priority: .userInitiated) { () -> RAWBox? in
+            guard let raw = ShotRenderer.rawFilter(shot, in: dir) else { return nil }
             let native = raw.nativeSize
             raw.scaleFactor = Float(min(1, maxPixels / max(native.width, native.height, 1)))
-            detailRAW = raw
+            return RAWBox(raw: raw, defaults: RAWDefaults(), size: .zero)
+        }.value?.raw
+        if !shot.isRAW || detailRAW == nil {
+            let url = dir.appendingPathComponent(shot.isRAW ? "capture.jpg" : shot.original)
+            detailBase = await Task.detached(priority: .userInitiated) {
+                Self.decodeSource(url, maxPixels: maxPixels)
+            }.value
+        }
+        guard detailRAW != nil || detailBase != nil else {
+            Diag.error(.editor, "couldn't load the zoomed-in source for \(shot.id.uuidString.prefix(8))")
+            return
         }
         detailReady = true
-        let ms = Int(Date().timeIntervalSince(started) * 1000)
-        Diag.log(.editor, "zoom source \(Int(base.extent.width))×\(Int(base.extent.height)) in \(ms) ms")
+        Diag.log(.editor, "zoom source in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
     }
 
     /// The photo's native pixel size (for how far the canvas can zoom).
-    var pixelSize: CGSize { CGSize(width: asset.pixelWidth, height: asset.pixelHeight) }
-
-    private func loadPlaceholder(maxPixels: CGFloat) {
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.isNetworkAccessAllowed = true
-        options.version = .current
-        let side = min(maxPixels, 1400)
-        PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: side, height: side),
-                                              contentMode: .aspectFit, options: options) { [weak self] image, _ in
-            guard let image else { return }
-            let ci = CIImage(image: image, options: [.applyOrientationProperty: true])
-            Task { @MainActor in
-                guard let self, self.isLoading else { return }
-                self.placeholder = ci
-            }
-        }
-    }
+    var pixelSize: CGSize { CGSize(width: shot.pixelWidth ?? 4032, height: shot.pixelHeight ?? 3024) }
 
     // MARK: Rendering
 
@@ -215,16 +210,15 @@ final class EditSession {
 
     /// Aspect (w/h) of the oriented, straightened frame — for crop aspect presets.
     var orientedAspect: CGFloat {
-        guard let base = previewBase else { return 1 }
+        let size = sourceSize
+        guard size.width > 0, size.height > 0 else { return 1 }
         let turned = ((recipe.quarterTurns % 4) + 4) % 2 == 1
-        let w = base.extent.width, h = base.extent.height
-        return turned ? h / w : w / h
+        return turned ? size.height / size.width : size.width / size.height
     }
 
     private func renderLookThumbnails() async {
-        guard let base = previewBase else { return }
+        guard let base = previewBase ?? placeholder else { return }
         let recipe = self.recipe
-        let fromRAW = false
         let thumbs = await Task.detached(priority: .utility) { () -> [String: UIImage] in
             let s = 220 / max(base.extent.width, base.extent.height)
             var small = base.transformed(by: CGAffineTransform(scaleX: s, y: s))
@@ -235,7 +229,7 @@ final class EditSession {
                 r.resetTone()
                 r.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
                 look.apply(&r)
-                let img = EditPipeline.apply(r, to: small, developedFromRAW: fromRAW)
+                let img = EditPipeline.apply(r, to: small, developedFromRAW: false)
                 if let cg = EditPipeline.context.createCGImage(img, from: img.extent, format: .RGBA8,
                                                                colorSpace: EditPipeline.displayColorSpace) {
                     result[look.id] = UIImage(cgImage: cg)
@@ -256,104 +250,54 @@ final class EditSession {
 
     // MARK: Saving
 
-    private func renderFullResolution() async throws -> CIImage {
-        guard let input, let url = input.fullSizeImageURL else { throw EditError.couldNotRender }
-        let recipe = self.recipe
-        let fromRAW = developsFromRAW
-        let rawData = self.rawData
-        let defaults = rawDefaults
-        return try await Task.detached(priority: .userInitiated) { () -> CIImage in
-            var base: CIImage?
-            if fromRAW, let rawData, let raw = CIRAWFilter(imageData: rawData, identifierHint: nil) {
-                EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
-                base = raw.outputImage
-            } else {
-                base = CIImage(contentsOf: url, options: [.applyOrientationProperty: true])
-            }
-            guard let base else { throw EditError.couldNotRender }
-            var output = EditPipeline.apply(recipe, to: base, developedFromRAW: fromRAW)
-            if let props = CIImage(contentsOf: url)?.properties {
-                var p = props
-                p[kCGImagePropertyOrientation as String] = 1
-                if var tiff = p[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
-                    tiff[kCGImagePropertyTIFFOrientation as String] = 1
-                    p[kCGImagePropertyTIFFDictionary as String] = tiff
-                }
-                p.removeValue(forKey: kCGImagePropertyPixelWidth as String)
-                p.removeValue(forKey: kCGImagePropertyPixelHeight as String)
-                output = output.settingProperties(p)
-            }
-            return output
-        }.value
-    }
-
-    /// Non-destructive save: Photos keeps the original and our recipe; revert any time.
+    /// Saves the grade to the library (the shot's preview re-renders in the background).
     @discardableResult
     func save() async -> Bool {
-        guard let input else { return false }
-        isSaving = true
-        defer { isSaving = false }
-        // Pin the film look's current tuning into the saved edit (no-op if the photo
-        // already carries one), so later retuning in code never changes this photo.
-        recipe.freezeFilmTuning()
-        do {
-            let image = try await renderFullResolution()
-            let output = PHContentEditingOutput(contentEditingInput: input)
-            output.adjustmentData = PHAdjustmentData(
-                formatIdentifier: EditRecipe.formatID,
-                formatVersion: EditRecipe.formatVersion,
-                data: try JSONEncoder().encode(recipe))
-            let quality = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
-            try EditPipeline.context.writeJPEGRepresentation(of: image, to: output.renderedContentURL,
-                                                             colorSpace: EditPipeline.displayColorSpace,
-                                                             options: [quality: 0.95])
-            let asset = self.asset
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest(for: asset).contentEditingOutput = output
-            }
-            savedRecipe = recipe
-            return true
-        } catch {
-            Diag.error(.editor, "save/revert failed for \(asset.localIdentifier.prefix(8))", error)
-            if PhotoLibrary.isGone(asset) { assetDeleted = true } else { errorMessage = error.localizedDescription }
+        guard store.shots.contains(where: { $0.id == shot.id }) else {
+            assetDeleted = true
             return false
         }
+        guard store.setRecipe(recipe, for: shot.id) else {
+            errorMessage = "Couldn't save the edit. Is the phone's storage full?"
+            return false
+        }
+        recipe = store.recipe(for: shot.id)
+        savedRecipe = recipe
+        return true
     }
 
+    /// Saves the grade, then exports the photo rendered into Photos.
     @discardableResult
-    func saveCopy() async -> Bool {
+    func saveCopy(options: ShotExporter.Options = ShotExporter.Options(CameraSettings.load())) async -> Bool {
         isSaving = true
         defer { isSaving = false }
+        if store.shot(shot.id) != nil, !store.setRecipe(recipe, for: shot.id) {
+            errorMessage = "Couldn't save the edit. Is the phone's storage full?"
+            return false
+        }
+        savedRecipe = recipe
+        guard let current = store.shot(shot.id) else { return false }
         do {
-            let image = try await renderFullResolution()
-            let quality = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
-            guard let data = EditPipeline.context.heifRepresentation(of: image, format: .RGBA8,
-                                                                    colorSpace: EditPipeline.displayColorSpace,
-                                                                    options: [quality: 0.93]) else {
-                throw EditError.couldNotRender
-            }
-            try await PhotoLibrary.saveCopy(data: data, location: asset.location)
-            savedRecipe = recipe
+            try await ShotExporter.exportToPhotos([current], store: store, options: options)
             return true
         } catch {
-            Diag.error(.editor, "save as new photo failed", error)
+            Diag.error(.editor, "export failed", error)
             errorMessage = error.localizedDescription
             return false
         }
     }
 
+    /// Back to the untouched original (no look, every slider at zero).
     @discardableResult
     func revertToOriginal() async -> Bool {
-        let asset = self.asset
-        do {
-            try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest(for: asset).revertAssetContentToOriginal()
-            }
-            return true
-        } catch {
-            Diag.error(.editor, "save/revert failed for \(asset.localIdentifier.prefix(8))", error)
-            if PhotoLibrary.isGone(asset) { assetDeleted = true } else { errorMessage = error.localizedDescription }
-            return false
-        }
+        recipe = Self.blank(recipe)
+        return await save()
     }
+}
+
+/// A RAW filter opened off the main thread, handed back once (never shared after).
+private struct RAWBox: @unchecked Sendable {
+    let raw: CIRAWFilter
+    let defaults: RAWDefaults
+    let size: CGSize
 }

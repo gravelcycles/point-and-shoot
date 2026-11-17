@@ -1,11 +1,11 @@
-import AVKit
-import Photos
 import SwiftUI
 
-/// What the camera's thumbnail opens: the shot you just took, full screen. Swipe sideways
-/// through the roll, swipe down to get back to shooting, tap Edit to open the editor.
+/// What the camera's thumbnail opens: the shot you just took, full screen, with every shot
+/// in a filmstrip below it (Chromagraph's reel). Swipe sideways or tap the filmstrip to move
+/// through the library, swipe down to get back to shooting. Shots live in the app's own
+/// library (`ShotStore`); Export puts the rendered photo into Photos.
 struct PhotoViewer: View {
-    let roll: RollStore
+    let store: ShotStore
     let camera: CameraController
 
     @Environment(\.dismiss) private var dismiss
@@ -13,20 +13,16 @@ struct PhotoViewer: View {
     @State private var awaitingCapture: Bool
     @State private var chromeHidden = false
     @State private var dragY: CGFloat = 0
-    @State private var editing: AssetItem?
+    @State private var editing: Shot?
     @State private var showGrid = false
     /// The photo was opened from the grid, so swiping down goes back to the grid.
     @State private var cameFromGrid = false
-    @State private var infoAsset: AssetItem?
     @State private var shareURL: ShareItem?
-    @State private var preparingShare = false
-    @State private var assetHasRAW = false
-    @State private var savedBanner: String?
+    @State private var working = false
+    @State private var banner: Banner?
     @State private var lastIndex = 0
     /// The photo on screen is zoomed in: drags pan it instead of dismissing the viewer.
     @State private var pageZoomed = false
-    /// The swipe-down is in progress; SwiftUI resets it even when the drag is cancelled
-    /// (a pinch taking over), which `onEnded` never hears about.
     @GestureState private var dismissDragActive = false
     @State private var dismissing = false
     /// Two fingers pinched since the current drag began.
@@ -41,16 +37,27 @@ struct PhotoViewer: View {
 
     private static let pendingID = ViewerSelection.pendingID
 
-    init(roll: RollStore, camera: CameraController) {
-        self.roll = roll
+    struct Banner: Equatable {
+        var text: String
+        /// Shots that "Undo" brings back from the trash.
+        var undoTrash: [UUID] = []
+        let id = UUID()
+    }
+
+    init(store: ShotStore, camera: CameraController) {
+        self.store = store
         self.camera = camera
         let waiting = camera.capturesInFlight > 0
         _awaitingCapture = State(initialValue: waiting)
-        _selectedID = State(initialValue: waiting ? Self.pendingID : (camera.lastSavedAssetID ?? roll.assets.first?.localIdentifier))
+        _selectedID = State(initialValue: waiting ? Self.pendingID
+                            : (camera.lastSavedShotID?.uuidString ?? store.shots.first?.id.uuidString))
     }
 
     private var showPending: Bool { awaitingCapture && camera.lastThumbnail != nil }
-    private var selectedAsset: PHAsset? { selectedID.flatMap { roll.asset(withID: $0) } }
+    private var selectedShot: Shot? {
+        guard let selectedID, let id = UUID(uuidString: selectedID) else { return nil }
+        return store.shots.first { $0.id == id }
+    }
 
     var body: some View {
         ZStack {
@@ -59,18 +66,11 @@ struct PhotoViewer: View {
                 .ignoresSafeArea()
 
             Group {
-                switch roll.status {
-                case .authorized, .limited:
-                    if roll.assets.isEmpty && !showPending {
-                        ContentUnavailableView("No photos yet", systemImage: "camera",
-                                               description: Text("Go take one."))
-                    } else {
-                        pager
-                    }
-                case .notDetermined:
-                    ProgressView().tint(.white)
-                default:
-                    accessDenied
+                if store.shots.isEmpty && !showPending {
+                    ContentUnavailableView("No photos yet", systemImage: "camera",
+                                           description: Text("Go take one."))
+                } else {
+                    pager
                 }
             }
             .offset(y: dragY)
@@ -85,14 +85,14 @@ struct PhotoViewer: View {
                 .transition(.opacity)
             }
 
-            if let savedBanner {
-                Toast(text: savedBanner)
+            if let banner {
+                bannerView(banner)
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(chromeHidden)
-        .overlay(alignment: .topLeading) { RollCountProbe(roll: roll).padding(.top, 2) }
+        .overlay(alignment: .topLeading) { RollCountProbe(store: store).padding(.top, 2) }
         .overlay(alignment: .topTrailing) {
             if TestHooks.isUITest {
                 let state = "zoomed=\(pageZoomed ? 1 : 0) pinched=\(pinchedDuringDrag ? 1 : 0) dragY=\(Int(dragY)) last=\(zoomProbe)"
@@ -105,19 +105,10 @@ struct PhotoViewer: View {
                     .accessibilityLabel(state)
             }
         }
-        .task {
-            if roll.status == .notDetermined { await roll.requestAccess() }
-            reconcileSelection()
-        }
-        .onChange(of: roll.assets) { _, _ in
-            reconcileSelection()
-            // Deleted elsewhere (Photos, another device, the grid) while its info was open.
-            if let info = infoAsset, !roll.contains(info.id) { infoAsset = nil }
-        }
+        .task { reconcileSelection() }
+        .onChange(of: store.shots.map(\.id)) { _, _ in reconcileSelection() }
         .onChange(of: camera.capturesInFlight) { _, _ in reconcileSelection() }
-        .onChange(of: camera.lastSavedAssetID) { _, _ in reconcileSelection() }
-        // A pinch that starts while the swipe-down has begun moving the page, or a drag that
-        // was cancelled: never leave the page pulled down with the controls hidden.
+        .onChange(of: camera.lastSavedShotID) { _, _ in reconcileSelection() }
         .onChange(of: pageZoomed) { _, zoomed in
             if zoomed, dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
         }
@@ -131,39 +122,22 @@ struct PhotoViewer: View {
             }
         }
         .onChange(of: selectedID) { _, id in
-            // The page left behind snaps back to fit (ZoomableImageView.isCurrent).
             pageZoomed = false
             pinchedDuringDrag = false
-            if let id, let i = roll.assets.firstIndex(where: { $0.localIdentifier == id }) { lastIndex = i }
+            if let id, let i = store.shots.firstIndex(where: { $0.id.uuidString == id }) { lastIndex = i }
         }
-        .task(id: selectedID) {
-            if let asset = selectedAsset, asset.mediaType == .image {
-                let id = asset.localIdentifier
-                let raw = await Task.detached { PhotoLibrary.hasRAW(asset) }.value
-                if selectedID == id { assetHasRAW = raw }
-            } else {
-                assetHasRAW = false
-            }
-        }
-        // One presentation per anchor view: several sheets/covers chained on the same view
-        // is unreliable (it's what kept Settings from opening on the camera screen).
+        // One presentation per anchor view.
         .background {
             Color.clear
-                .fullScreenCover(item: $editing) { item in
-                    EditorView(asset: item.asset) { message in
-                        show(banner: message)
+                .fullScreenCover(item: $editing) { shot in
+                    EditorView(shot: shot, store: store) { message in
+                        show(Banner(text: message))
                     }
                 }
             Color.clear
-                .sheet(item: $infoAsset) { item in
-                    PhotoInfoSheet(asset: item.asset)
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
-                }
-            Color.clear
                 .sheet(isPresented: $showGrid) {
-                    RollGrid(roll: roll) { asset in
-                        selectedID = asset.localIdentifier
+                    RollGrid(store: store, camera: camera) { shot in
+                        selectedID = shot.id.uuidString
                         cameFromGrid = true
                         showGrid = false
                     }
@@ -189,33 +163,31 @@ struct PhotoViewer: View {
                         .onTapGesture(perform: toggleChrome)
                         .id(Self.pendingID)
                 }
-                ForEach(roll.assets, id: \.localIdentifier) { asset in
-                    let id = asset.localIdentifier
-                    // Taps are handled per page: a photo's own single tap waits for its
-                    // double-tap (zoom), which a tap on the whole pager would pre-empt.
-                    AssetPage(asset: asset, manager: roll.imageManager, isCurrent: id == selectedID,
-                              developing: camera.developingAssetIDs.contains(id),
-                              onTap: toggleChrome,
-                              onZoom: { scale in
-                                  if TestHooks.isUITest { zoomProbe = String(format: "%.2f@%d", scale, id == selectedID ? 1 : 0) }
-                                  guard id == selectedID else { return }
-                                  let zoomed = scale > 1.01
-                                  if zoomed != pageZoomed { pageZoomed = zoomed }
-                                  if zoomed { pinchedDuringDrag = true }
-                              },
-                              onTouches: { multiTouch in
-                                  // Two fingers anywhere in this touch sequence make it a
-                                  // pinch: when they lift it must never count as a swipe-down.
-                                  ViewerEventProbe.shared.add(multiTouch ? "t2" : "t1")
-                                  if multiTouch {
-                                      lastMultiTouch = Date()
-                                      pinchedDuringDrag = true
-                                      if dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
-                                  } else {
-                                      // A new touch sequence (first finger down).
-                                      pinchedDuringDrag = false
-                                  }
-                              })
+                ForEach(store.shots) { shot in
+                    let id = shot.id.uuidString
+                    ShotPage(shot: shot, store: store, isCurrent: id == selectedID,
+                             developing: store.developing.contains(shot.id),
+                             onTap: toggleChrome,
+                             onZoom: { scale in
+                                 if TestHooks.isUITest { zoomProbe = String(format: "%.2f@%d", scale, id == selectedID ? 1 : 0) }
+                                 guard id == selectedID else { return }
+                                 let zoomed = scale > 1.01
+                                 if zoomed != pageZoomed { pageZoomed = zoomed }
+                                 if zoomed { pinchedDuringDrag = true }
+                             },
+                             onTouches: { multiTouch in
+                                 // Two fingers anywhere in this touch sequence make it a
+                                 // pinch: when they lift it must never count as a swipe-down.
+                                 ViewerEventProbe.shared.add(multiTouch ? "t2" : "t1")
+                                 if multiTouch {
+                                     lastMultiTouch = Date()
+                                     pinchedDuringDrag = true
+                                     if dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
+                                 } else {
+                                     // A new touch sequence (first finger down).
+                                     pinchedDuringDrag = false
+                                 }
+                             })
                         .containerRelativeFrame([.horizontal, .vertical])
                         .id(id)
                 }
@@ -226,14 +198,11 @@ struct PhotoViewer: View {
         .scrollPosition(id: $selectedID)
         .ignoresSafeArea()
         .simultaneousGesture(
-            // Global space: the pager itself moves with the finger, so local translation
-            // would shrink as you drag (jitter, and twice the travel to dismiss).
             DragGesture(minimumDistance: 24, coordinateSpace: .global)
                 .updating($dismissDragActive) { _, active, _ in active = true }
                 .onChanged { v in
                     // Zoomed in (or pinching), a drag pans the photo; it never dismisses.
                     guard !pageZoomed, !pinchedDuringDrag, !recentlyPinched else { return }
-                    // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
                         if dragY == 0 { ViewerEventProbe.shared.add("d") }
                         dragY = v.translation.height
@@ -246,7 +215,6 @@ struct PhotoViewer: View {
                         return
                     }
                     if dragY > 130 || v.predictedEndTranslation.height > 420 && dragY > 40 {
-                        // Back to wherever the photo was opened from: the grid or the camera.
                         if cameFromGrid {
                             cameFromGrid = false
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { dragY = 0 }
@@ -263,17 +231,18 @@ struct PhotoViewer: View {
         )
     }
 
-    /// Keep the viewer pointed at the right photo while a just-taken shot finishes saving.
     private func toggleChrome() {
         withAnimation(.easeOut(duration: 0.2)) { chromeHidden.toggle() }
     }
 
+    /// Keep the viewer pointed at the right photo while a just-taken shot finishes saving,
+    /// and on the neighbour after one is trashed.
     private func reconcileSelection() {
         let next = ViewerSelection.reconcile(
             .init(awaitingCapture: awaitingCapture, selectedID: selectedID),
             capturesInFlight: camera.capturesInFlight,
-            lastSavedAssetID: camera.lastSavedAssetID,
-            assetIDs: roll.assets.map(\.localIdentifier),
+            lastSavedAssetID: camera.lastSavedShotID?.uuidString,
+            assetIDs: store.shots.map(\.id.uuidString),
             lastIndex: lastIndex)
         if next.awaitingCapture != awaitingCapture { awaitingCapture = next.awaitingCapture }
         if next.selectedID != selectedID { selectedID = next.selectedID }
@@ -282,198 +251,213 @@ struct PhotoViewer: View {
     // MARK: Chrome
 
     private var topBar: some View {
-        HStack(spacing: 10) {
-            Button { ViewerEventProbe.shared.add("C"); dismiss() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial, in: Circle())
-            }
-            .accessibilityIdentifier("viewer.close")
-            Spacer()
-            VStack(spacing: 1) {
-                if let asset = selectedAsset, let date = asset.creationDate {
-                    Text(date, format: .dateTime.month(.abbreviated).day().year())
-                        .font(.system(size: 14, weight: .semibold))
-                    Text(date, format: .dateTime.hour().minute())
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                } else if selectedID == Self.pendingID {
-                    Text("Saving…").font(.system(size: 14, weight: .semibold))
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                circleButton("square.grid.2x2", id: "viewer.grid") { showGrid = true }
+                circleButton("camera", id: "viewer.close") {
+                    ViewerEventProbe.shared.add("C")
+                    dismiss()
                 }
-                HStack(spacing: 4) {
-                    if assetHasRAW { tag("RAW") }
-                    if selectedAsset?.hasAdjustments == true { tag("EDITED") }
+                circleButton(working ? "hourglass" : "square.and.arrow.up", id: "viewer.share") { share() }
+                    .disabled(selectedShot == nil || working)
+                Spacer()
+                circleButton(selectedShot?.keep == true ? "bookmark.fill" : "bookmark", id: "viewer.keep",
+                             tint: selectedShot?.keep == true ? .tan : .white) {
+                    guard let shot = selectedShot else { return }
+                    Haptics.impact(.light)
+                    store.setKeep(!shot.keep, for: [shot.id])
+                    show(Banner(text: shot.keep ? "No longer kept" : "Kept — never moved to the Trash"))
                 }
-                .padding(.top, 2)
-                if roll.status == .limited {
-                    // Limited access: let the owner pick which photos the app sees, in-app.
-                    Button {
-                        PhotoLibrary.chooseLimitedPhotos()
-                    } label: {
-                        Text("Limited access · Choose photos")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.yellow)
-                            .padding(.top, 2)
-                    }
-                    .accessibilityIdentifier("viewer.limitedAccess")
-                }
+                .disabled(selectedShot == nil)
+                circleButton("trash", id: "viewer.delete") { trash() }
+                    .disabled(selectedShot == nil)
             }
-            Spacer()
-            Button { showGrid = true } label: {
-                Image(systemName: "square.grid.3x3")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial, in: Circle())
+            if let shot = selectedShot {
+                infoLine(shot)
+            } else if selectedID == Self.pendingID {
+                Text("Saving…").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
             }
-            .accessibilityIdentifier("viewer.grid")
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
         .padding(.top, 6)
+        .padding(.bottom, 14)
         .background(
-            LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         )
     }
 
-    private func tag(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .bold, design: .rounded))
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+    private func infoLine(_ shot: Shot) -> some View {
+        HStack(spacing: 8) {
+            Text(shot.kind == .proRAW ? "PRORAW" : shot.isRAW ? "RAW" : "HEIF")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(shot.captured, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+                    .font(.system(size: 11, weight: .semibold))
+                if !shot.exposureLine.isEmpty {
+                    Text(shot.exposureLine).font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if shot.keep {
+                Label("Kept", systemImage: "bookmark.fill")
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.tan)
+            } else if let days = ShotRetention.daysLeft(shot, now: Date(), storeForever: camera.settings.storeForever) {
+                Text(days == 1 ? "1 day left" : "\(days) days left")
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityIdentifier("viewer.info")
     }
 
     private var bottomBar: some View {
-        let asset = selectedAsset
-        let isPhoto = asset?.mediaType == .image
-        return HStack {
-            barButton(preparingShare ? "hourglass" : "square.and.arrow.up", id: "viewer.share") { share() }
-                .disabled(asset == nil || preparingShare)
-            Spacer()
-            barButton(asset?.isFavorite == true ? "heart.fill" : "heart",
-                      tint: asset?.isFavorite == true ? .red : .white) {
-                guard let asset else { return }
-                Task {
-                    do {
-                        try await PhotoLibrary.toggleFavorite(asset)
-                    } catch where !PhotoLibrary.isUserCancel(error) {
-                        show(banner: "Couldn't change favorite: \(error.localizedDescription)")
-                    } catch {}
+        let shot = selectedShot
+        return VStack(spacing: 10) {
+            HStack {
+                Color.clear.frame(width: 44, height: 44)
+                Spacer()
+                Button {
+                    if let shot { editing = shot }
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 52, height: 44)
+                        .background(.ultraThinMaterial, in: Capsule())
                 }
-            }
-            .disabled(asset == nil)
-            Spacer()
-            Button {
-                if let asset { editing = AssetItem(asset: asset) }
-            } label: {
-                Text("Edit")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 26).padding(.vertical, 10)
-                    .background(Color.yellow, in: Capsule())
-            }
-            .buttonStyle(PressScaleStyle(scale: 0.94))
-            .disabled(!isPhoto)
-            .opacity(isPhoto ? 1 : 0.35)
-            .accessibilityIdentifier("viewer.edit")
-            Spacer()
-            barButton("trash", id: "viewer.delete") {
-                // Never silent: every outcome shows something (delete did nothing on device
-                // twice with no clue why). iOS's own confirmation is modal, so no busy flag.
-                Haptics.impact(.light)
-                guard let asset else {
-                    show(banner: "Couldn't find this photo to delete (\(selectedID.map { String($0.prefix(8)) } ?? "none"))")
-                    return
-                }
-                Task {
-                    let outcome = await PhotoLibrary.deleteReporting([asset]) {
-                        show(banner: "iOS isn't answering the delete. Force-quit Point & Shoot and try again; if it keeps happening, send Settings → Diagnostics.",
-                             seconds: 10)
-                    }
-                    switch outcome {
-                    case .deleted:
-                        // The change observer moves the viewer to the neighbour; say so if not.
-                        try? await Task.sleep(for: .seconds(2))
-                        if roll.contains(asset.localIdentifier) && !PhotoLibrary.isGone(asset) {
-                            show(banner: "iOS says it deleted the photo, but it's still in the library")
+                .buttonStyle(PressScaleStyle(scale: 0.94))
+                // Not while its first develop is settling the grade (the editor would start
+                // from, and save, an unsettled one).
+                .disabled(shot == nil || shot.map(awaitingFirstSettle) == true)
+                .accessibilityIdentifier("viewer.edit")
+                Spacer()
+                Button { export() } label: {
+                    ZStack {
+                        Circle().fill(Color.tan)
+                        if working {
+                            ProgressView().tint(.black)
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(.black)
                         }
-                    case .kept:
-                        break
-                    case .failed(let why):
-                        show(banner: "Couldn't delete: \(why)", seconds: 6)
                     }
+                    .frame(width: 44, height: 44)
                 }
+                .buttonStyle(PressScaleStyle(scale: 0.94))
+                .disabled(shot == nil || working)
+                .accessibilityIdentifier("viewer.export")
             }
-            Spacer()
-            barButton("info.circle", id: "viewer.info") {
-                if let asset { infoAsset = AssetItem(asset: asset) }
-            }
-            .disabled(asset == nil)
+            .padding(.horizontal, 20)
+            Filmstrip(store: store, selectedID: $selectedID)
+                .frame(height: 50)
         }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 8)
+        .padding(.bottom, 6)
         .padding(.top, 30)
         .background(
-            LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         )
     }
 
-    private func barButton(_ symbol: String, tint: Color = .white, id: String? = nil,
-                           action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 19, weight: .medium))
-                .foregroundStyle(tint)
-                .frame(width: 44, height: 44)
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(PressScaleStyle())
-        .accessibilityIdentifier(id ?? symbol)
+    /// A RAW shot whose first develop hasn't settled its grade yet (the editor would start
+    /// from, and save, an unsettled one). Other queued renders don't block editing.
+    private func awaitingFirstSettle(_ shot: Shot) -> Bool {
+        shot.isRAW && store.developing.contains(shot.id) && !store.recipe(for: shot.id).rawInitialized
     }
 
-    private var accessDenied: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "photo.on.rectangle.angled").font(.system(size: 44, weight: .thin))
-            Text("Photos access is off").font(.title3.weight(.semibold))
-            Text("Allow full access to view and edit your shots. Your photos are still being saved.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+    private func circleButton(_ symbol: String, id: String, tint: Color = .white,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 38, height: 38)
+                .background(.ultraThinMaterial, in: Circle())
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityIdentifier(id)
+    }
+
+    private func bannerView(_ b: Banner) -> some View {
+        HStack(spacing: 12) {
+            Text(b.text)
+                .font(.system(size: 13, weight: .semibold))
                 .multilineTextAlignment(.center)
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            if !b.undoTrash.isEmpty {
+                Button("Undo") {
+                    store.restore(b.undoTrash)
+                    if let first = b.undoTrash.first { selectedID = first.uuidString }
+                    withAnimation { banner = nil }
+                }
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color.tan)
+                .accessibilityIdentifier("viewer.undo")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.yellow)
-            .foregroundStyle(.black)
         }
         .foregroundStyle(.white)
-        .padding(32)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: Capsule())
+        .environment(\.colorScheme, .dark)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.top, 110)
     }
 
     // MARK: Actions
 
-    private func share() {
-        guard let asset = selectedAsset else { return }
-        preparingShare = true
+    private func trash() {
+        Haptics.impact(.light)
+        guard let shot = selectedShot else { return }
+        store.moveToTrash([shot.id])
+        show(Banner(text: "Moved to Trash", undoTrash: [shot.id]), seconds: 4)
+    }
+
+    private func export() {
+        guard let shot = selectedShot else { return }
+        working = true
         Task {
-            let url = await PhotoLibrary.exportForSharing(asset)
-            preparingShare = false
-            if let url { shareURL = ShareItem(url: url) }
+            do {
+                try await ShotExporter.exportToPhotos([shot], store: store, options: .init(camera.settings))
+                Haptics.success()
+                show(Banner(text: "Saved to Photos"))
+            } catch {
+                show(Banner(text: "Couldn't save to Photos: \(error.localizedDescription)"), seconds: 5)
+            }
+            working = false
         }
     }
 
-    private func show(banner: String, seconds: Double = 1.6) {
-        Diag.log(.viewer, "banner: \(banner)")
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { savedBanner = banner }
+    private func share() {
+        guard let shot = selectedShot else { return }
+        working = true
         Task {
-            try? await Task.sleep(for: .seconds(seconds))
-            withAnimation(.easeOut(duration: 0.25)) { savedBanner = nil }
+            let urls = await ShotExporter.shareFiles([shot], store: store, options: .init(camera.settings))
+            working = false
+            if !urls.isEmpty { shareURL = ShareItem(urls: urls) }
         }
     }
+
+    private func show(_ b: Banner, seconds: Double = 1.8) {
+        Diag.log(.viewer, "banner: \(b.text)")
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { banner = b }
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            if banner?.id == b.id { withAnimation(.easeOut(duration: 0.25)) { banner = nil } }
+        }
+    }
+}
+
+extension Color {
+    /// Chromagraph-style accent for library actions (export, keep).
+    static let tan = Color(red: 0.80, green: 0.70, blue: 0.53)
 }
 
 struct ShareItem: Identifiable {
@@ -481,6 +465,65 @@ struct ShareItem: Identifiable {
     let id = UUID()
     init(url: URL) { urls = [url] }
     init(urls: [URL]) { self.urls = urls }
+}
+
+// MARK: - Filmstrip
+
+/// Every shot in a strip under the photo; the current one outlined. Tap to jump.
+struct Filmstrip: View {
+    let store: ShotStore
+    @Binding var selectedID: String?
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 3) {
+                    ForEach(store.shots) { shot in
+                        let id = shot.id.uuidString
+                        ShotThumbnail(shot: shot, store: store)
+                            .frame(width: id == selectedID ? 50 : 36, height: 46)
+                            .clipped()
+                            .overlay(RoundedRectangle(cornerRadius: 3)
+                                .stroke(Color.white, lineWidth: id == selectedID ? 2 : 0))
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                Haptics.selectionChanged()
+                                selectedID = id
+                            }
+                            .id(id)
+                            .accessibilityIdentifier("viewer.filmstrip.cell")
+                    }
+                }
+                .padding(.horizontal, 16)
+                .animation(.snappy(duration: 0.2), value: selectedID)
+            }
+            .onAppear { if let selectedID { proxy.scrollTo(selectedID, anchor: .center) } }
+            .onChange(of: selectedID) { _, id in
+                guard let id else { return }
+                withAnimation(.snappy) { proxy.scrollTo(id, anchor: .center) }
+            }
+        }
+    }
+}
+
+/// A shot's graded thumbnail (the camera's preview until it's developed).
+struct ShotThumbnail: View {
+    let shot: Shot
+    let store: ShotStore
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color(white: 0.12)
+            .overlay {
+                if let image = image ?? store.cachedImage(shot, .thumb) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
+            }
+            .task(id: "\(shot.id)-\(shot.revision)") {
+                image = await store.image(shot, .thumb)
+            }
+    }
 }
 
 // MARK: - Pages
@@ -503,32 +546,11 @@ private struct PendingPage: View {
     }
 }
 
-private struct AssetPage: View {
-    let asset: PHAsset
-    let manager: PHCachingImageManager
-    let isCurrent: Bool
-    var developing = false
-    var onTap: () -> Void = {}
-    var onZoom: (CGFloat) -> Void = { _ in }
-    var onTouches: (Bool) -> Void = { _ in }
-
-    var body: some View {
-        if asset.mediaType == .video {
-            VideoPage(asset: asset, isCurrent: isCurrent)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onTap)
-        } else {
-            PhotoPage(asset: asset, manager: manager, isCurrent: isCurrent, developing: developing,
-                      onTap: onTap, onZoom: onZoom, onTouches: onTouches)
-        }
-    }
-}
-
-private struct PhotoPage: View {
-    let asset: PHAsset
-    let manager: PHCachingImageManager
+private struct ShotPage: View {
+    let shot: Shot
+    let store: ShotStore
     var isCurrent = true
-    /// Its filter/Print look is still being baked on: show the plain image blurred under
+    /// Its look is still being developed: show the camera's preview blurred under
     /// "Developing…" rather than as if it were the finished shot.
     var developing = false
     var onTap: () -> Void = {}
@@ -536,24 +558,19 @@ private struct PhotoPage: View {
     var onTouches: (Bool) -> Void = { _ in }
 
     @State private var image: UIImage?
-    /// The revision the newest request is for; results for older revisions are dropped.
-    @State private var wantedKey: String?
-    @State private var requestID: PHImageRequestID?
-    /// A sharper copy for zooming in, loaded the first time the page is zoomed.
+    /// A full-resolution render from the RAW for zooming in, made the first time the page is
+    /// zoomed.
     @State private var detail: UIImage?
-    @State private var detailKey: String?
-    @State private var detailRequestID: PHImageRequestID?
-    @Environment(\.displayScale) private var displayScale
+    @State private var detailKey: Int?
+    @State private var detailTask: Task<Void, Never>?
 
-    /// The longest side worth decoding for zooming (a 12 MP photo at full size).
-    private static let detailMaxPixels: CGFloat = 4096
+    static let detailMaxPixels: CGFloat = 4096
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                if let image {
+                if let image = image ?? store.cachedImage(shot, .preview) {
                     if developing {
-                        // Nothing to zoom into yet: the look is still being baked on.
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
@@ -570,8 +587,8 @@ private struct PhotoPage: View {
                         .transition(.opacity)
                     } else {
                         ZoomableImageView(
-                            image: detailKey == asset.revisionKey ? (detail ?? image) : image,
-                            pixelSize: CGSize(width: asset.pixelWidth, height: asset.pixelHeight),
+                            image: detailKey == shot.revision ? (detail ?? image) : image,
+                            pixelSize: CGSize(width: shot.pixelWidth ?? 4032, height: shot.pixelHeight ?? 3024),
                             isCurrent: isCurrent,
                             onTap: onTap,
                             onZoom: { scale in
@@ -590,113 +607,46 @@ private struct PhotoPage: View {
             }
             .animation(.easeOut(duration: 0.25), value: developing)
             .frame(width: geo.size.width, height: geo.size.height)
-            // Reload when an edit lands, keeping the current image up meanwhile (favoriting
-            // also bumps the revision, and used to flash a spinner).
-            .task(id: asset.revisionKey) { load(size: geo.size) }
+            .task(id: "\(shot.id)-\(shot.revision)") {
+                if let loaded = await store.image(shot, .preview) { image = loaded }
+            }
             .onChange(of: isCurrent) { _, current in
-                // Off screen: drop the big copy (memory) and any request for it.
                 if !current { dropDetail() }
             }
             .onDisappear { dropDetail() }
         }
     }
 
-    /// Zoomed in: fetch the photo at (up to) full size so it stays sharp.
+    /// Zoomed in: render the grade from the RAW at (up to) full size so it stays sharp.
     private func loadDetail() {
-        let key = asset.revisionKey
-        guard detailKey != key, detailRequestID == nil, isCurrent, !developing else { return }
-        let px = CGSize(width: asset.pixelWidth, height: asset.pixelHeight)
-        let k = min(1, Self.detailMaxPixels / max(px.width, px.height, 1))
-        let target = CGSize(width: (px.width * k).rounded(), height: (px.height * k).rounded())
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        options.version = .current
-        options.resizeMode = .exact
-        let id = String(asset.localIdentifier.prefix(8))
-        detailRequestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFit,
-                                               options: options) { img, info in
-            detailRequestID = nil
-            if (info?[PHImageCancelledKey] as? Bool) == true { return }
-            guard let img else {
-                if let err = info?[PHImageErrorKey] as? Error { Diag.error(.viewer, "zoomed photo \(id) didn't load", err) }
-                return
-            }
-            // Only for the revision still on screen.
-            guard wantedKey == key, asset.revisionKey == key else { return }
-            detail = img
-            detailKey = key
+        let revision = shot.revision
+        guard detailKey != revision, detailTask == nil, isCurrent, !developing else { return }
+        let shot = self.shot
+        let dir = store.dir(shot.id)
+        let recipe = store.recipe(for: shot.id)
+        let maxPixels = Self.detailMaxPixels
+        detailTask = Task {
+            let start = Date()
+            let rendered = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                guard let image = ShotRenderer.render(shot, in: dir, recipe: recipe, maxSide: maxPixels),
+                      let cg = EditPipeline.context.createCGImage(image, from: image.extent, format: .RGBA8,
+                                                                  colorSpace: EditPipeline.displayColorSpace)
+                else { return nil }
+                return UIImage(cgImage: cg)
+            }.value
+            detailTask = nil
+            guard !Task.isCancelled, let rendered, self.shot.revision == revision else { return }
+            detail = rendered
+            detailKey = revision
+            Diag.log(.viewer, "zoom render \(Int(rendered.size.width))×\(Int(rendered.size.height)) in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
         }
     }
 
     private func dropDetail() {
-        if let detailRequestID { manager.cancelImageRequest(detailRequestID) }
-        detailRequestID = nil
+        detailTask?.cancel()
+        detailTask = nil
         detail = nil
         detailKey = nil
-    }
-
-    private func load(size: CGSize) {
-        // An edit (e.g. a capture filter being baked) lands while the unedited image is
-        // still loading: cancel that request and ignore anything it still delivers, or
-        // its late result overwrites the edited one until you swipe away and back.
-        if let requestID { manager.cancelImageRequest(requestID) }
-        let key = asset.revisionKey
-        wantedKey = key
-        if detailKey != key { dropDetail() }
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.isNetworkAccessAllowed = true
-        options.version = .current
-        let target = CGSize(width: size.width * displayScale * 1.5, height: size.height * displayScale * 1.5)
-        let id = String(asset.localIdentifier.prefix(8))
-        requestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFit, options: options) { img, info in
-            if img == nil, let err = info?[PHImageErrorKey] as? Error {
-                Diag.error(.viewer, "photo \(id) didn't load", err)
-            }
-            guard wantedKey == key, let img else { return }
-            if (info?[PHImageCancelledKey] as? Bool) == true { return }
-            image = img
-        }
-        // "None of the photos are loading" on device: say so in the log when one stalls.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-            if image == nil, wantedKey == key {
-                Diag.error(.viewer, "photo \(id) still hasn't loaded after 6 s · \(Diag.permissionSummary())")
-            }
-        }
-    }
-}
-
-private struct VideoPage: View {
-    let asset: PHAsset
-    let isCurrent: Bool
-    @State private var player: AVPlayer?
-
-    var body: some View {
-        ZStack {
-            if let player {
-                // Keep the player's own scrubber and buttons clear of the viewer's top and
-                // bottom bars (the pager ignores the safe area), so both stay tappable.
-                VideoPlayer(player: player)
-                    .padding(.top, 96)
-                    .padding(.bottom, 120)
-            } else {
-                ProgressView().tint(.white)
-            }
-        }
-        .task {
-            let options = PHVideoRequestOptions()
-            options.isNetworkAccessAllowed = true
-            options.deliveryMode = .automatic
-            PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in
-                guard let item else { return }
-                DispatchQueue.main.async { player = AVPlayer(playerItem: item) }
-            }
-        }
-        .onChange(of: isCurrent) { _, current in
-            if !current { player?.pause() }
-        }
-        .onDisappear { player?.pause() }
     }
 }
 

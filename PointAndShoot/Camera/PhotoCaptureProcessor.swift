@@ -4,16 +4,13 @@ import UIKit
 
 /// What a single shutter press is expected to produce and how to store it.
 struct PhotoPlan {
-    var expectsRAW = false
-    var expectsProcessed = false
-    /// Develop the Bayer RAW ourselves (Zero processing).
-    var zeroDevelop = false
-    var zeroAsHEIF = true
-    /// Keep the DNG in the library (paired with the processed image when there is one).
-    var storeRAW = true
+    /// The RAW requested (nil: a processed photo only, where the lens has no RAW).
+    var rawKind: Shot.Kind? = .bayerRAW
+    /// Format of a processed-only fallback.
+    var heif = true
     var fallbackNote: String?
     var location: TaggedLocation?
-    /// Capture look to bake on as a non-destructive edit once saved.
+    /// The grade the new shot starts with (the active look).
     var look: EditRecipe?
     /// The viewfinder's scene key at the shutter (FilmLUT.sceneKey), for matching a film
     /// look's RAW develop to what was on screen.
@@ -32,16 +29,17 @@ private final class GPSCustomizer: NSObject, AVCapturePhotoFileDataRepresentatio
     }
 }
 
+/// Collects one shot's files and stores them in the app's library (`ShotStore`). Nothing
+/// goes to the iOS photo library here: that happens on export.
 final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private let plan: PhotoPlan
     private let willCapture: () -> Void
     private let thumbnail: (UIImage) -> Void
-    private let completion: (_ message: String?, _ assetID: String?) -> Void
-    /// The saved asset is (true) / is no longer (false) waiting for its look to be baked.
-    private let developing: (_ assetID: String, _ isDeveloping: Bool) -> Void
+    private let completion: (_ message: String?, _ shotID: UUID?) -> Void
 
     private var rawData: Data?
     private var processedData: Data?
+    private var previewJPEG: Data?
     private var sentThumbnail = false
     private var captureError: Error?
     private var flashFired = false
@@ -49,9 +47,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     init(plan: PhotoPlan,
          willCapture: @escaping () -> Void,
          thumbnail: @escaping (UIImage) -> Void,
-         developing: @escaping (_ assetID: String, _ isDeveloping: Bool) -> Void = { _, _ in },
-         completion: @escaping (_ message: String?, _ assetID: String?) -> Void) {
-        self.developing = developing
+         completion: @escaping (_ message: String?, _ shotID: UUID?) -> Void) {
         self.plan = plan
         self.willCapture = willCapture
         self.thumbnail = thumbnail
@@ -78,8 +74,9 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
         if !sentThumbnail, let cg = photo.previewCGImageRepresentation() {
             sentThumbnail = true
             let raw = (photo.metadata[kCGImagePropertyOrientation as String] as? UInt32) ?? 1
-            let orientation = UIImage.Orientation(CGImagePropertyOrientation(rawValue: raw) ?? .up)
-            let image = UIImage(cgImage: cg, scale: 1, orientation: orientation)
+            let cgOrientation = CGImagePropertyOrientation(rawValue: raw) ?? .up
+            previewJPEG = ShotRenderer.jpegData(of: cg, orientation: cgOrientation)
+            let image = UIImage(cgImage: cg, scale: 1, orientation: UIImage.Orientation(cgOrientation))
             DispatchQueue.main.async { self.thumbnail(image) }
         }
     }
@@ -92,72 +89,31 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
         }
         Diag.log(.capture, "captured: raw \(rawData.map { "\($0.count / 1024) KB" } ?? "none"), processed \(processedData.map { "\($0.count / 1024) KB" } ?? "none")")
         let plan = self.plan
-        let raw = rawData
-        let processed = processedData
-        // A flash shot looks nothing like the pre-flash viewfinder: match it to the
-        // processed photo instead.
+        // A flash shot looks nothing like the pre-flash viewfinder: match it to the camera's
+        // own preview of the shot instead.
         let viewfinderKey = flashFired ? nil : plan.viewfinderKey
-        Task.detached(priority: .userInitiated) {
+        let original: Data
+        let ext: String
+        let kind: Shot.Kind
+        if let rawData {
+            original = rawData; ext = "dng"; kind = plan.rawKind ?? .bayerRAW
+        } else if let processedData {
+            original = processedData; ext = plan.heif ? "heic" : "jpg"; kind = .processed
+        } else {
+            completion("Nothing was captured", nil)
+            return
+        }
+        let preview = previewJPEG
+        let look = plan.look ?? EditRecipe()
+        let note = plan.fallbackNote
+        Task { @MainActor in
             do {
-                var primary = processed
-                var alternate: Data? = plan.storeRAW ? raw : nil
-
-                if plan.zeroDevelop, let raw {
-                    let start = Date()
-                    primary = ZeroDeveloper.develop(dng: raw, asHEIF: plan.zeroAsHEIF)
-                    if primary == nil {
-                        Diag.error(.save, "Zero develop failed; saving the DNG alone")
-                        alternate = nil; primary = raw
-                    } else {
-                        Diag.log(.save, "Zero develop \(Int(Date().timeIntervalSince(start) * 1000)) ms")
-                    }
-                }
-
-                var assetID: String?
-                var note = plan.fallbackNote
-                let where_ = plan.location?.location
-                if let primary {
-                    let companion = primary == raw ? nil : alternate
-                    do {
-                        assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: companion, location: where_)
-                    } catch where companion != nil {
-                        Diag.error(.save, "Photos refused the RAW pair; saving them separately", error)
-                        // Never lose the shot because Photos refused the RAW pairing: keep the
-                        // photo, and the DNG as its own asset so nothing is thrown away.
-                        assetID = try await PhotoLibrary.savePhoto(primary: primary, rawCompanion: nil, location: where_)
-                        if let companion { _ = try? await PhotoLibrary.savePhoto(primary: companion, rawCompanion: nil, location: where_) }
-                        note = "RAW saved as a separate photo (Photos error \((error as NSError).code))"
-                    }
-                } else if let raw {
-                    assetID = try await PhotoLibrary.savePhoto(primary: raw, rawCompanion: nil, location: where_)
-                } else {
-                    self.completion("Nothing was captured", nil)
-                    return
-                }
-                // Report the shot saved right away (the camera can suspend, the next shot
-                // isn't held up), but mark it as still developing so the viewer shows
-                // "Developing…" on its page until the look is baked, never the plain photo.
-                // Bakes run one at a time: a full-resolution RAW develop each, and several
-                // at once on a busy GPU is what made shots hang on "Developing…".
-                guard let look = plan.look, let assetID else {
-                    self.completion(note, assetID)
-                    return
-                }
-                self.developing(assetID, true)
-                self.completion(note, assetID)
-                await BakeQueue.shared.run {
-                    let start = Date()
-                    let name = look.look ?? "look"
-                    Diag.log(.bake, "baking \(name) onto \(assetID.prefix(8))\(raw == nil ? "" : " from RAW")")
-                    do {
-                        try await RecipeBaker.apply(look, toAssetWithID: assetID, rawData: raw, viewfinderKey: viewfinderKey)
-                        Diag.log(.bake, "baked \(name) in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
-                    } catch {
-                        Diag.error(.bake, "bake of \(name) failed after \(Int(Date().timeIntervalSince(start) * 1000)) ms", error)
-                    }
-                }
-                self.developing(assetID, false)
+                let shot = try await ShotStore.shared.add(original: original, fileExtension: ext, kind: kind,
+                                                          capturePreview: preview, recipe: look,
+                                                          viewfinderKey: viewfinderKey)
+                self.completion(note, shot.id)
             } catch {
+                Diag.error(.save, "couldn't store the shot", error)
                 self.completion("Couldn't save: \(error.localizedDescription)", nil)
             }
         }

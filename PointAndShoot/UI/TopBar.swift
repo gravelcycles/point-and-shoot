@@ -165,16 +165,8 @@ enum CameraFormat {
         if s.mode == .video {
             return "\(s.videoResolution.label) · \(s.frameRate) · \(s.videoColor.label) · \(s.videoCodec.label)"
         }
-        if s.developsBayerRAW {
-            return s.processing == .zero ? "Zero · RAW" : "\(Look.named(s.activeLook)?.name ?? "Film") · RAW"
-        }
-        let file: String
-        switch s.rawMode {
-        case .off: file = s.photoFormat.label
-        case .bayer: file = s.keepProcessedWithRAW ? "RAW+\(s.photoFormat.label)" : "RAW"
-        case .proRAW: file = s.keepProcessedWithRAW ? "ProRAW+\(s.photoFormat.label)" : "ProRAW"
-        }
-        return "\(file) · \(s.processing.label)"
+        let look = Look.named(s.activeLook)?.name
+        return [s.shootsProRAW ? "ProRAW" : "RAW", look].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// Highlight the pill when you've stepped beyond the defaults (RAW, Zero, Log/HDR, ProRes).
@@ -182,7 +174,7 @@ enum CameraFormat {
         if s.mode == .video {
             return s.videoColor != .sdr || s.videoCodec == .proRes422HQ || s.videoCodec == .proRes422
         }
-        return s.rawMode != .off || s.developsBayerRAW
+        return s.shootsProRAW
     }
 
     static func timeLeft(_ seconds: TimeInterval) -> String {
@@ -204,63 +196,34 @@ struct CaptureFormatPanel: View {
         VStack(alignment: .leading, spacing: 18) {
             PanelHeader(title: "Photo format") { dismiss() }
 
-            PanelRow(title: "File type",
-                     note: s.photoFormat == .heif ? "Smaller files, same quality." : "Most compatible.") {
-                Picker("File type", selection: camera.binding(\.photoFormat)) {
-                    ForEach(PhotoFormat.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            .disabled(s.developsBayerRAW || (s.rawMode != .off && !s.keepProcessedWithRAW))
-
             PanelRow(title: "RAW", note: rawNote(s)) {
-                Picker("RAW", selection: camera.binding(\.rawMode)) {
-                    ForEach(rawOptions) { Text($0.label).tag($0) }
+                Picker("RAW", selection: Binding(get: { s.shootsProRAW ? RawMode.proRAW : .bayer },
+                                                 set: { v in camera.update { $0.rawMode = v } })) {
+                    ForEach([RawMode.bayer, .proRAW]) { mode in
+                        Text(mode.label).tag(mode)
+                            .disabled(mode == .proRAW && !camera.supportsProRAW && !TestHooks.isUITest)
+                    }
                 }
                 .pickerStyle(.segmented)
             }
-            .disabled(s.developsBayerRAW || rawOptions.count < 2)
 
-            if s.rawMode != .off && !s.developsBayerRAW {
-                Toggle("Also save \(s.photoFormat.label)", isOn: camera.binding(\.keepProcessedWithRAW))
-                    .font(.system(size: 14, weight: .semibold))
-                    .tint(.yellow)
-            }
-
-            PanelRow(title: "Processing", note: s.processing.detail) {
-                Picker("Processing", selection: camera.binding(\.processing)) {
-                    ForEach(processingOptions) { Text($0.label).tag($0) }
+            PanelRow(title: "Resolution", note: s.shootsProRAW ? "ProRAW at the sensor's full resolution, or 12 MP." : "Bayer RAW is always the sensor's 12 MP frame.") {
+                Picker("Resolution", selection: camera.binding(\.resolution)) {
+                    ForEach(PhotoResolution.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
             }
+            .disabled(!s.shootsProRAW)
         }
         .padding(20)
         .sensoryFeedback(.selection, trigger: s) { _, _ in s.haptics }
         .preferredColorScheme(.dark)
     }
 
-    private var rawOptions: [RawMode] {
-        var options: [RawMode] = [.off]
-        if camera.supportsBayerRAW { options.append(.bayer) }
-        if camera.supportsProRAW { options.append(.proRAW) }
-        return options
-    }
-
-    private var processingOptions: [ProcessingLevel] {
-        var options: [ProcessingLevel] = [.apple, .balanced, .natural]
-        if camera.supportsBayerRAW { options.append(.zero) }
-        return options
-    }
-
     private func rawNote(_ s: CameraSettings) -> String {
-        if s.processing == .zero { return "Zero always shoots RAW." }
-        if s.developsBayerRAW { return "The \(Look.named(s.activeLook)?.name ?? "film") filter develops from RAW, so it always shoots RAW." }
-        if rawOptions.count < 2 { return "This lens doesn't offer RAW." }
-        switch s.rawMode {
-        case .off: return "Off: just the processed photo."
-        case .bayer: return "The sensor's own data — maximum editing latitude."
-        case .proRAW: return "Apple's RAW with its multi-frame processing."
-        }
+        s.shootsProRAW
+            ? "Apple ProRAW: multi-frame, less noise, zoom works. Develops with every look."
+            : "Bayer RAW: the sensor's own single frame, real grain and contrast. Zoom stays at 1×."
     }
 }
 

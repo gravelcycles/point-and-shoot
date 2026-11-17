@@ -33,19 +33,26 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping the edge of LOOK didn't open the look picker")
     }
 
-    func testFormatPillOpensPanelAndChangesFileType() {
+    /// RAW only: the pill reads ProRAW by default, and the panel switches to Bayer RAW.
+    private func switchToBayerRAW() {
         let pill = app.buttons["topbar.format"]
         XCTAssertTrue(pill.waitForExistence(timeout: 3))
-        XCTAssertTrue(pill.label.contains("HEIF"), "unexpected default format: \(pill.label)")
         tapOffLabel(pill, dx: 0.95)
-        let jpeg = app.buttons["JPEG"]
-        guard jpeg.waitForExistence(timeout: 3) else {
+        let bayer = app.buttons["RAW"]
+        guard bayer.waitForExistence(timeout: 3) else {
             print(app.debugDescription)
             return XCTFail("Tapping the format pill's edge didn't open the format panel")
         }
-        jpeg.tap()
+        bayer.tap()
         app.buttons["format.done"].tap()
-        let changed = NSPredicate(format: "label CONTAINS 'JPEG'")
+    }
+
+    func testFormatPillOpensPanelAndChangesFileType() {
+        let pill = app.buttons["topbar.format"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 3))
+        XCTAssertTrue(pill.label.hasPrefix("ProRAW"), "unexpected default format: \(pill.label)")
+        switchToBayerRAW()
+        let changed = NSPredicate(format: "label BEGINSWITH 'RAW'")
         expectation(for: changed, evaluatedWith: pill)
         waitForExpectations(timeout: 3)
     }
@@ -94,6 +101,8 @@ final class ControlHitTargetTests: XCTestCase {
     /// Print mode always shoots RAW and *is* the filter, so the format pill and the FILTER
     /// cell go away; the photo controls stay. Back in Photo they return.
     func testPrintModeDropsFormatAndFilterControls() {
+        // Bayer RAW is what locks zoom (ProRAW, the default, zooms).
+        switchToBayerRAW()
         tapOffLabel(app.buttons["mode.print"], dx: 0.5, dy: 0.95)
         let gone = NSPredicate(format: "exists == false")
         expectation(for: gone, evaluatedWith: app.buttons["topbar.format"])
@@ -155,6 +164,8 @@ final class ControlHitTargetTests: XCTestCase {
     /// Print shoots Bayer RAW, which crashes AVFoundation when zoomed (#18): pinching in
     /// Print must not zoom, and must say why.
     func testPinchInPrintIsLockedAndExplained() {
+        // Bayer RAW is what locks zoom (ProRAW, the default, zooms).
+        switchToBayerRAW()
         app.buttons["mode.print"].tap()
         let viewfinder = app.otherElements["viewfinder"]
         XCTAssertTrue(viewfinder.waitForExistence(timeout: 3))

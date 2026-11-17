@@ -9,6 +9,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 photoSection(s)
+                librarySection(s)
                 videoSection(s)
                 assistSection(s)
                 controlsSection
@@ -25,43 +26,57 @@ struct SettingsView: View {
         .tint(.yellow)
     }
 
+    // MARK: Library
+
+    @ViewBuilder
+    private func librarySection(_ s: CameraSettings) -> some View {
+        Section {
+            Toggle("Store New Photos Forever", isOn: camera.binding(\.storeForever))
+                .accessibilityIdentifier("settings.storeForever")
+            Text("When off, photos move to the Trash 30 days after they were taken unless you tag them Keep (the bookmark in the viewer). The Trash empties after another 30 days.")
+                .font(.footnote).foregroundStyle(.secondary)
+            Toggle("Auto Export", isOn: camera.binding(\.autoExport))
+                .accessibilityIdentifier("settings.autoExport")
+            Text("Saves every shot to Photos right after capture, rendered with its look. When off, nothing reaches Photos until you tap Export.")
+                .font(.footnote).foregroundStyle(.secondary)
+            Picker("Export format", selection: camera.binding(\.exportFormat)) {
+                ForEach(ShotRenderer.ExportFormat.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Picker("Export size", selection: camera.binding(\.exportMaxSide)) {
+                Text("1,920 px").tag(1920)
+                Text("2,880 px").tag(2880)
+                Text("3,840 px").tag(3840)
+                Text("Actual Size").tag(0)
+            }
+            VStack(alignment: .leading) {
+                Text("Export quality \(Int((s.exportQuality * 100).rounded()))%")
+                Slider(value: camera.binding(\.exportQuality), in: 0.5...1, step: 0.05)
+            }
+        } header: {
+            Text("Library")
+        } footer: {
+            Text("Every photo is kept in the app as a RAW with its look, so you can change the look any time. Export renders it into Photos.")
+        }
+    }
+
     // MARK: Photo
 
     @ViewBuilder
     private func photoSection(_ s: CameraSettings) -> some View {
         Section {
-            Picker("Processing", selection: camera.binding(\.processing)) {
-                ForEach(ProcessingLevel.allCases) { level in
-                    Text(level.label).tag(level)
-                        .disabled(level == .zero && !camera.supportsBayerRAW)
-                }
+            Picker("RAW", selection: Binding(get: { s.shootsProRAW ? RawMode.proRAW : .bayer },
+                                             set: { v in camera.update { $0.rawMode = v } })) {
+                Text("Bayer RAW").tag(RawMode.bayer)
+                Text("ProRAW").tag(RawMode.proRAW).disabled(!camera.supportsProRAW)
             }
             .pickerStyle(.segmented)
-            Text(s.processing.detail)
+            Text(s.shootsProRAW
+                 ? "Apple ProRAW: multi-frame, less noise, zoom works. Every look develops from it."
+                 : "Bayer RAW: the sensor's own single frame, real grain and contrast. Zoom stays at 1×.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-
-            if s.processing == .zero {
-                Toggle("Keep the DNG too", isOn: camera.binding(\.zeroKeepsDNG))
-            } else {
-                Picker("RAW", selection: camera.binding(\.rawMode)) {
-                    Text("Off").tag(RawMode.off)
-                    Text("RAW").tag(RawMode.bayer).disabled(!camera.supportsBayerRAW)
-                    Text("ProRAW").tag(RawMode.proRAW).disabled(!camera.supportsProRAW)
-                }
-                if s.rawMode != .off {
-                    Toggle("Also save \(s.photoFormat.label)", isOn: camera.binding(\.keepProcessedWithRAW))
-                    if s.rawMode == .bayer && s.keepProcessedWithRAW {
-                        Text("Bayer RAW is a single, unfused frame, so its companion \(s.photoFormat.label) uses Natural processing.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Picker("Format", selection: camera.binding(\.photoFormat)) {
-                ForEach(PhotoFormat.allCases) { Text($0.label).tag($0) }
-            }
-            if camera.supportsMaxResolution {
+            if s.shootsProRAW && camera.supportsMaxResolution {
                 Picker("Resolution", selection: camera.binding(\.resolution)) {
                     ForEach(PhotoResolution.allCases) { Text($0.label).tag($0) }
                 }
