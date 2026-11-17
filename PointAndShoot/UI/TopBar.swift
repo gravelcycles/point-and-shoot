@@ -199,11 +199,13 @@ struct CaptureFormatPanel: View {
             PanelRow(title: "RAW", note: rawNote(s)) {
                 Picker("RAW", selection: Binding(get: { s.shootsProRAW ? RawMode.proRAW : .bayer },
                                                  set: { v in camera.update { $0.rawMode = v } })) {
-                    ForEach(rawOptions) { Text($0.label).tag($0) }
+                    ForEach([RawMode.bayer, .proRAW]) { mode in
+                        Text(mode.label).tag(mode)
+                            .disabled(mode == .proRAW && !camera.supportsProRAW && !TestHooks.isUITest)
+                    }
                 }
                 .pickerStyle(.segmented)
             }
-            .disabled(rawOptions.count < 2)
 
             PanelRow(title: "Resolution", note: s.shootsProRAW ? "ProRAW at the sensor's full resolution, or 12 MP." : "Bayer RAW is always the sensor's 12 MP frame.") {
                 Picker("Resolution", selection: camera.binding(\.resolution)) {
@@ -216,12 +218,6 @@ struct CaptureFormatPanel: View {
         .padding(20)
         .sensoryFeedback(.selection, trigger: s) { _, _ in s.haptics }
         .preferredColorScheme(.dark)
-    }
-
-    private var rawOptions: [RawMode] {
-        var options: [RawMode] = [.bayer]
-        if camera.supportsProRAW { options.append(.proRAW) }
-        return options
     }
 
     private func rawNote(_ s: CameraSettings) -> String {
