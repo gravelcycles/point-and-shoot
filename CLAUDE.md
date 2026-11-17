@@ -143,6 +143,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Library/RollStore.swift         live camera roll (PHPhotoLibraryChangeObserver), latest thumbnail
   Library/PhotoViewer.swift       full-screen pager opened from the thumbnail; share/fav/delete/info
   Library/LibraryView.swift       RollGrid + AssetThumbnail
+  Library/ZoomableImageView.swift Photos-style zoom for viewer pages (UIScrollView: pinch+pan, double-tap)
   Library/PhotoInfoSheet.swift    EXIF + map info panel
   Library/PhotoLibrary.swift      save/share/favorite/delete/RAW-fetch helpers (returns asset IDs)
   Library/LockedCaptureImporter.swift  imports Lock Screen shots parked by the extension
@@ -158,7 +159,8 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/FilmModel.swift          Print look math: film curves, LUT builders (Foundation only, testable anywhere)
   Editor/FilmStock+Stocks.swift   GENERATED film stocks: Print + every photo filter (from scripts/*.json)
   Editor/FilmPipeline.swift       Print look in Core Image: halation, neg cube, grain, print cube
-  Editor/CropOverlay.swift, MetalImageView.swift
+  Editor/CropOverlay.swift, MetalImageView.swift  (MetalImageView: Metal canvas + pinch/pan zoom)
+  UI/ZoomMath.swift               pure zoom math (anchor, settle, rubber band, double-tap) — unit-tested
 PointAndShootTests/               unit + integration tests, hosted in the app (@testable import): settings,
                                   recipe back-compat, capture planner, roll logic, film pipeline, Photos library
 PointAndShootUITests/             simulator UI tests (tap targets, tap-through, roll/viewer/delete flows); -uitest
@@ -531,7 +533,12 @@ is the only source of truth for what exists. Everything else reacts to it.
   QuickTime ISO 6709 metadata, and `PHAsset.location`.
 - **Roll:**
   - The viewer opens on the newest shot, with a "Developing…" placeholder while it saves.
-  - Paging, pinch-to-peek, swipe down to dismiss.
+  - Paging, swipe down to dismiss.
+  - Zoom like Photos (`ZoomableImageView`, a UIScrollView): pinch anchored under the
+    fingers with pan at the same time, rubber-banding, double-tap fit ↔ 2.5×, up to 2×
+    native pixels (4–8×). At 1× the scroll view has nothing to scroll, so swipes page and
+    swipe-down dismisses; zoomed in, drags pan and never dismiss. A full-size copy (long
+    side ≤ 4096) loads once zoomed past 1.3× and is dropped when the page leaves.
   - Share sends the original file. Favorite and Delete are there too.
   - An Info sheet shows EXIF and a map.
 - **Editor:**
@@ -539,6 +546,11 @@ is the only source of truth for what exists. Everything else reacts to it.
     straighten, rotate, flip) and RAW (develop from DNG with WB, exposure, NR, local tone
     and boost).
   - Undo, hold-to-compare, copy/paste edits.
+  - Zoom: pinch + two-finger pan (UIKit recognizers on `MetalImageView`), double-tap fit ↔
+    2.5×; one-finger swipes stay the Snapseed adjust gesture (a pinch that starts mid-drag
+    undoes that drag's change). Zoom is a transform in the renderer, so Core Image renders
+    only the visible region; zoomed in, `EditSession` switches to a sharper source
+    (`loadDetail`, long side ≤ 4096, RAW at the matching scale). Off in Crop.
   - Save (non-destructive), Save as New Photo, Revert, and a discard guard for unsaved
     changes.
 - **iOS 18 Lock Screen camera + Control Center control:**
@@ -620,7 +632,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **UI tests:** `PointAndShootUITests` runs in the simulator with the `-uitest` launch
   argument (`TestHooks.isUITest`). That mode skips the camera session, permission prompts
   and the tour, and loads default settings.
-  - Tests find controls by accessibility identifiers (`strip.*`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`,
+  - Tests find controls by accessibility identifiers (`strip.*`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`, `viewer.*` (incl. `viewer.photo`, `viewer.edit`), `editor.*` (`editor.canvas`, `editor.save`, `editor.tool.<tool>`),
     `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`).
   - New controls should get an identifier and, if they're custom, an off-center tap test.
   - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass

@@ -43,6 +43,14 @@ final class EditSession {
     @ObservationIgnored private var rawDefaults = RAWDefaults()
     @ObservationIgnored private var input: PHContentEditingInput?
     @ObservationIgnored private var previewMaxPixels: CGFloat = 2048
+    /// Sharper sources for zooming in (`loadDetail`), used while `zoomedIn`.
+    @ObservationIgnored private var detailBase: CIImage?
+    @ObservationIgnored private var detailRAW: CIRAWFilter?
+    @ObservationIgnored private var detailLoading = false
+    private(set) var detailReady = false
+    /// The canvas is zoomed in: render from the detail source once it's loaded.
+    var zoomedIn = false
+    private var useDetail: Bool { zoomedIn && detailReady }
 
     init(asset: PHAsset) {
         self.asset = asset
@@ -79,16 +87,8 @@ final class EditSession {
             loaded = saved
         }
 
-        let base = await Task.detached(priority: .userInitiated) { () -> CIImage? in
-            guard let full = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else { return nil }
-            let scale = min(1, maxPixels / max(full.extent.width, full.extent.height))
-            let scaled = full.applyingFilter("CILanczosScaleTransform", parameters: [
-                kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1.0,
-            ])
-            // Bake the downsampled source into memory once so every edit starts from pixels, not a decode.
-            guard let cg = EditPipeline.context.createCGImage(scaled, from: scaled.extent, format: .RGBA8,
-                                                              colorSpace: EditPipeline.displayColorSpace) else { return nil }
-            return CIImage(cgImage: cg)
+        let base = await Task.detached(priority: .userInitiated) {
+            Self.decodeSource(url, maxPixels: maxPixels)
         }.value
 
         guard let base else {
@@ -123,6 +123,53 @@ final class EditSession {
         Task { await renderLookThumbnails() }
     }
 
+    /// The photo, downsampled to `maxPixels` on its long side and baked into memory once so
+    /// every edit starts from pixels, not a decode.
+    nonisolated private static func decodeSource(_ url: URL, maxPixels: CGFloat) -> CIImage? {
+        guard let full = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else { return nil }
+        let scale = min(1, maxPixels / max(full.extent.width, full.extent.height))
+        let scaled = full.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1.0,
+        ])
+        guard let cg = EditPipeline.context.createCGImage(scaled, from: scaled.extent, format: .RGBA8,
+                                                          colorSpace: EditPipeline.displayColorSpace) else { return nil }
+        return CIImage(cgImage: cg)
+    }
+
+    // MARK: Detail (zoomed in)
+
+    /// The long side of the sharper source used while zoomed in (12 MP photos at full size).
+    static let detailMaxPixels: CGFloat = 4096
+
+    /// Loads the sharper source for zooming in. The screen-size preview stays in use at fit,
+    /// where it's all the screen can show and much cheaper to re-render per slider step.
+    func loadDetail() async {
+        guard !detailLoading, !detailReady, !isLoading, let url = input?.fullSizeImageURL else { return }
+        detailLoading = true
+        defer { detailLoading = false }
+        let started = Date()
+        let maxPixels = Self.detailMaxPixels
+        let decoded = await Task.detached(priority: .userInitiated) {
+            Self.decodeSource(url, maxPixels: maxPixels)
+        }.value
+        guard let base = decoded else {
+            Diag.error(.editor, "couldn't load the zoomed-in source for \(asset.localIdentifier.prefix(8))")
+            return
+        }
+        detailBase = base
+        if let data = rawData, let raw = CIRAWFilter(imageData: data, identifierHint: nil) {
+            let native = raw.nativeSize
+            raw.scaleFactor = Float(min(1, maxPixels / max(native.width, native.height, 1)))
+            detailRAW = raw
+        }
+        detailReady = true
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        Diag.log(.editor, "zoom source \(Int(base.extent.width))×\(Int(base.extent.height)) in \(ms) ms")
+    }
+
+    /// The photo's native pixel size (for how far the canvas can zoom).
+    var pixelSize: CGSize { CGSize(width: asset.pixelWidth, height: asset.pixelHeight) }
+
     private func loadPlaceholder(maxPixels: CGFloat) {
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
@@ -143,7 +190,7 @@ final class EditSession {
     // MARK: Rendering
 
     /// The source before any edit (for press-and-hold compare).
-    var originalPreview: CIImage? { previewBase ?? placeholder }
+    var originalPreview: CIImage? { (useDetail ? detailBase : nil) ?? previewBase ?? placeholder }
 
     /// Source with geometry but no crop — what the crop tool draws on.
     func uncroppedPreview() -> CIImage? {
@@ -159,11 +206,11 @@ final class EditSession {
     }
 
     private func sourcePreview() -> CIImage? {
-        if developsFromRAW, let raw = previewRAW {
+        if developsFromRAW, let raw = (useDetail ? detailRAW : nil) ?? previewRAW {
             EditPipeline.configure(raw, recipe: recipe, defaults: rawDefaults)
             return raw.outputImage
         }
-        return previewBase
+        return (useDetail ? detailBase : nil) ?? previewBase
     }
 
     /// Aspect (w/h) of the oriented, straightened frame — for crop aspect presets.

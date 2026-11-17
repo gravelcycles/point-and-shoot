@@ -64,3 +64,31 @@ struct RollCountProbe: View {
         }
     }
 }
+
+/// UI tests: a short trail of the viewer's gesture decisions (touches, drag, dismiss), shown
+/// on the camera screen (`viewer.events`) so it can still be read after the viewer closed.
+@Observable
+final class ViewerEventProbe {
+    static let shared = ViewerEventProbe()
+    var text = ""
+
+    func add(_ event: String) {
+        guard TestHooks.isUITest else { return }
+        text = String((text + " " + event).suffix(240))
+    }
+}
+
+struct ViewerEventProbeView: View {
+    var body: some View {
+        if TestHooks.isUITest {
+            let text = ViewerEventProbe.shared.text
+            Text(text)
+                .font(.system(size: 6))
+                .foregroundStyle(.white.opacity(0.02))
+                .frame(width: 20, height: 8)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("viewer.events")
+                .accessibilityLabel(text.isEmpty ? "none" : text)
+        }
+    }
+}
