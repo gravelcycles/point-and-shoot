@@ -123,9 +123,11 @@ The rest are unchanged:
 - **Punch**: the owner likes it.
 - **Noir**: B&W.
 
-**Replaced:** PR #35's Desert, Pastel, Amber Haze, Sodium and Neon Night. They were mostly
-printer-light casts, split tones, lifted floors (0.01–0.045) and global channel mixes:
-exactly the "faded / turned-up tint" pattern.
+**PR #35's pass** (Desert, Pastel, Amber Haze, Sodium, Neon Night, Slide 70s, Bleach Grit)
+stays available as the **Grades** set, so the two approaches can be compared on the
+phone. Those looks are mostly printer-light casts, split tones, lifted floors
+(0.01–0.045) and global channel mixes: exactly the "faded / turned-up tint" pattern. The
+vectorscope (`print-look.py scope`) shows it.
 
 ## 5. A measurement trap: mean ΔE rewards tints
 

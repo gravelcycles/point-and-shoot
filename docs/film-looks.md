@@ -155,8 +155,24 @@ has `floor` 0, and split toning is gone or a trace.
 
 **Unchanged:** Print, Phromagraph, Punch and Noir (they regenerate byte-identical).
 
+**Named sets (same day, at the owner's request: "create diff sets of looks... so i can try
+and test"):** every look stays available and the pickers switch between sets (`LookSet`;
+CLAUDE.md §4).
+- Essentials: Print, Phromagraph, Punch, Noir.
+- Film Stocks and Movie: the looks above.
+- Grades: §1½'s pass, tunings untouched. Its Slide and Bleach Bypass are now `slide70s` /
+  "Slide 70s" and `bleachgrit` / "Bleach Grit".
+
+`spread` measures each set together with the essentials, and every set clears 0.06
+(nearest 0.061–0.086).
+
 **Retired camera choices now land on a successor:** Skin → Portrait 400, Cool Air →
 Evergreen, Cine → Blockbuster.
+
+**The Saturation slider was additive, and is fixed from film engine 2.** It spread density
+about the mean, which brightens a saturated colour's dominant channel (a yellow at +50 went
+from 0.34 to 0.57 luminance). From engine 2 it pivots on the least dense channel like
+`dye_saturation`. Edits from engine 1, or with no engine, keep the old slider.
 
 **Spread** (official four images): every new look's nearest is ≥ 0.061, with a median of
 0.065. Print and Phromagraph stay close by design.

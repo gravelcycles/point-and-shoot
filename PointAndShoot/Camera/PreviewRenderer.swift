@@ -213,7 +213,7 @@ final class PreviewRenderer {
 
     /// Square previews of what the camera sees right now through every look, like the
     /// filter strip in a social camera. Falls back to a color swatch with no camera frame.
-    func filterThumbnails(side: CGFloat, completion: @escaping ([String: UIImage]) -> Void) {
+    func filterThumbnails(side: CGFloat, looks: [Look] = Look.all, completion: @escaping ([String: UIImage]) -> Void) {
         renderQueue.async {
             let source = self.lastClean ?? Self.sampleSwatch
             let e = source.extent
@@ -225,7 +225,7 @@ final class PreviewRenderer {
                 .transformed(by: CGAffineTransform(scaleX: side / edge, y: side / edge))
             let rect = CGRect(x: 0, y: 0, width: side, height: side)
             var thumbs: [String: UIImage] = [:]
-            for look in Look.all {
+            for look in looks {
                 let img = look.id == "none"
                     ? square
                     : EditPipeline.apply(look.recipe, to: square, developedFromRAW: false, applyCrop: false)

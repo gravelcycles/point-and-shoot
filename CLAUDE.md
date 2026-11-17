@@ -286,10 +286,19 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **Every look except Original is a film stock** in the same model, and is meant to read
   as a film or a movie grade, never an Instagram filter (the owner's brief, 2026-11-17:
   "as original looks as 'print'"). Print is the original; Phromagraph is Chromagraph
-  measured; Punch is kept as is. The others are film stocks and movie grades:
-  - Film stocks: Portrait 400, Evergreen, Slide and Lush.
-  - Movie grades: Three-Strip, Blockbuster, Night 800 and Bleach Bypass.
-  - Noir is the one B&W look.
+  measured; Punch is kept as is.
+  - **Named sets** (`LookSet`, `Look.set`; `set` in `film-looks.json`). The camera's LOOK
+    strip (stack button, `CameraSettings.lookSet`, nil = all) and the editor's Looks tool
+    (`@AppStorage("editor.lookSet")`) show one set or all; the guide groups by set. The
+    owner compares whole families on the phone.
+    - Essentials: Original, Print, Phromagraph, Punch, Noir.
+    - Film Stocks: Portrait 400, Evergreen, Slide, Lush.
+    - Movie: Three-Strip, Blockbuster, Night 800, Bleach Bypass.
+    - Grades: PR #35's first pass, with its tunings untouched (Desert, Pastel, Amber Haze,
+      Sodium, Neon Night, plus Slide 70s and Bleach Grit, which are #35's Slide and Bleach
+      Bypass under new ids).
+    - Adding a look: give it a `set` in both places. `SettingsTests` checks every look but
+      Original is in exactly one set.
   - **What makes them film and not filters is structure, not tint** (the owner: nothing
     "super faded / just turned up the tint"; research and sources in
     `docs/film-looks-research.md`): dense blacks (`floor` 0), colour that depends on hue
@@ -326,6 +335,14 @@ is the only source of truth for what exists. Everything else reacts to it.
       to the same neutral.
     - It reads as a tint, so the new looks use crossover and hue twists instead (at most
       a trace).
+  - **The Saturation slider is subtractive from film engine 2** (`FilmRecipe.currentEngine`
+    = 2, `FilmControls.subtractiveSaturation`):
+    - More saturation pivots on each colour's least dense channel, as dye saturation does.
+      Engine 1 spread about the mean and *brightened* rich colours: a yellow at +50 went
+      from 0.34 to 0.57 luminance.
+    - Edits with engine 1, or no engine (from before versioning), keep the old slider.
+      `freezeFilmTuning` pins engine 1 on unversioned edits, never the current engine.
+    - With the slider above 0, the print cube takes the per-cell path.
   - **Older photos:** `hueTwists` and `dyeSaturation` are optional, and nil means off.
     `EditRecipe.decodeSaved` never fills them in from today's stock
     (`FilmStock.offWhenMissing`), so tunings pinned before they existed render as they did.
@@ -340,12 +357,13 @@ is the only source of truth for what exists. Everything else reacts to it.
       looks measure closer than they read. Meet the rule with key, contrast, dye density
       and hue signatures, never casts or lifted floors (`docs/film-looks.md` §4,
       pitfalls).
-    - **Rule:** every look's nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
+    - **Rule:** within each set (measured together with the essentials), every look's
+      nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
       `scripts/print-look.py spread IMG… [--cssgram] [--sheet out.jpg] [--looks OLD.json]`,
       which measures every look in one table (Print, Phromagraph and B&W included),
       flags offenders, and can add CSSgram's table and a contact sheet. The tuning loop
       and pitfalls are in `docs/film-looks.md`.
-    - Today the nearest pairs are 0.061–0.077 (median 0.065). The exception is
+    - Today the nearest within-set pairs are 0.061–0.086. The exception is
       Print–Phromagraph (0.023): the same rendering by design, never retuned from each
       other. CSSgram's 26 Instagram-style filters have a nearest-neighbour median of
       0.050 and a minimum of 0.021.
@@ -759,10 +777,14 @@ to be wrong.
     - RAW tab on a RAW/Zero photo.
 12. **Capture Looks:** pick one, shoot. The photo is edited in Photos; the editor shows the
     Look selected and lets you remove it.
-    - Each look (Portrait 400, Evergreen, Slide, Lush, Three-Strip, Blockbuster,
-      Night 800, Bleach Bypass) reads as a film or movie grade in the viewfinder, on skin,
-      and in daylight and night scenes, with no faded blacks or global tint. The LOOK
-      strip's thumbnails are easy to tell apart.
+    - The set menu (stack button, left of the LOOK strip) switches the strip between
+      Essentials, Film Stocks, Movie, Grades and All. The editor's Looks tool has the same
+      menu.
+    - Each Film Stocks and Movie look reads as a film or movie grade in the viewfinder, on
+      skin, and in daylight and night scenes, with no faded blacks or global tint. Compare
+      against Grades, PR #35's pass. The LOOK strip's thumbnails are easy to tell apart.
+    - The Saturation slider on a new edit makes rich colours deeper, not brighter. An
+      older edit's slider behaves as before.
       - Night 800 at night: red glow around lights, cyan shadows. It was designed only on
         daylight and sun-flare images.
       - Skin under Portrait 400, Evergreen and Blockbuster (the twists were designed on

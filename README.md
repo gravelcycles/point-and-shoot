@@ -33,24 +33,21 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     a film stock with its own tone curve and shoulder, color balance and crossover, its
     own rendering of each hue (skin, foliage, skies), film color (rich colors get denser
     and darker, not louder), real blacks, halation and grain.
-    - **Print** and **Phromagraph:** film from the sensor (below).
-    - **Punch:** a vivid negative pushed hard: maximum color.
-    - **Portrait 400:** a portrait negative: soft contrast into real blacks, warm luminous
-      skin, olive greens, pale skies.
-    - **Evergreen:** a Fuji-style negative: emerald greens, pink-leaning skin, magenta
-      highlights over green shadows.
-    - **Slide:** classic slide film: dense blacks, intense reds and golds against muted
-      greens and deep blue skies.
-    - **Lush:** vivid landscape slide: lush greens, deep violet-leaning skies, warm colors
-      pushed toward red.
-    - **Three-Strip:** dye-transfer Technicolor: high key, pure dense primaries, rosy skin.
-    - **Blockbuster:** teal and orange done like a colorist: skin locked and warmed,
-      greens and skies turned teal, clean blacks.
-    - **Night 800:** tungsten 800 after dark: cyan shadows under amber light, a red glow
-      around lights.
-    - **Bleach Bypass:** silver left in the print: drained color, hard contrast, inky
-      blacks, grit.
-    - **Noir:** pushed black and white: inky cold blacks, heavy grain and glow.
+    - **Named sets.** Looks come in sets you can switch between from the stack button at
+      the left of the LOOK strip (and in the editor's Looks tool), so whole families can
+      be compared. **About** groups them by set.
+      - **Essentials:** **Print** and **Phromagraph** (film from the sensor, below),
+        **Punch** (a vivid negative pushed hard) and **Noir** (pushed black and white).
+      - **Film Stocks:** **Portrait 400** (soft into real blacks, luminous skin, olive
+        greens), **Evergreen** (Fuji-style emerald greens, pink-leaning skin), **Slide**
+        (dense crimson and gold against muted greens and deep skies) and **Lush** (lush
+        greens, deep violet-leaning skies).
+      - **Movie:** **Three-Strip** (dye-transfer Technicolor: pure dense primaries, rosy
+        skin), **Blockbuster** (teal and orange with skin locked, clean blacks), **Night
+        800** (tungsten after dark: cyan shadows, amber light, red glow) and **Bleach
+        Bypass** (drained color, hard contrast, inky blacks).
+      - **Grades:** the first cinematic pass, kept to compare: Desert, Pastel, Amber Haze,
+        Sodium, Neon Night, Slide 70s and Bleach Grit.
   - **Each look has its own key, contrast, color and shadows,** spaced further apart than
     Instagram-style filters, so they're easy to tell apart at a glance.
   - **Photos keep the look they were made with.** Looks from earlier versions (Natural,
@@ -162,8 +159,8 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
     swipes still adjust); double-tap for fit ↔ 2.5×. Zoomed in, the preview renders from
     the full-resolution photo, so you can judge grain, sharpening and noise.
   - **Looks** (with an **About** guide explaining each): Print (the film emulation above),
-    Phromagraph (Chromagraph, measured), Punch, Portrait 400, Evergreen, Slide, Lush,
-    Three-Strip, Blockbuster, Night 800, Bleach Bypass and Noir, with live thumbnails. On a photo with a DNG,
+    Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks; Movie; and the
+    Grades set, with live thumbnails and a set menu. On a photo with a DNG,
     every look develops from the sensor data.
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.

@@ -257,6 +257,8 @@ struct CameraSettings: Codable, Equatable {
     var selfTimer: SelfTimer = .off
     /// Look applied live in the viewfinder and baked onto each shot as an editable edit.
     var captureLook: String?
+    /// The named set of looks the LOOK picker shows (`LookSet` id); nil = all looks.
+    var lookSet: String?
     /// Print as its own mode next to Photo and Video, or as one of the looks.
     var printPlacement: PrintPlacement = .mode
     /// Lens to reopen on next launch.
@@ -433,9 +435,13 @@ extension CameraSettings {
     /// The modes the mode picker offers.
     var availableModes: [CaptureMode] { printPlacement == .mode ? [.photo, .print, .video] : [.photo, .video] }
 
-    /// The looks the camera's LOOK picker offers (Print only when it isn't a mode).
+    /// The looks the camera's LOOK picker offers (Print only when it isn't a mode), from
+    /// the chosen set (`lookSet`) or all of them.
     var filterLooks: [Look] {
-        Look.all.filter { $0.id != "none" && (printPlacement == .filter || $0.id != Self.printLookID) }
+        let set = LookSet.named(lookSet)
+        return Look.all.filter {
+            $0.id != "none" && (printPlacement == .filter || $0.id != Self.printLookID) && (set == nil || $0.set == set)
+        }
     }
 
     /// The look applied to stills right now: Print in Print mode, otherwise the chosen

@@ -238,8 +238,14 @@ def _display_core(dn, stock, controls):
     # saturation (linear in the print densities, so the Swift cube can tabulate it).
     neutral = dm.mean(axis=-1, keepdims=True)
     dm = dye_saturate(dm, stock.get("dyeSaturation") or 0.0)
+    # The user's Saturation slider. From film engine 2 (`subtractive`), more saturation
+    # works like the dyes: about each color's least dense channel, so richer is darker.
+    # Engine 1 spread about the mean, which brightens saturated colors; older photos keep
+    # it. Less saturation pulls toward the mean either way.
     sat = controls.get("saturation", 0)
-    if sat != 0:
+    if sat > 0 and controls.get("subtractive", False):
+        dm = dye_saturate(dm, 0.6 * sat)
+    elif sat != 0:
         mean = dm.mean(axis=-1, keepdims=True)
         k = 1 + sat * (0.6 if sat > 0 else 1.0)
         dm = mean + (dm - mean) * k

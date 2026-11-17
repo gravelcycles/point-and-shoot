@@ -134,6 +134,7 @@ struct DialPanel: View {
     /// guide that explains every look.
     private var filterStrip: some View {
         HStack(spacing: 6) {
+            setMenu
             filterCards
             // Always visible (not scrolled away at the end of the strip).
             Button { showGuide = true } label: {
@@ -151,13 +152,15 @@ struct DialPanel: View {
             .accessibilityIdentifier("filter.info")
             .accessibilityLabel("About looks")
         }
-        // Refresh the previews from the live camera every couple of seconds while open.
+        // Refresh the previews from the live camera every couple of seconds while open,
+        // for the looks on show (and at once when the set changes).
         .task {
             while !Task.isCancelled {
-                camera.renderer.filterThumbnails(side: 120) { thumbnails = $0 }
+                refreshThumbnails()
                 try? await Task.sleep(for: .seconds(TestHooks.isUITest ? 3600 : 2))
             }
         }
+        .onChange(of: camera.settings.lookSet) { refreshThumbnails() }
         .sheet(isPresented: $showGuide) {
             FilterGuide(thumbnails: thumbnails, selectedID: camera.settings.activeLook,
                         looks: [Look.all[0]] + camera.settings.filterLooks) { id in
@@ -165,6 +168,47 @@ struct DialPanel: View {
             }
             .presentationDetents([.medium, .large])
         }
+    }
+
+    private func refreshThumbnails() {
+        camera.renderer.filterThumbnails(side: 120, looks: [Look.all[0]] + camera.settings.filterLooks) {
+            thumbnails.merge($0) { _, new in new }
+        }
+    }
+
+    /// Which named set of looks the strip shows (`LookSet`), or all of them.
+    private var setMenu: some View {
+        let current = LookSet.named(camera.settings.lookSet)
+        return Menu {
+            Picker("Look set", selection: Binding(
+                get: { camera.settings.lookSet ?? "all" },
+                set: { id in
+                    camera.haptic(.light)
+                    camera.update { $0.lookSet = id == "all" ? nil : id }
+                })) {
+                Text("All looks").tag("all")
+                ForEach(LookSet.allCases) { set in
+                    Text("\(set.name) (\(set.looks.count))").tag(set.rawValue)
+                }
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "square.stack.3d.up")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(current == nil ? Color.white : Color.yellow)
+                    .frame(width: 44, height: 50)
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(current?.name ?? "All")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(current == nil ? Color.white : Color.yellow)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(width: 52)
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("filter.set")
+        .accessibilityLabel("Look set: \(current?.name ?? "All looks")")
     }
 
     private var filterCards: some View {

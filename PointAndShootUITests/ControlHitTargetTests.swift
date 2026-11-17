@@ -131,6 +131,20 @@ final class ControlHitTargetTests: XCTestCase {
         waitForExpectations(timeout: 3)
     }
 
+    /// The set menu narrows the LOOK strip to one named set.
+    func testLookSetMenuFiltersTheStrip() {
+        tapOffLabel(app.buttons["strip.look"], dx: 0.1)
+        XCTAssertTrue(app.buttons["filter.portrait400"].waitForExistence(timeout: 3), "Look cards didn't appear")
+        let menu = app.buttons["filter.set"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3), "no look-set menu")
+        menu.tap()
+        let movie = app.buttons["\(LookSetNames.movie) (4)"]
+        XCTAssertTrue(movie.waitForExistence(timeout: 3), "the set menu didn't open")
+        movie.tap()
+        XCTAssertTrue(app.buttons["filter.blockbuster"].waitForExistence(timeout: 3), "Movie set should show Blockbuster")
+        XCTAssertFalse(app.buttons["filter.portrait400"].exists, "Movie set still shows Portrait 400")
+    }
+
     func testFilterGuideExplainsAndPicks() {
         tapOffLabel(app.buttons["strip.look"], dx: 0.1)
         let info = app.buttons["filter.info"]
@@ -239,4 +253,9 @@ final class ControlHitTargetTests: XCTestCase {
         viewfinder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
         XCTAssertTrue(app.otherElements["focus.reticle"].waitForExistence(timeout: 3))
     }
+}
+
+/// Set names as the menu shows them (the UI test target can't see the app's `LookSet`).
+private enum LookSetNames {
+    static let movie = "Movie"
 }

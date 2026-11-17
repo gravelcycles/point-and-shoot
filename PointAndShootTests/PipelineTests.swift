@@ -93,6 +93,24 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(lum(g1), lum(g0), accuracy: 0.02)
     }
 
+    /// From film engine 2, more Saturation works like the dyes: a rich color gets darker.
+    /// Engine 1 spread density about the mean, which brightened it (a yellow at +50 went
+    /// from 0.34 to 0.57 luminance); photos made with engine 1 keep that slider.
+    func testSaturationSliderIsSubtractiveFromEngineTwo() {
+        let s = FilmStock.printLook
+        func lum(_ c: (Double, Double, Double)) -> Double { 0.2289746 * c.0 + 0.6917385 * c.1 + 0.0792869 * c.2 }
+        var engine1 = FilmControls()
+        engine1.saturation = 0.5
+        var engine2 = engine1
+        engine2.subtractiveSaturation = true
+        for color in [(0.45, 0.28, 0.2), (0.12, 0.2, 0.45), (0.6, 0.5, 0.05)] {
+            let neg = FilmLUT.negativeDensity(color, stock: s)
+            let plain = lum(FilmLUT.display(negative: neg, stock: s))
+            XCTAssertLessThan(lum(FilmLUT.display(negative: neg, stock: s, controls: engine2)), plain, "engine 2 brightened \(color)")
+            XCTAssertGreaterThan(lum(FilmLUT.display(negative: neg, stock: s, controls: engine1)), plain, "engine 1 changed for \(color)")
+        }
+    }
+
     func testSceneKeyIsPositiveAndFinite() throws {
         let key = try XCTUnwrap(FilmPipeline.sceneKey(of: testImage(), context: EditPipeline.context, source: .displayReferred))
         XCTAssertTrue(key.isFinite && key > 0)

@@ -258,6 +258,13 @@ struct FilmControls: Hashable {
     var crossover: Double = 0
     var highlights: Double = 0
     var shadows: Double = 0
+    /// Film engine 2+: more Saturation works like the dyes (about each color's least dense
+    /// channel, so richer is darker). Engine 1 spread about the mean, which brightens
+    /// saturated colors; photos pinned with engine 1 keep that (`FilmRecipe.engine`).
+    var subtractiveSaturation = false
+
+    /// The user's saturation goes about each color's least dense channel.
+    var saturatesSubtractively: Bool { subtractiveSaturation && saturation > 0 }
 }
 
 /// Builds the two lookup tables the Core Image pipeline uses.
@@ -527,8 +534,11 @@ enum FilmLUT {
         // (linear in the print densities, so printCube can tabulate it).
         let neutral = (dm.0 + dm.1 + dm.2) / 3
         dm = dyeSaturate(dm, s.dyeSaturation ?? 0)
-        // Saturation in density space (the user's slider), about the mean.
-        if c.saturation != 0 {
+        // Saturation in density space (the user's slider): from engine 2, more saturation
+        // is subtractive like the dyes; less, or engine 1, goes about the mean.
+        if c.saturatesSubtractively {
+            dm = dyeSaturate(dm, 0.6 * c.saturation)
+        } else if c.saturation != 0 {
             let mean = (dm.0 + dm.1 + dm.2) / 3
             let k = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
             dm = (mean + (dm.0 - mean) * k, mean + (dm.1 - mean) * k, mean + (dm.2 - mean) * k)
@@ -589,7 +599,7 @@ enum FilmLUT {
         // Density mixing: crosstalk, then saturation about the mean (S = k·I + (1−k)/3·1).
         let x = stock.crosstalk
         var a = x
-        if c.saturation != 0 {
+        if c.saturation != 0 && !c.saturatesSubtractively {
             let k = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
             let m = (1 - k) / 3
             for i in 0..<3 {
@@ -661,10 +671,11 @@ enum FilmLUT {
             return encode[i] + (encode[i + 1] - encode[i]) * frac
         }
         let toned = stock.hasSplitTone
-        // Dye saturation pivots on each color's own least dense (or mean) channel, which
-        // isn't a product of per-axis terms: those stocks take a per-cell path (three
-        // exps a cell, still a few ms). The user's saturation then applies about the mean.
+        // Dye saturation, and from engine 2 more user saturation, pivot on each color's own
+        // least dense (or mean) channel, which isn't a product of per-axis terms: those
+        // take a per-cell path (three exps a cell, still a few ms).
         let dye = stock.dyeSaturation ?? 0
+        let perCell = dye != 0 || c.saturatesSubtractively
         let userK = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
         let x0 = x[0], x1 = x[1], x2 = x[2], x3 = x[3], x4 = x[4], x5 = x[5], x6 = x[6], x7 = x[7], x8 = x[8]
         let s0 = stock.shadowTint[0], s1 = stock.shadowTint[1], s2 = stock.shadowTint[2]
@@ -687,13 +698,15 @@ enum FilmLUT {
                         let rs2 = hp > 0 ? sa[5 * n + gi] + sa[8 * n + bi] : 0
                         for ri in 0..<n {
                             var t0: Double, t1: Double, t2: Double
-                            if dye == 0 {
+                            if !perCell {
                                 t0 = p0 * f[ri]; t1 = p1 * f[3 * n + ri]; t2 = p2 * f[6 * n + ri]
                             } else {
                                 let q0 = dp[ri], q1 = dp[n + gi], q2 = dp[2 * n + bi]
                                 var m = dyeSaturate((x0 * q0 + x1 * q1 + x2 * q2, x3 * q0 + x4 * q1 + x5 * q2,
                                                      x6 * q0 + x7 * q1 + x8 * q2), dye)
-                                if userK != 1 {
+                                if c.saturatesSubtractively {
+                                    m = dyeSaturate(m, 0.6 * c.saturation)
+                                } else if userK != 1 {
                                     let mean = (m.0 + m.1 + m.2) / 3
                                     m = (mean + (m.0 - mean) * userK, mean + (m.1 - mean) * userK, mean + (m.2 - mean) * userK)
                                 }

@@ -229,6 +229,32 @@ final class FrozenTuningTests: XCTestCase {
         XCTAssertEqual(saved.film?.tuning, r.film?.tuning)
     }
 
+    /// An older photo's Saturation slider keeps working as it did (engine 1, or no engine
+    /// from before versioning); only edits made from engine 2 get the subtractive slider.
+    func testOlderEnginesKeepTheirSaturationSlider() {
+        var r = printRecipe
+        r.saturation = 60
+        var engine1 = r
+        engine1.film?.engine = 1
+        var unversioned = r
+        unversioned.film?.engine = nil
+        var engine2 = r
+        engine2.film?.engine = 2
+        XCTAssertEqual(r.film?.engine, FilmRecipe.currentEngine)
+        XCTAssertLessThan(maxDiff(pixels(engine1), pixels(unversioned)), 1e-4, "no engine must render as engine 1")
+        XCTAssertGreaterThan(maxDiff(pixels(engine1), pixels(engine2)), 0.01, "engine 2's slider should differ")
+    }
+
+    /// Re-saving an edit from before versioning pins engine 1 (the math it was made with),
+    /// never the current engine.
+    func testFreezingAnUnversionedEditPinsEngineOne() {
+        var r = printRecipe
+        r.film?.tuning = nil
+        r.film?.engine = nil
+        r.freezeFilmTuning()
+        XCTAssertEqual(r.film?.engine, 1)
+    }
+
     func testPickingTheLookAgainMovesToTheNewestTuning() {
         var r = printRecipe
         var older = FilmStock.printLook

@@ -26,7 +26,8 @@
       Render every look (Print included) on DNGs (developed scene-linear) and JPEG/HEIC/PNG
       (display-referred, like processed photos) and print how far apart the looks are:
       brightness, contrast, chroma, shadow and highlight tint, and each look's nearest
-      neighbour in mean ΔE (Oklab). Keep every nearest-neighbour ΔE >= 0.06 when tuning
+      neighbour in mean ΔE (Oklab), one table per named set (`set`; each with the essentials).
+      Keep every nearest-neighbour ΔE >= 0.06 within a set when tuning
       (film only: the recipe's vignette and structure come on top). --cssgram adds the
       same table for the 26 Instagram-style CSSgram filters (scripts/cssgram.py) as a
       yardstick; --sheet writes a contact sheet to look at.
@@ -425,7 +426,17 @@ def spread(paths, side=300, cssgram=False, sheet=None, looks_path=None):
             outs.append(np.clip(out, 0, 1))
         renders[sid] = outs
         labs[sid] = [oklab_p3(o) for o in outs]
-    _spread_table("looks", labs)
+    # Looks come in named sets (`set` in film-looks.json, Look.set in the app) and the
+    # pickers show one set at a time, so the rule applies within a set: each set is
+    # measured with the essentials (Print, Phromagraph and every look without a set).
+    sets = {}
+    for sid in labs:
+        sets.setdefault(specs.get(sid, {}).get("set", "essentials"), []).append(sid)
+    essentials = sets.pop("essentials", [])
+    if not sets:
+        _spread_table("looks", labs)
+    for name, ids in sets.items():
+        _spread_table(f"{name} + essentials", {k: labs[k] for k in essentials + ids})
     if cssgram:
         import cssgram as CG
         srgb_to_p3 = np.linalg.inv(P3_TO_SRGB)
@@ -471,6 +482,7 @@ def parity():
     stocks = filmlooks.all_stocks(F.load_stock(STOCK))
     stops = np.arange(-6, 6.01, 0.5)
     ctl = dict(contrast=0.4, saturation=0.5, crossover=-0.5, highlights=0.3, shadows=-0.4)
+    ctl2 = dict(ctl, subtractive=True)    # engine 2's Saturation slider
     i_neg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
@@ -478,7 +490,7 @@ def parity():
     for sid in ("print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleach", "noir"):
         st, s = stocks[sid], sw[sid]
         neg, negd = F.negative_cube(st, "sceneLinear", 48), F.negative_cube(st, "displayReferred", 48)
-        pc, pcc = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48)
+        pc, pcc, pcc2 = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48), F.print_cube(st, ctl2, 48)
         checks = {
             "neutral": (s["neutral"], F.neutral_response(stops, st)),
             "neutral_ctl": (s["neutral_ctl"], F.neutral_response(stops, st, ctl)),
@@ -487,6 +499,8 @@ def parity():
             "negD": (s["negD"], [negd[b, g, r] for r, g, b in i_neg]),
             "print": (s["print"], [pc[b, g, r] for r, g, b in i_pr]),
             "print_ctl": (s["print_ctl"], [pcc[b, g, r] for r, g, b in i_pr]),
+            "print_ctl2": (s["print_ctl2"], [pcc2[b, g, r] for r, g, b in i_pr]),
+            "colors_ctl2": (s["colors_ctl2"], F.display(F.negative_density(colors, st), st, ctl2)),
         }
         for k, (a, b) in checks.items():
             d = float(np.abs(np.array(a) - np.array(b)).max())

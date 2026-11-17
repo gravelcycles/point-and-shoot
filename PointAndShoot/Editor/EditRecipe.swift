@@ -101,7 +101,9 @@ struct EditRecipe: Codable, Equatable {
     mutating func freezeFilmTuning() {
         guard var f = film, f.tuning == nil else { return }
         f.tuning = FilmStock.resolved(for: self)
-        if f.engine == nil { f.engine = FilmRecipe.currentEngine }
+        // No engine means it was made before versioning, with engine 1's math (rendering
+        // reads nil as 1). Pin that, never the current engine, or re-saving would change it.
+        if f.engine == nil { f.engine = 1 }
         film = f
     }
 
@@ -180,7 +182,10 @@ struct FilmRecipe: Codable, Equatable {
     /// numbers) that would alter older photos must keep the old behaviour for older engines.
     var engine: Int?
 
-    static let currentEngine = 1
+    /// 1: the original film math. 2 (2026-11-17): the Saturation slider adds saturation
+    /// subtractively, like the dyes (richer is darker); engine 1 photos keep the old
+    /// slider. Hue twists and dye saturation need no bump: they're off when absent.
+    static let currentEngine = 2
     /// 0…100; 50 = the look as designed.
     var halation: Double = 50
     /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),
@@ -295,11 +300,45 @@ struct Adjustment: Identifiable {
     ]
 }
 
+/// Named sets of looks, so whole families can be tried side by side: the camera's LOOK
+/// picker and the editor's Looks tool show one set (or all), and the guide groups by set.
+/// Stored by id (`CameraSettings.lookSet`), so an unknown id just means "all".
+enum LookSet: String, CaseIterable, Identifiable {
+    case essentials, stocks, movie, grades
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .essentials: "Essentials"
+        case .stocks: "Film Stocks"
+        case .movie: "Movie"
+        case .grades: "Grades"
+        }
+    }
+
+    /// What the set is, for the picker and the guide's section header.
+    var detail: String {
+        switch self {
+        case .essentials: "Print, Phromagraph, Punch and Noir."
+        case .stocks: "Real film stocks: each renders skin, foliage and skies its own way, with dense blacks and dye-dense color."
+        case .movie: "Movie grades built like film: Technicolor, teal and orange, tungsten night, bleach bypass."
+        case .grades: "The first cinematic pass (PR #35): color casts, split toning and softer blacks. Here to compare."
+        }
+    }
+
+    /// The looks in this set, in order (Original isn't in any set; pickers add it).
+    var looks: [Look] { Look.all.filter { $0.set == self && $0.id != "none" } }
+
+    static func named(_ id: String?) -> LookSet? { id.flatMap(LookSet.init(rawValue:)) }
+}
+
 struct Look: Identifiable {
     let id: String
     let name: String
     /// One or two plain sentences shown in the look guide.
     let detail: String
+    /// The named set the pickers group it under.
+    var set: LookSet = .essentials
     /// The camera shoots Bayer RAW for this look (Print). Other looks work on whatever
     /// the camera's processing setting produces, and develop from RAW when there is one.
     var capturesRAW = false
@@ -337,34 +376,50 @@ struct Look: Identifiable {
              capturesRAW: true, apply: film("phromagraph") { $0.grain = 0 }),
         Look(id: "punch", name: "Punch", detail: "Vivid color negative pushed hard: maximum color, bold contrast, bright and clean, with extra crunch.",
              apply: film("punch") { $0.structure = 15 }),
-        // The rest are film stocks too (scripts/film-looks.json). What makes them film and
-        // not filters is structure, not tint: each has its own color rendering by hue
-        // (`FilmStock.hueTwists`: Fuji's emerald greens, a slide film's deep skies,
-        // teal-and-orange with skin locked), dye saturation in density (saturated colors
-        // get darker, as with dyes), its own tone curve and crossover, real blacks,
-        // halation and grain. The looks they replaced (Natural, Warm 400, Skin, Cool Air,
-        // Cine, Chrome, Faded, Mono 400, Silver) are retired: photos made with them keep
-        // rendering from their pinned tuning or `FilmStock.Legacy` (see `Look.retired`).
-        // Film stocks:
-        Look(id: "portrait400", name: "Portrait 400", detail: "Portrait negative: soft contrast into real blacks, warm luminous skin, olive-leaning greens, pale cyan skies and a long, forgiving highlight roll-off.",
-             apply: film("portrait400") { $0.structure = -6 }),
-        Look(id: "evergreen", name: "Evergreen", detail: "Fuji-style negative: cool and crisp, emerald greens, pink-leaning skin, magenta highlights over green shadows.",
-             apply: film("evergreen") { $0.vignette = 8 }),
-        Look(id: "slide", name: "Slide", detail: "Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.",
-             apply: film("slide") { $0.vignette = 12 }),
-        Look(id: "lush", name: "Lush", detail: "Vivid landscape slide: lush greens, deep violet-leaning skies, warm colors pushed toward red and a hard white clip.",
-             apply: film("lush") { $0.vignette = 14; $0.structure = 8 }),
-        // Movie looks:
-        Look(id: "threestrip", name: "Three-Strip", detail: "Dye-transfer Technicolor: high key, pure dense primaries, rosy skin, warm light and solid blacks.",
-             apply: film("threestrip") { $0.vignette = 10 }),
-        Look(id: "blockbuster", name: "Blockbuster", detail: "Teal and orange done like a colorist: skin locked and warmed, greens and skies turned teal, purples muted, blacks kept clean.",
-             apply: film("blockbuster") { $0.vignette = 18; $0.structure = 10 }),
-        Look(id: "night800", name: "Night 800", detail: "Tungsten 800 after dark: cyan shadows under amber light, a red glow around every light, pushed contrast and grain.",
-             apply: film("night800") { $0.vignette = 22 }),
-        Look(id: "bleach", name: "Bleach Bypass", detail: "Silver left in the print: drained color, hard contrast, inky blacks and gritty grain.",
-             apply: film("bleach") { $0.structure = 20; $0.vignette = 12 }),
         Look(id: "noir", name: "Noir", detail: "Pushed black and white: inky cold-toned blacks, hard contrast, heavy grain, glow and a deep vignette.",
              apply: film("noir") { $0.mono = true; $0.vignette = 34 }),
+        // The rest are film stocks too (scripts/film-looks.json), in named sets (`LookSet`)
+        // so whole families can be compared on the phone. Film Stocks and Movie are built
+        // on structure, not tint: each has its own color rendering by hue
+        // (`FilmStock.hueTwists`: emerald greens, a slide film's deep skies, teal and orange
+        // with skin locked), dye saturation in density (saturated colors get darker, as
+        // with dyes), its own tone curve and crossover, real blacks, halation and grain.
+        // The looks they replaced (Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded,
+        // Mono 400, Silver) are retired: photos made with them keep rendering from their
+        // pinned tuning or `FilmStock.Legacy` (see `Look.retired`).
+        Look(id: "portrait400", name: "Portrait 400", detail: "Portrait negative: soft contrast into real blacks, warm luminous skin, olive-leaning greens, pale cyan skies and a long, forgiving highlight roll-off.",
+             set: .stocks, apply: film("portrait400") { $0.structure = -6 }),
+        Look(id: "evergreen", name: "Evergreen", detail: "Fuji-style negative: cool and crisp, emerald greens, pink-leaning skin, magenta highlights over green shadows.",
+             set: .stocks, apply: film("evergreen") { $0.vignette = 8 }),
+        Look(id: "slide", name: "Slide", detail: "Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.",
+             set: .stocks, apply: film("slide") { $0.vignette = 12 }),
+        Look(id: "lush", name: "Lush", detail: "Vivid landscape slide: lush greens, deep violet-leaning skies, warm colors pushed toward red and a hard white clip.",
+             set: .stocks, apply: film("lush") { $0.vignette = 14; $0.structure = 8 }),
+        Look(id: "threestrip", name: "Three-Strip", detail: "Dye-transfer Technicolor: high key, pure dense primaries, rosy skin, warm light and solid blacks.",
+             set: .movie, apply: film("threestrip") { $0.vignette = 10 }),
+        Look(id: "blockbuster", name: "Blockbuster", detail: "Teal and orange done like a colorist: skin locked and warmed, greens and skies turned teal, purples muted, blacks kept clean.",
+             set: .movie, apply: film("blockbuster") { $0.vignette = 18; $0.structure = 10 }),
+        Look(id: "night800", name: "Night 800", detail: "Tungsten 800 after dark: cyan shadows under amber light, a red glow around every light, pushed contrast and grain.",
+             set: .movie, apply: film("night800") { $0.vignette = 22 }),
+        Look(id: "bleach", name: "Bleach Bypass", detail: "Silver left in the print: drained color, hard contrast, inky blacks and gritty grain.",
+             set: .movie, apply: film("bleach") { $0.structure = 20; $0.vignette = 12 }),
+        // Grades: the first cinematic pass (PR #35), kept to compare against the two sets
+        // above. Same tunings and extras as it shipped; its Slide and Bleach Bypass have
+        // their own ids here (slide70s, bleachgrit) since the new ones took those.
+        Look(id: "desert", name: "Desert", detail: "Inspired by desert epics: warm ochre and sand, quiet color, soft lifted blacks and a long, gentle highlight roll-off.",
+             set: .grades, apply: film("desert") { $0.vignette = 14 }),
+        Look(id: "pastel", name: "Pastel", detail: "A storybook grade: high key and soft, candy pinks, butter yellows, mint and warm cream whites.",
+             set: .grades, apply: film("pastel") { $0.structure = -8 }),
+        Look(id: "amber", name: "Amber Haze", detail: "Orange fog over a future city: nearly monochrome amber, smoky highlights and a wide, warm glow.",
+             set: .grades, apply: film("amber") { $0.vignette = 18 }),
+        Look(id: "sodium", name: "Sodium", detail: "A streetlight thriller: green-yellow sodium light, muddy desaturated shadows, cold skin and a low key.",
+             set: .grades, apply: film("sodium") { $0.vignette = 24 }),
+        Look(id: "neon", name: "Neon Night", detail: "Neon-lit romance: saturated reds against green shadows, crushed blacks and a strong red glow around lights.",
+             set: .grades, apply: film("neon") { $0.vignette = 26 }),
+        Look(id: "slide70s", name: "Slide 70s", detail: "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
+             set: .grades, apply: film("slide70s") { $0.vignette = 12 }),
+        Look(id: "bleachgrit", name: "Bleach Grit", detail: "Silver left in the print: hard contrast, drained color, metallic highlights and gritty grain.",
+             set: .grades, apply: film("bleachgrit") { $0.structure = 20; $0.vignette = 12 }),
     ]
 
     /// Looks that are no longer offered, by id: their names, so a photo made with one can
