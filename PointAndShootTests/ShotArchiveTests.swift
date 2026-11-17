@@ -110,6 +110,31 @@ final class ShotArchiveTests: XCTestCase {
         XCTAssertNotNil(store.shot(b.id))
     }
 
+    func testTrashedShotsComeBackFromAnArchive() async throws {
+        let a = try await store.add(original: jpeg(), fileExtension: "jpg", kind: .processed,
+                                    capturePreview: nil, recipe: EditRecipe())
+        await waitForRenders()
+        let zip = try await ShotArchive.makeZip(store.shots, store: store)
+        defer { try? FileManager.default.removeItem(at: zip) }
+        store.moveToTrash([a.id])
+        let result = try await ShotArchive.importZip(at: zip, store: store)
+        XCTAssertEqual(result.imported, 1)
+        XCTAssertNotNil(store.shots.first { $0.id == a.id }, "restoring a backup puts a trashed shot back")
+    }
+
+    func testFinderRezipFoldersAreSkipped() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("zip-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("f")
+        try Data("x".utf8).write(to: f)
+        let zip = dir.appendingPathComponent("out.zip")
+        let id = UUID().uuidString
+        try ZipArchive.write([("Top/", f), ("Top/\(id)/shot.json", f), ("__MACOSX/Top/\(id)/._shot.json", f)], to: zip)
+        let groups = try ShotArchive.folders(in: Data(contentsOf: zip))
+        XCTAssertEqual(Array(groups.keys), [id])
+    }
+
     func testImportSummary() {
         var r = ShotArchive.ImportResult()
         r.imported = 3
