@@ -40,6 +40,8 @@ for id in ["print", "phromagraph", "chrome", "warm400", "cine", "noir"] {
         "neutral": neutral, "neutral_ctl": neutralCtl, "colors": colors,
         "neg": sample(neg, FilmLUT.negativeDimension, idxNeg),
         "negD": sample(negD, FilmLUT.negativeDimension, idxNeg),
+        "negD_v1": sample(FilmLUT.negativeCube(stock: s, source: .displayReferred, engine: 1), FilmLUT.negativeDimension, idxNeg),
+        "negD_ev": sample(FilmLUT.negativeCube(stock: s, source: .displayReferred, exposure: 0.7), FilmLUT.negativeDimension, idxNeg),
         "print": sample(pc, FilmLUT.printDimension, idxPrint),
         "print_ctl": sample(pcCtl, FilmLUT.printDimension, idxPrint),
     ]

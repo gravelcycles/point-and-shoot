@@ -129,8 +129,91 @@ final class FrozenTuningTests: XCTestCase {
 
     func testOlderPrintEditRendersWithItsOwnGrain() {
         // Same tone and colour as today's Print (only grain changed), so with grain off the
-        // older edit renders the same; the stock it resolves to carries the old grain.
-        XCTAssertLessThan(maxDiff(pixels(printV1Edit), pixels(printRecipe)), 1e-4)
+        // older edit renders the same as Print on the same engine; the stock it resolves to
+        // carries the old grain.
+        var engineOne = printRecipe
+        engineOne.film?.engine = 1
+        XCTAssertLessThan(maxDiff(pixels(printV1Edit), pixels(engineOne)), 1e-4)
+    }
+
+    // MARK: Engine 2 (display-referred un-render measured from Apple's rendering)
+
+    func testUnversionedEditsRenderWithEngineOne() {
+        XCTAssertEqual(printV1Edit.film?.renderEngine, 1)
+        var r = printV1Edit
+        r.freezeFilmTuning()
+        XCTAssertEqual(r.film?.engine, 1, "Saving an edit from before versioning must keep engine 1's math")
+        XCTAssertEqual(printRecipe.film?.engine, FilmRecipe.currentEngine, "New looks pin the current engine")
+    }
+
+    func testEngineOneUnrenderIsUnchanged() {
+        // Engine 1's un-render, exactly as it shipped: display = 1.273·s / (1 + 0.808·s) on
+        // luminance, channel ratios kept.
+        for c in [(0.5, 0.4, 0.3), (0.9, 0.2, 0.1), (0.05, 0.06, 0.08), (1.0, 1.0, 1.0)] {
+            let y = 0.2627 * c.0 + 0.6780 * c.1 + 0.0593 * c.2
+            let k = min(y, 0.995) / (1.273 - 0.808 * min(y, 0.995)) / y
+            let got = FilmLUT.sceneFromDisplay(rgb: c, engine: 1)
+            XCTAssertEqual(got.0, c.0 * k, accuracy: 1e-12)
+            XCTAssertEqual(got.1, c.1 * k, accuracy: 1e-12)
+            XCTAssertEqual(got.2, c.2 * k, accuracy: 1e-12)
+        }
+    }
+
+    func testEngineTwoUnrendersWithApplesCurveAndSaturation() {
+        // Mid grey keeps its anchor (display 0.20 = scene 0.18) and stays neutral.
+        let g = FilmLUT.sceneFromDisplay(rgb: (0.2, 0.2, 0.2), engine: 2)
+        XCTAssertEqual(g.0, 0.18, accuracy: 1e-9)
+        XCTAssertEqual(g.2, 0.18, accuracy: 1e-9)
+        // Apple crushes shadows: a dark display value is far more scene light than engine 1
+        // assumed (display 0.01: about −2.8 stops, not −4.5).
+        let dark2 = FilmLUT.sceneFromDisplay(rgb: (0.01, 0.01, 0.01), engine: 2).1
+        let dark1 = FilmLUT.sceneFromDisplay(rgb: (0.01, 0.01, 0.01), engine: 1).1
+        XCTAssertGreaterThan(log2(dark2 / dark1), 1)
+        // Near white sits about +3.5 stops over grey, where the RAW develop clips too.
+        let w = FilmLUT.sceneFromDisplay(rgb: (0.95, 0.95, 0.95), engine: 2)
+        XCTAssertEqual(log2(w.1 / 0.18), 3.45, accuracy: 0.15)
+        // Apple's saturation is divided out: a display color comes back less saturated.
+        let c = (0.4, 0.2, 0.1)
+        let one = FilmLUT.sceneFromDisplay(rgb: c, engine: 1), two = FilmLUT.sceneFromDisplay(rgb: c, engine: 2)
+        XCTAssertLessThan(two.0 / two.2, one.0 / one.2)
+        // Monotone in brightness (up to display 0.995, where both engines clamp).
+        var last = 0.0
+        for i in 1...199 {
+            let v = Double(i) / 200
+            let s = FilmLUT.sceneFromDisplay(rgb: (v, v, v), engine: 2).1
+            XCTAssertGreaterThan(s, last, "not monotone at \(v)")
+            last = s
+        }
+    }
+
+    func testProcessedPhotosRenderDifferentlyOnEngineTwo() {
+        var engineOne = printRecipe
+        engineOne.film?.engine = 1
+        XCTAssertGreaterThan(maxDiff(pixels(printRecipe), pixels(engineOne)), 0.01, "Engine 2 had no effect")
+    }
+
+    /// Exposure on a processed photo used to scale display values before un-rendering, so
+    /// +1 EV clipped everything above display 0.5 to the same white.
+    func testExposureOnAProcessedPhotoNoLongerClipsHighlights() {
+        let rect = CGRect(x: 0, y: 0, width: 2, height: 1)
+        let bright = CIImage(color: CIColor(red: 0.75, green: 0.75, blue: 0.75)).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let brighter = CIImage(color: CIColor(red: 0.95, green: 0.95, blue: 0.95)).cropped(to: CGRect(x: 1, y: 0, width: 1, height: 1))
+        let img = brighter.composited(over: bright)
+        func render(_ engine: Int) -> [Float] {
+            var r = printRecipe
+            r.grain = 0
+            r.film?.halation = 0
+            r.film?.engine = engine
+            r.exposure = 50     // +1 EV
+            let out = EditPipeline.apply(r, to: img, developedFromRAW: false)
+            var buf = [Float](repeating: 0, count: 8)
+            EditPipeline.context.render(out.cropped(to: rect), toBitmap: &buf, rowBytes: 32, bounds: rect,
+                                        format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+            return buf
+        }
+        let one = render(1), two = render(2)
+        XCTAssertLessThan(abs(one[1] - one[5]), 0.002, "Engine 1 clips both patches to the same white (as shipped)")
+        XCTAssertGreaterThan(abs(two[1] - two[5]), 0.01, "Engine 2 keeps highlight detail under +1 EV")
     }
 
     func testPinnedTuningRendersExactlyLikeTheCurrentOne() {

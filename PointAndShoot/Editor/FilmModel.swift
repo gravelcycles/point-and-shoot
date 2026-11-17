@@ -240,6 +240,9 @@ enum FilmLUT {
     /// raised to 1/`shaperPower` (log-like spacing: ~2.5 cube steps per stop around grey).
     /// 16 = 6.5 stops of headroom over 18% grey.
     static let shaperScale = 16.0
+    /// The film math's version (`FilmRecipe.engine` pins it per photo). 2: display-referred
+    /// input is un-rendered with Apple's measured curve and saturation, and exposed after.
+    static let currentEngine = 2
     static let shaperPower = 4.0
     /// Negative density is stored divided by this, so it fits the print cube's 0…1 input.
     static let densityScale = 4.0
@@ -255,23 +258,65 @@ enum FilmLUT {
         case displayReferred
     }
 
-    /// Inverse of a generic phone rendering, display = 1.273·s / (1 + 0.808·s), which puts
-    /// 18% grey at 0.20 and +3.5 stops at white. (Gentle on purpose: a brightly rendered
-    /// face shouldn't be read as stops over and pushed into the film's shoulder.)
+    /// Engine 1's inverse of a generic phone rendering, display = 1.273·s / (1 + 0.808·s),
+    /// which puts 18% grey at 0.20 and +3.5 stops at white. A guess; engine 2 measures it.
     static func sceneFromDisplay(_ x: Double) -> Double {
         let v = min(max(x, 0), 0.995)
         return v / (1.273 - 0.808 * v)
     }
 
-    /// For a display-referred color (linear Rec.2020): undo the tone curve on luminance
-    /// and keep the color's channel ratios. Inverting per channel would read a saturated
-    /// display red as a red channel stops overexposed, and the film's shoulder would turn
-    /// it orange.
-    static func sceneFromDisplay(rgb: (Double, Double, Double)) -> (Double, Double, Double) {
+    /// Engine 2: the inverse of Apple's rendering, measured on 13 iPhone 12 Pro ProRAWs
+    /// (CIRAWFilter's default render against a neutral develop of the same file; see
+    /// docs/film-looks.md §5¾). Display luminance → scene luminance, linear between knots in
+    /// log2–log2, anchored like engine 1 (display 0.20 = scene 0.18): the median scene light
+    /// behind each display level, which is what makes the viewfinder match the saved photo.
+    /// Apple crushes shadows far more than engine 1 assumed; near white flattens at +3.5
+    /// stops, where the RAW develop clips too.
+    static let unrenderDisplayY: [Double] = [
+        0.0025, 0.004, 0.006, 0.01, 0.016, 0.025, 0.04, 0.06, 0.09, 0.13, 0.2,
+        0.28, 0.38, 0.48, 0.58, 0.66, 0.74, 0.81, 0.87, 0.92, 0.96, 0.995,
+    ]
+    static let unrenderSceneY: [Double] = [
+        0.014848, 0.01808, 0.021215, 0.026133, 0.032434, 0.040882, 0.053768, 0.069891, 0.092267, 0.119648, 0.18,
+        0.285852, 0.411258, 0.525263, 0.67323, 0.862166, 1.16483, 1.51356, 1.79013, 1.93731, 1.96963, 1.96964,
+    ]
+    /// Apple's saturation boost by display luminance (chroma relative to luminance, display
+    /// over scene): it follows the curve's slope, ×3.4 in the toe to ×1.1 in the shoulder.
+    static let unrenderSatY: [Double] = [0.003, 0.01, 0.03, 0.08, 0.18, 0.35, 0.6, 0.85, 1.0]
+    static let unrenderSatBoost: [Double] = [3.357, 2.688, 1.944, 1.58, 1.397, 1.212, 1.124, 1.12, 1.0]
+    private static let unrenderLogDisplay = unrenderDisplayY.map { log2($0) }
+    private static let unrenderLogScene = unrenderSceneY.map { log2($0) }
+    private static let unrenderLogSatY = unrenderSatY.map { log2($0) }
+
+    /// Piecewise-linear interpolation, clamped at the ends (= numpy.interp).
+    static func interp(_ x: Double, _ xs: [Double], _ ys: [Double]) -> Double {
+        if x <= xs[0] { return ys[0] }
+        if x >= xs[xs.count - 1] { return ys[ys.count - 1] }
+        var i = 1
+        while xs[i] < x { i += 1 }
+        return ys[i - 1] + (ys[i] - ys[i - 1]) * (x - xs[i - 1]) / (xs[i] - xs[i - 1])
+    }
+
+    /// For a display-referred color (linear Rec.2020) → scene light (linear Rec.2020).
+    /// Both engines undo the tone curve on luminance, which keeps hues: inverting per
+    /// channel would read a saturated display red as a red channel stops overexposed.
+    /// Engine 1 kept the display's channel ratios (so Apple's saturation stacked under the
+    /// film's own); engine 2 uses the measured curve and divides out Apple's saturation.
+    static func sceneFromDisplay(rgb: (Double, Double, Double), engine: Int = currentEngine)
+        -> (Double, Double, Double) {
         let r = min(max(rgb.0, 0), 1), g = min(max(rgb.1, 0), 1), b = min(max(rgb.2, 0), 1)
         let y = 0.2627 * r + 0.6780 * g + 0.0593 * b
-        let k = sceneFromDisplay(y) / max(y, 1e-6)
-        return (r * k, g * k, b * k)
+        if engine < 2 {
+            let k = sceneFromDisplay(y) / max(y, 1e-6)
+            return (r * k, g * k, b * k)
+        }
+        let yc = max(y, 1e-6), ly = log2(yc)
+        let s = ly < unrenderLogDisplay[0]
+            ? unrenderSceneY[0] * yc / unrenderDisplayY[0]          // toe: proportional to display
+            : exp2(interp(ly, unrenderLogDisplay, unrenderLogScene))
+        let k = interp(ly, unrenderLogSatY, unrenderSatBoost)
+        func chan(_ v: Double) -> Double { max(1 + (v / yc - 1) / k, 0) * s }
+        return (chan(r), chan(g), chan(b))
     }
 
     /// Geometric-mean scene luminance (linear Rec.2020 Y) of a small linear-sRGB sample,
@@ -395,8 +440,13 @@ enum FilmLUT {
     }
 
     /// RGBA float cube, red fastest (CIColorCube's layout). Input: shaped Rec.2020.
-    /// Output: negative density / densityScale.
-    static func negativeCube(stock: FilmStock, source: Source) -> [Float] {
+    /// Output: negative density / densityScale. For display-referred input, `engine` picks
+    /// the un-render, and from engine 2 `exposure` (stops) is applied after it, in scene
+    /// light: exposing display values first clipped them at white and moved mid-tones by
+    /// the wrong amount. (Scene-linear input takes its exposure before the cube.)
+    static func negativeCube(stock: FilmStock, source: Source, engine: Int = currentEngine,
+                             exposure: Double = 0) -> [Float] {
+        let gain = exp2(exposure)
         let n = negativeDimension
         let step = 1 / Double(n - 1)
         var lin = [Double](repeating: 0, count: n)
@@ -406,9 +456,11 @@ enum FilmLUT {
         for b in 0..<n {
             for g in 0..<n {
                 for r in 0..<n {
-                    let rgb = source == .sceneLinear
-                        ? (lin[r], lin[g], lin[b])
-                        : sceneFromDisplay(rgb: (lin[r], lin[g], lin[b]))
+                    var rgb = (lin[r], lin[g], lin[b])
+                    if source == .displayReferred {
+                        rgb = sceneFromDisplay(rgb: rgb, engine: engine)
+                        if engine >= 2 { rgb = (rgb.0 * gain, rgb.1 * gain, rgb.2 * gain) }
+                    }
                     let d = negativeDensity(rgb, stock: stock)
                     cube[o] = Float(d.0 / densityScale)
                     cube[o + 1] = Float(d.1 / densityScale)

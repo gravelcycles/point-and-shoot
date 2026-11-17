@@ -98,7 +98,7 @@ struct EditRecipe: Codable, Equatable {
     mutating func freezeFilmTuning() {
         guard var f = film, f.tuning == nil else { return }
         f.tuning = FilmStock.resolved(for: self)
-        if f.engine == nil { f.engine = FilmRecipe.currentEngine }
+        if f.engine == nil { f.engine = 1 }   // nil = made with engine 1's math
         film = f
     }
 
@@ -157,9 +157,13 @@ struct FilmRecipe: Codable, Equatable {
     /// The film math's version when the tuning was pinned (`FilmRecipe.currentEngine`).
     /// nil = before versioning. A future change to the film *math* (not just a stock's
     /// numbers) that would alter older photos must keep the old behaviour for older engines.
+    /// 1: the original math (also nil). 2: display-referred input (processed photos, the
+    /// viewfinder) un-rendered with Apple's measured curve and saturation, exposure after.
     var engine: Int?
 
-    static let currentEngine = 1
+    static let currentEngine = FilmLUT.currentEngine
+    /// The engine an edit renders with: nil means it predates versioning, i.e. engine 1.
+    var renderEngine: Int { engine ?? 1 }
     /// 0…100; 50 = the look as designed.
     var halation: Double = 50
     /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),

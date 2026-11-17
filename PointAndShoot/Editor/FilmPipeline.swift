@@ -16,6 +16,8 @@ enum FilmPipeline {
         /// A photo's pinned tuning (`FilmRecipe.tuning`); overrides `stockID` when set.
         var tuning: FilmStock?
         var source: FilmLUT.Source = .sceneLinear
+        /// The film math's version the photo was made with (`FilmRecipe.renderEngine`).
+        var engine = FilmLUT.currentEngine
         /// Stops, applied to scene light before the film.
         var exposure: Double = 0
         /// 0…2, 1 = the look as designed.
@@ -51,7 +53,12 @@ enum FilmPipeline {
         }
     }
 
-    private struct NegativeKey: Hashable { let stock: String; let source: FilmLUT.Source }
+    /// Display-referred tables depend on the engine (the un-render) and, from engine 2, on
+    /// the exposure (applied after the un-render, inside the table). Scene-linear tables
+    /// depend on neither, so they key with engine 0 and exposure 0.
+    private struct NegativeKey: Hashable {
+        let stock: String; let source: FilmLUT.Source; let engine: Int; let exposure: Int
+    }
     private struct PrintKey: Hashable { let stock: String; let controls: FilmControls }
 
     /// Cache identity: the id for a stock as it is in code, id + a hash of the values for a
@@ -61,15 +68,22 @@ enum FilmPipeline {
     }
 
     private static let lock = NSLock()
-    private static let negativeCubes = TableCache<NegativeKey>(capacity: 16)
+    /// 13 display-referred viewfinder tables + the RAW looks' tables, plus room for an
+    /// edit's exposure on a processed photo (each exposure is its own table).
+    private static let negativeCubes = TableCache<NegativeKey>(capacity: 20)
     private static let printCubes = TableCache<PrintKey>(capacity: 18)
 
-    static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source) -> Data {
-        let key = NegativeKey(stock: cacheKey(stock), source: source)
+    static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source, engine: Int = FilmLUT.currentEngine,
+                             exposure: Double = 0) -> Data {
+        let display = source == .displayReferred
+        // Exposure in 1/100 stops: slider steps, and a table per distinct value.
+        let ev = display && engine >= 2 ? Int((exposure * 100).rounded()) : 0
+        let key = NegativeKey(stock: cacheKey(stock), source: source, engine: display ? engine : 0, exposure: ev)
         lock.lock()
         if let cube = negativeCubes.get(key) { lock.unlock(); return cube }
         lock.unlock()
-        let cube = FilmLUT.negativeCube(stock: stock, source: source).withUnsafeBufferPointer { Data(buffer: $0) }
+        let cube = FilmLUT.negativeCube(stock: stock, source: source, engine: key.engine, exposure: Double(ev) / 100)
+            .withUnsafeBufferPointer { Data(buffer: $0) }
         lock.lock()
         negativeCubes.set(key, cube)
         lock.unlock()
@@ -116,7 +130,10 @@ enum FilmPipeline {
         let bounds = image.extent
         var x = image
         let ev = s.exposure + stock.exposure
-        if ev != 0 {
+        // Engine 2 exposes display-referred input after un-rendering it, inside the negative
+        // table; exposing display values here would clip them at white.
+        let exposeInTable = s.source == .displayReferred && s.engine >= 2
+        if ev != 0 && !exposeInTable {
             x = x.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev])
         }
         if s.halation > 0 {
@@ -140,7 +157,7 @@ enum FilmPipeline {
             .applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / FilmLUT.shaperPower])
             .applyingFilter("CIColorCube", parameters: [
                 "inputCubeDimension": FilmLUT.negativeDimension,
-                "inputCubeData": negativeCube(stock, s.source),
+                "inputCubeData": negativeCube(stock, s.source, engine: s.engine, exposure: exposeInTable ? ev : 0),
             ])
 
         if s.grain > 0 {

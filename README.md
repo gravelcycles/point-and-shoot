@@ -44,6 +44,10 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   - **Each filter has its own shadows, brightness and color,** spaced at least as far
     apart as Instagram-style filters, so they're easy to tell apart at a glance.
   - **Bright skin stays skin-colored** instead of going gold.
+  - **The live preview matches the saved photo.** The viewfinder undoes Apple's own
+    rendering (its curve and extra saturation, measured on real shots) before applying
+    the film, so the look you frame is the look you get. Photos edited before this
+    keep their original rendering.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
   - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.
