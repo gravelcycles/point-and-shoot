@@ -254,7 +254,7 @@ struct CaptureFormatPanel: View {
 
     private func rawNote(_ s: CameraSettings) -> String {
         if s.processing == .zero { return "Zero always shoots RAW." }
-        if s.developsBayerRAW { return "The \(Look.named(s.activeLook)?.name ?? "film") filter develops from RAW, so it always shoots RAW." }
+        if s.developsBayerRAW { return "The \(Look.named(s.activeLook)?.name ?? "film") look develops from RAW, so it always shoots RAW." }
         if rawOptions.count < 2 { return "This lens doesn't offer RAW." }
         switch s.rawMode {
         case .off: return "Off: just the processed photo."
