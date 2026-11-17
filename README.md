@@ -136,14 +136,19 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
 - **Info** (ⓘ in the viewer): lens, focal length, aperture, shutter, ISO, EV,
   resolution, file type and size, and a map of where you took the shot, with altitude and
   which way you were facing.
-- **Viewer**: swipe sideways through your camera roll (photos and videos), pinch to peek
-  at focus, tap to hide the controls, and swipe down to get back to shooting. It also has
+- **Viewer**: swipe sideways through your camera roll (photos and videos), tap to hide the
+  controls, and swipe down to get back to shooting. **Zoom like Photos**: pinch (zoom and
+  move at the same time), drag around while zoomed, double-tap to zoom in on a spot or
+  back out. The photo sharpens to full resolution as you zoom in. It also has
   Share (the original full-quality file, RAW included), Favorite, Delete (iOS asks you to
   confirm), and a grid of the whole roll.
 - **Edit** opens the editor on that photo, with a preview showing instantly while the
   full-quality source loads.
   - **Swipe ↕ on the photo** to choose a parameter and **↔** to dial it in. A pill shows
     the value, and a haptic ticks when you cross zero. Hold ◧ to compare with the original.
+  - **Pinch to zoom** in while you edit, with two fingers to move around (one-finger
+    swipes still adjust); double-tap for fit ↔ 2.5×. Zoomed in, the preview renders from
+    the full-resolution photo, so you can judge grain, sharpening and noise.
   - **Filters** (with an **About** guide explaining each): Print (the film emulation above),
     Phromagraph (Chromagraph, measured), Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir, Silver,
     with live thumbnails. On a photo with a DNG, every filter develops from the sensor data.
