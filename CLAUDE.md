@@ -44,6 +44,7 @@ Git history: merged into `main` so far:
 | #17 | the Print/Zero "Couldn't save" fix |
 | #18 | crash shooting zoomed in with Bayer RAW (zoom locks at 1×) |
 | #20 | grainy Print photos: noise reduction and grain |
+| #34 | Phromagraph: a filter fitted to Chromagraph's own renders |
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
@@ -183,7 +184,8 @@ scripts/raw-develop.swift         macOS CIRAWFilter develop exactly as the app d
 scripts/filmlooks.py              builds full stocks from film-looks.json (tone curve derivation)
 scripts/cssgram.py                the 26 Instagram-style CSSgram filters, browser-exact: the yardstick
                                   for how far apart our looks are (`print-look.py spread --cssgram`)
-docs/looks-contact-sheet.jpg      before/after sheet of the looks (old filters vs new looks)
+docs/looks-contact-sheet.jpg      the looks on 8 test images (Original, Print, Punch, then the 2026-11-17 set)
+docs/film-looks-research.md       ★ why film looks read as film (Yedlin, subtractive colour, stocks, labs), with sources
 docs/film-looks.md                ★ handoff notes for the film looks: history, tuning loop, pitfalls,
                                   unknowns, test images, environment tricks
 CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
@@ -293,20 +295,88 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **Every look except Original is a film stock** in the same model, and is meant to read
   as a film or a movie grade, never an Instagram filter (the owner's brief, 2026-11-17:
   "as original looks as 'print'"). Print is the original; Phromagraph is Chromagraph
-  measured; Punch is kept as is. The cinematic looks are Desert, Pastel, Amber Haze,
-  Sodium, Neon Night, Bleach Bypass and Slide, plus Noir as the one B&W look. Each has
-  its own:
+  measured; Punch is kept as is.
+  - **Named sets** (`LookSet`, `Look.set`; `set` in `film-looks.json`). The camera's LOOK
+    strip (stack button, `CameraSettings.lookSet`, nil = all) and the editor's Looks tool
+    (`@AppStorage("editor.lookSet")`) show one set or all; the guide groups by set. The
+    owner compares whole families on the phone.
+    - Essentials: Original, Print, Phromagraph, Punch, Noir.
+    - Film Stocks: Portrait 400, Evergreen, Slide, Lush.
+    - Movie: Three-Strip, Blockbuster, Night 800, Bleach Bypass.
+    - Grades: PR #35's first pass, with its ids and tunings untouched (Desert, Pastel, Amber
+      Haze, Sodium, Neon Night, and #35's Slide and Bleach Bypass, renamed "Slide 70s" and
+      "Bleach Grit" but still ids `slide` / `bleach`). The new Slide and Bleach Bypass are
+      `classicslide` / `bleachbypass`: an id always means one look, or saved choices, default
+      grades and the editor's highlight would point at the wrong one.
+    - Adding a look: give it a `set` in both places. `export-swift` refuses a JSON set that
+      disagrees with `Look.all` (or a look with no stock), and `SettingsTests` pins the
+      Essentials and checks every film look's stock exists.
+  - **What makes them film and not filters is structure, not tint** (the owner: nothing
+    "super faded / just turned up the tint"; research and sources in
+    `docs/film-looks-research.md`): dense blacks (`floor` 0), colour that depends on hue
+    and brightness, and saturated colours that get *darker*.
+  Each has its own:
   - tone curve: grey placement, contrast slope, shoulder, white, black floor
-  - printer-light balance and crossover
-  - interlayer saturation, an optional scene channel mix (`channel_mix`: Pastel's pink
-    reds and mint, Sodium's cold skin; folded into the sensitivity matrix, no app code),
-    and dye crosstalk
-  - halation and grain (Amber Haze's "halation" is a wide warm bloom)
+  - printer-light balance and crossover (per-channel print gamma: casts that differ in
+    shadows and highlights and die out at black and white; preferred over split toning)
+  - **hue twists** (`FilmStock.hueTwists`, `FilmLUT.twist`): the film's colour rendering
+    by hue.
+    - Each twist is `[hue°, width°, rotate°, saturation, stops]`, applied on scene light in
+      log(x + 0.01) before the sensitivity matrix, so it's the same at every brightness
+      and neutrals are untouched.
+    - `filmlooks.py` refuses twists that fold or squeeze the hue order: d(hue out)/d(hue in)
+      must stay ≥ 0.2 all round (a twist's steepest slope is rotation·π/(2·width), and
+      overlapping twists add). Blockbuster's first greens twist (+70° over ±60°) reversed
+      the hue order of foliage; `PipelineTests` checks the shipped stocks too.
+    - Examples: Evergreen's emerald greens, Blockbuster's skin lock with teal greens and
+      skies, Three-Strip's pull to pure primaries.
+    - Built only into the negative cube (~35 ms per stock vs ~14), so nothing changes per
+      frame.
+  - **dye saturation** (`FilmStock.dyeSaturation`, `FilmLUT.dyeSaturate`), in print
+    density:
+    - > 0 pivots on each colour's least dense channel, so richer colours get *darker*, as
+      with real dyes.
+    - < 0 pulls toward the mean density: retained silver, a bleach bypass.
+    - Spreading about the mean, like the Saturation slider, would *brighten* saturated
+      colours.
+    - Stocks that use it take a per-cell path in `printCube` (~5–9 ms), since the pivot
+      isn't a product of per-axis terms.
+    - A grey with three equal densities is untouched, but printer lights and crossover give
+      a stock's greys a cast, which dye saturation scales by 1 + amount, and it darkens
+      grey a little (Slide's by ~0.08 stop against the same stock without it). The looks
+      were tuned on the real output, so `grey` is approximate: Lush lands ~0.12 stop and
+      Night 800 ~0.21 stop under their `grey` targets.
+  - interlayer saturation, an optional scene channel mix (`channel_mix`, folded into the
+    sensitivity matrix), dye crosstalk, and Technicolor's key black (`key_black`, folded
+    into crosstalk; Three-Strip). None of these three needs app code.
+  - halation and grain (Night 800's red halation is wide, with a low threshold)
   - split toning (`shadowTint` / `highlightTint`): luminance-neutral offsets added to the
-    print's *encoded* output with weight (1 − Y)² / Y². This is what gives each look
-    its own shadows (Neon Night's green, Desert's brown, Sodium's olive, Slide's cool
-    blue). Without it every film black converges to the same neutral, which was the main
-    reason the first filters read as alike.
+    print's *encoded* output with weight (1 − Y)² / Y².
+    - It gave the first filters their own shadows; without it every film black converged
+      to the same neutral.
+    - It reads as a tint, so the new looks use crossover and hue twists instead (at most
+      a trace).
+  - **Film engines** (`FilmLUT.currentEngine`, pinned per photo in `FilmRecipe.engine`;
+    `renderEngine` reads nil as 1):
+    - 1: the original.
+    - 2 (#36): the measured un-render of processed and viewfinder input.
+    - 3 (now): adds the subtractive Saturation slider (`FilmControls.subtractiveSaturation`).
+      More saturation pivots on each colour's least dense channel, as dye saturation does.
+      Engines 1–2 spread about the mean and *brightened* rich colours: a yellow at +50
+      went from 0.34 to 0.57 luminance.
+    - Engines 2+ share engine 2's un-render and its tables (`FilmLUT.unrenderEngine`). At
+      Saturation 0, engine 3 renders exactly like engine 2.
+    - `freezeFilmTuning` pins engine 1 on unversioned edits, never the current engine.
+    - With the slider above 0 on engine 3, the print cube takes the per-cell path.
+    - Hue twists and dye saturation are stock fields (off when absent), so they need no
+      engine.
+  - **Table caches** (`FilmPipeline.tableCapacity` = stock count + 6, ~1.8 MB a table).
+    The LOOK strip's "All" previews touch every stock every 2 s (on their own queue), so a
+    cache smaller than the stock count would evict the viewfinder's tables, which then
+    rebuild on the render queue and stall it. Adding stocks grows it automatically.
+  - **Older photos:** `hueTwists` and `dyeSaturation` are optional, and nil means off.
+    `EditRecipe.decodeSaved` never fills them in from today's stock
+    (`FilmStock.offWhenMissing`), so tunings pinned before they existed render as they did.
   - B&W looks are color stocks followed by the existing mono mix, so the color mixer
     still works like darkroom filters. The stock's `monoTone` gains tone the result: Noir
     is cold.
@@ -314,12 +384,18 @@ is the only source of truth for what exists. Everything else reacts to it.
     thumbnail: brightness (key), contrast, chroma, shadow tint, highlight tint and
     vignette. Grain and structure don't show at thumbnail size, so they never carry a
     look on their own.
-    - **Rule:** every look's nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
+    - **Caveat:** mean ΔE rewards tints. Most pixels are near-neutral, so hue-selective
+      looks measure closer than they read. Meet the rule with key, contrast, dye density
+      and hue signatures, never casts or lifted floors (`docs/film-looks.md` §4,
+      pitfalls).
+    - **Rule:** within each set (measured together with the essentials), every look's
+      nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
       `scripts/print-look.py spread IMG… [--cssgram] [--sheet out.jpg] [--looks OLD.json]`,
-      which measures every look in one table (Print, Phromagraph and B&W included),
-      flags offenders, and can add CSSgram's table and a contact sheet. The tuning loop
-      and pitfalls are in `docs/film-looks.md`.
-    - Today the nearest pairs are 0.063–0.079 (median 0.070). The exception is
+      which prints one table per set (each with the essentials; one table if the JSON
+      has no sets), flags offenders, and can add CSSgram's table and a contact sheet. The
+      tuning loop and pitfalls are in `docs/film-looks.md`.
+    - Today (engine 2's un-render for the JPEGs) the nearest within-set pairs are
+      0.060–0.079 (Three-Strip–Punch 0.060 is the closest). The exception is
       Print–Phromagraph (0.023): the same rendering by design, never retuned from each
       other. CSSgram's 26 Instagram-style filters have a nearest-neighbour median of
       0.050 and a minimum of 0.021.
@@ -328,8 +404,9 @@ is the only source of truth for what exists. Everything else reacts to it.
     with one renders exactly as before: pinned tuning, else `FilmStock.Legacy.v2`
     (`resolved(for:)`; `namedOrRetired` fills gaps in an older pinned tuning from that
     retired stock, not from Print). `Look.retired` keeps their names (`displayName`, the
-    editor's info row) and moves a saved camera choice on: Chrome → Slide, Mono 400 /
-    Silver → Noir, the rest → Original (`CameraSettings.decodeSaved`). Never reuse a
+    editor's info row) and moves a saved camera choice on: Chrome → Slide (`classicslide`), Skin → Portrait
+    400, Cool Air → Evergreen, Cine → Blockbuster, Mono 400 / Silver → Noir, the rest →
+    Original (`CameraSettings.decodeSaved`). Never reuse a
     retired id for a different look.
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
 - **Only Print and Phromagraph capture RAW** (`Look.capturesRAW`). The others apply to
@@ -363,7 +440,7 @@ is the only source of truth for what exists. Everything else reacts to it.
     (`neutralTable`), so warm or cool looks keep their cast in the highlights instead
     of being pulled back to neutral.
   - Print keeps 0 to stay faithful to Chromagraph. Most color looks use 0.2–0.8;
-    desaturated ones (Amber Haze, Bleach Bypass) use 0, because hue protection restores
+    desaturated ones (Bleach Bypass) use 0, because hue protection restores
     the scene's colour (it undoes the interlayer and any `channel_mix`).
 - **Source of truth:**
   - `scripts/print-stock.json` holds Print (fitted).
@@ -393,10 +470,18 @@ is the only source of truth for what exists. Everything else reacts to it.
   - Grain (mostly monochrome, ~0.5 px) and halation: matched by eye/measurement to the
     same samples.
 - **Tables** (per stock):
-  - The negative cube (48³, 1.8 MB) is fixed per stock and source, built once (~15 ms).
-    At launch every stock's viewfinder cube is prewarmed in the background (~200 ms of
-    CPU), so the LOOK strip's live previews never stall the viewfinder.
-  - Both caches are small LRUs (16 negative, 18 print; 1.8 MB each).
+  - The negative cube (48³, 1.8 MB) is fixed per stock and source, built once (~15 ms,
+    ~35 ms with hue twists). At launch every stock's viewfinder cube is prewarmed in the
+    background (~0.5 s of CPU for 19 stocks), so the LOOK strip's live previews never
+    stall the viewfinder.
+  - Both caches are LRUs sized `FilmPipeline.tableCapacity` = stock count + 6 (1.8 MB a
+    table, ~45 MB each at 19 stocks). Print-cube keys use `FilmControls.canonical`, so
+    prewarmed tables serve engine-3 looks. Tables with an edit's exposure baked in have
+    their own 4-slot cache, so an Exposure drag can't evict the viewfinder's (unless the
+    viewfinder's own look carries an exposure, as a default grade can).
+  - LOOK-strip thumbnails render on their own utility queue and Metal command queue from
+    a small copy of the frame (`PreviewRenderer.filterThumbnails`), never on the
+    viewfinder's, and stop refreshing while the session is stopped (roll or editor open).
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
     highlights, shadows) and is cached. It rebuilds in ~2 ms (Print) to ~7 ms (hue
     protection + split toning), only when a film slider moves, so editor sliders don't hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
@@ -408,13 +493,25 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **Sources:**
   - `.sceneLinear` is a RAW develop with `boostAmount = 0`, no local tone mapping and no
     sharpening (`EditPipeline.configure` does this whenever `recipe.film != nil`).
-  - `.displayReferred` (viewfinder, processed HEIFs) first undoes a generic phone tone
-    curve inside the negative cube. It inverts **on luminance and keeps each color's
-    channel ratios** (`FilmLUT.sceneFromDisplay(rgb:)`).
-    - Inverting per channel read saturated display reds as stops over: they turned
-      orange and faces yellow.
-    - The curve is deliberately gentle (+3.5 stops at white), so a brightly rendered face
-      isn't pushed into the shoulder.
+  - `.displayReferred` (viewfinder, processed HEIFs) is un-rendered first, inside the
+    negative cube, **on luminance** (`FilmLUT.sceneFromDisplay(rgb:engine:)`). Inverting
+    per channel read saturated display reds as stops over: they turned orange and faces
+    yellow.
+    - **Engine 2 (and 3, which shares it):** Apple's rendering, *measured* on the owner's ProRAWs
+      (`FilmLUT.unrender*` tables; `docs/film-looks.md` §5¾).
+      - The curve is the median scene light behind each display level (anchored
+        display 0.20 = scene 0.18).
+      - Apple's saturation boost (×3.4 in the toe to ×1.1 in the shoulder) is divided
+        out.
+      - Exposure is applied *after* the un-render, in the table (one cached table per
+        1/100 stop).
+      - The viewfinder now matches the saved RAW photo ~35% better (median ΔE 0.043 →
+        0.028 across looks); what's left is Apple's local tone mapping, which no global
+        inverse can undo.
+    - **Engine 1** (edits pinned before it, and `engine == nil`): a guessed curve
+      `display = 1.273·s/(1+0.808·s)`, channel ratios kept (so Apple's saturation stacked
+      under the film's), and exposure applied *before* un-rendering (+1 EV clipped
+      everything above display 0.5). Kept bit-exact for older edits.
 - **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
   "Print film look".
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
@@ -427,7 +524,7 @@ is the only source of truth for what exists. Everything else reacts to it.
   - **Look:** Print is the first item under LOOK, and there is no Print mode.
   - `CameraSettings.activeLook` is what actually gets applied: Print in Print mode,
     otherwise the chosen look.
-  - The editor's Looks tool always includes Print.
+  - The editor's Looks tool always includes Print (under Essentials, or All).
 - **Capture:** the Print mode (or the Print look) makes the camera shoot Bayer RAW and
   keep the DNG (`CameraSettings.developsBayerRAW`). `RecipeBaker` then renders the edit
   from the in-memory DNG.
@@ -468,14 +565,18 @@ is the only source of truth for what exists. Everything else reacts to it.
       `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
-  - `FilmRecipe.engine` records the film-math version (`currentEngine`, now 1). Pinning
-    freezes a stock's numbers, not the code: a future change to the math that would alter
-    older photos must keep the old behaviour for older engines.
+  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 3;
+    `renderEngine` treats nil as 1, and `freezeFilmTuning` pins nil as 1). Pinning
+    freezes a stock's numbers, not the code: a change to the math that would alter older
+    photos must keep the old behaviour for older engines (engines 2 and 3 did: see
+    "Sources" and "Film engines").
   - Table caches key pinned tunings by id + value hash (`FilmPipeline.cacheKey`), so they
     never share LUTs with the current stock.
   - A pinned tuning missing fields that stocks gained later decodes with those fields taken
-    from the current stock (`EditRecipe.decodeSaved`). Give new `FilmStock` fields values
-    that keep older photos looking the same where possible.
+    from the current stock (`EditRecipe.decodeSaved`), except `FilmStock.offWhenMissing`
+    (hueTwists, dyeSaturation), which stay nil = off. Give new `FilmStock` fields values
+    that keep older photos looking the same where possible, or make them optional and add
+    them to `offWhenMissing`.
 - **Recipe:** `EditRecipe.film` (optional, so old edits decode).
   - Tune's exposure, contrast, highlights, shadows and saturation act inside the film
     model; grain is the film grain.
@@ -502,7 +603,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
-| Film looks: inverse of a phone's tone curve (viewfinder, processed photos) | `FilmLUT.sceneFromDisplay` | display = 1.273·s/(1+0.808·s), applied to luminance |
+| Film looks: inverse of Apple's rendering (viewfinder, processed photos) | `FilmLUT.unrender*` (engine 2) | measured from CIRAWFilter's default render of 13 iPhone 12 Pro ProRAWs, a stand-in for the video feed; refit with real viewfinder frames when possible |
 | Looks' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
 
 ---
@@ -556,7 +657,7 @@ is the only source of truth for what exists. Everything else reacts to it.
   - Share sends the original file. Favorite and Delete are there too.
   - An Info sheet shows EXIF and a map.
 - **Editor:**
-  - Tools: Looks (12), Tune (10 sliders), Details (5), Color (8-band HSL), Crop (aspect,
+  - Tools: Looks (19 plus Original, in named sets), Tune (10 sliders), Details (5), Color (8-band HSL), Crop (aspect,
     straighten, rotate, flip) and RAW (develop from DNG with WB, exposure, NR, local tone
     and boost).
   - Undo, hold-to-compare, copy/paste edits.
@@ -732,13 +833,24 @@ to be wrong.
     - RAW tab on a RAW/Zero photo.
 12. **Capture Looks:** pick one, shoot. The photo is edited in Photos; the editor shows the
     Look selected and lets you remove it.
-    - Each cinematic look (Desert, Pastel, Amber Haze, Sodium, Neon Night, Bleach Bypass,
-      Slide) reads as a film or movie grade in the viewfinder and on skin, daylight and
-      night scenes; the LOOK strip's thumbnails are easy to tell apart. Watch viewfinder
-      smoothness with Amber Haze (the widest bloom).
+    - The set menu (stack button, left of the LOOK strip) switches the strip between
+      Essentials, Film Stocks, Movie, Grades and All. The editor's Looks tool has the same
+      menu.
+    - Each Film Stocks and Movie look reads as a film or movie grade in the viewfinder, on
+      skin, and in daylight and night scenes, with no faded blacks or global tint. Compare
+      against Grades, PR #35's pass. The LOOK strip's thumbnails are easy to tell apart.
+    - The Saturation slider on a new edit makes rich colours deeper, not brighter. An
+      older edit's slider behaves as before.
+      - Night 800 at night: red glow around lights, cyan shadows. It was designed only on
+        daylight and sun-flare images.
+      - Skin under Portrait 400, Evergreen and Blockbuster (the twists were designed on
+        film scans and two iPhone photos).
+      - Viewfinder smoothness on switching looks: the twisted negative cubes take ~35 ms
+        to build (prewarmed).
     - A photo made with a retired look (e.g. Cine, Warm 400) still looks the same and the
-      editor still names its look; a camera left on Chrome / Mono 400 / Silver now opens
-      on Slide / Noir, any other retired look on Original.
+      editor still names its look. A camera left on a retired look opens on its
+      successor: Chrome → Slide, Skin → Portrait 400, Cool Air → Evergreen,
+      Cine → Blockbuster, Mono 400 / Silver → Noir. The rest open on Original.
 13. **Shortcuts / Action button:** "Take a Photo" and "Record a Video" in the Shortcuts app
     open the right mode.
 14. **iOS 18 Control + Lock Screen camera**
@@ -765,7 +877,7 @@ to be wrong.
       only when you zoom in.
     - Editor: Print from the Looks tool. Details → Grain/Halation/Crossover respond;
       Tune sliders behave. Revert in Photos gives the neutral Zero develop.
-    - Switch the look back to Natural: sharpening and the RAW tab's tone sliders return.
+    - Switch the look back to Original: sharpening and the RAW tab's tone sliders return.
 16. **Robustness:**
     - Background/foreground while recording; incoming call; low storage.
     - Deny each permission (camera, mic, photos, location) and confirm graceful messages.

@@ -5,7 +5,7 @@
 extension FilmStock {
     /// Every stock offered as a look, by id (retired stocks live in FilmStock.Legacy).
     static let all: [String: FilmStock] = Dictionary(uniqueKeysWithValues: [
-        printLook, phromagraphStock, desertStock, pastelStock, amberStock, sodiumStock, neonStock, bleachStock, slideStock, punchStock, noirStock,
+        printLook, phromagraphStock, portrait400Stock, evergreenStock, classicslideStock, lushStock, threestripStock, blockbusterStock, night800Stock, bleachbypassStock, punchStock, noirStock, desertStock, pastelStock, amberStock, sodiumStock, neonStock, slideStock, bleachStock,
     ].map { ($0.id, $0) })
 
     /// The stock for a recipe's id (nil = Print, which predates stock ids). A retired id
@@ -139,6 +139,666 @@ extension FilmStock {
             monoTone: [1.0, 1.0, 1.0],
             shadowTint: [-0.01398, 0.00567, -0.00908],
             highlightTint: [0.0537, -0.00807, -0.08469])
+    }()
+
+    /// Portrait 400: Portrait negative: soft contrast into real blacks, warm luminous skin, olive-leaning greens, pale cyan skies and a long, forgiving roll-off.
+    static let portrait400Stock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06038, 0.06049, 0.06064, 0.06082, 0.06107, 0.06139, 0.0618, 0.06233,
+                0.06301, 0.0639, 0.06505, 0.06653, 0.06844, 0.07091, 0.07408, 0.07814,
+                0.08335, 0.08998, 0.0984, 0.10903, 0.12234, 0.13888, 0.15921, 0.18393,
+                0.21356, 0.24858, 0.28929, 0.33585, 0.38821, 0.44613, 0.50923, 0.57699,
+                0.64886, 0.72425, 0.80261, 0.8834, 0.9662, 1.0506, 1.13628, 1.22298,
+                1.31048, 1.39861, 1.48723, 1.57623, 1.66553, 1.75505, 1.84476, 1.9346,
+                2.02455, 2.11458, 2.20468, 2.29482, 2.385, 2.47521, 2.56545, 2.6557,
+                2.74596, 2.83624, 2.92652, 3.01681, 4.08006,
+            ])
+        return FilmStock(
+            id: "portrait400",
+            exposure: 0.0,
+            sensitivity: [
+                1.11059, -0.1017, -0.0089,
+                -0.0394, 1.0483, -0.0089,
+                -0.0394, -0.1017, 1.1411,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [-0.025, 0.01, 0.02],
+            crossover: [0.02, 0.0, -0.02],
+            crosstalk: [
+                0.91282, 0.10769, -0.02051,
+                0.09302, 0.86511, 0.04186,
+                0.04186, 0.09302, 0.86511,
+            ],
+            display: [
+                0.97, 0, 0,
+                0, 0.97, 0,
+                0, 0, 0.97,
+            ],
+            halation: [0.08, 0.02, 0.0],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.006,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.85,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 5.0, width: 25.0, rotation: 6.0, saturation: 0.0, stops: 0.0),
+                .init(hue: 30.0, width: 25.0, rotation: 0.0, saturation: 0.05, stops: 0.2),
+                .init(hue: 90.0, width: 45.0, rotation: -14.0, saturation: -0.25, stops: 0.0),
+                .init(hue: 130.0, width: 45.0, rotation: -10.0, saturation: -0.2, stops: 0.0),
+                .init(hue: 190.0, width: 35.0, rotation: -8.0, saturation: -0.1, stops: 0.0),
+                .init(hue: 222.0, width: 40.0, rotation: -6.0, saturation: -0.05, stops: 0.1),
+                .init(hue: 300.0, width: 45.0, rotation: 0.0, saturation: -0.15, stops: 0.0),
+            ],
+            dyeSaturation: 0.05)
+    }()
+
+    /// Evergreen: Fuji-style negative: cool and crisp, emerald greens, pink-leaning skin, magenta highlights over green shadows (a crossover, not a tint).
+    static let evergreenStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06003, 0.06004, 0.06006, 0.06008, 0.06012, 0.06017, 0.06024, 0.06034,
+                0.06049, 0.0607, 0.061, 0.06144, 0.06206, 0.06295, 0.06424, 0.06607,
+                0.06869, 0.07242, 0.07769, 0.08511, 0.09545, 0.10968, 0.12897, 0.15458,
+                0.18774, 0.22945, 0.28028, 0.34022, 0.40872, 0.48475, 0.5671, 0.65449,
+                0.74577, 0.83997, 0.93631, 1.03419, 1.13318, 1.23295, 1.33327, 1.43397,
+                1.53495, 1.63612, 1.73741, 1.8388, 1.94026, 2.04175, 2.14328, 2.24483,
+                2.3464, 2.44797, 2.54955, 2.65114, 2.75273, 2.85432, 2.95592, 3.05752,
+                3.15911, 3.26071, 3.36231, 3.4639, 4.08006,
+            ])
+        return FilmStock(
+            id: "evergreen",
+            exposure: 0.0,
+            sensitivity: [
+                1.18433, -0.1695, -0.01482,
+                -0.06567, 1.0805, -0.01482,
+                -0.06567, -0.1695, 1.23517,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [0.045, -0.005, -0.035],
+            crossover: [0.05, 0.0, 0.05],
+            crosstalk: [
+                0.91282, 0.10769, -0.02051,
+                0.09302, 0.86511, 0.04186,
+                0.04186, 0.09302, 0.86511,
+            ],
+            display: [
+                0.97, 0, 0,
+                0, 0.97, 0,
+                0, 0, 0.97,
+            ],
+            halation: [0.05, 0.015, 0.0],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.007,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.7,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 5.0, width: 30.0, rotation: -8.0, saturation: 0.1, stops: -0.05),
+                .init(hue: 30.0, width: 25.0, rotation: -8.0, saturation: -0.1, stops: 0.1),
+                .init(hue: 60.0, width: 30.0, rotation: 10.0, saturation: -0.05, stops: 0.0),
+                .init(hue: 95.0, width: 50.0, rotation: 25.0, saturation: 0.15, stops: 0.0),
+                .init(hue: 180.0, width: 40.0, rotation: 0.0, saturation: 0.15, stops: 0.0),
+                .init(hue: 220.0, width: 45.0, rotation: -6.0, saturation: 0.1, stops: 0.0),
+                .init(hue: 310.0, width: 40.0, rotation: -6.0, saturation: 0.2, stops: 0.0),
+            ])
+    }()
+
+    /// Slide: Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.
+    static let classicslideStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06, 0.06, 0.06, 0.06001, 0.06001, 0.06002, 0.06002, 0.06003,
+                0.06005, 0.06008, 0.06013, 0.0602, 0.06032, 0.06051, 0.06082, 0.06133,
+                0.06215, 0.06348, 0.06562, 0.06907, 0.07461, 0.08342, 0.09726, 0.1186,
+                0.15067, 0.19708, 0.26115, 0.34489, 0.44818, 0.56886, 0.70354, 0.84861,
+                1.00091, 1.15805, 1.31832, 1.48059, 1.64411, 1.80841, 1.9732, 2.13828,
+                2.30355, 2.46894, 2.63439, 2.79989, 2.96542, 3.13096, 3.29651, 3.46207,
+                3.62763, 3.79319, 3.95876, 4.08005, 4.08005, 4.08005, 4.08005, 4.08005,
+                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
+            ])
+        return FilmStock(
+            id: "classicslide",
+            exposure: 0.0,
+            sensitivity: [
+                1.22119, -0.2034, -0.01779,
+                -0.07881, 1.0966, -0.01779,
+                -0.07881, -0.2034, 1.28221,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [-0.025, 0.0, 0.035],
+            crossover: [0.04, 0.0, 0.0],
+            crosstalk: [
+                0.86923, 0.16154, -0.03077,
+                0.13954, 0.79767, 0.06279,
+                0.06279, 0.13954, 0.79767,
+            ],
+            display: [
+                0.96, 0, 0,
+                0, 0.96, 0,
+                0, 0, 0.96,
+            ],
+            halation: [0.03, 0.008, 0.0],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.004,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.7,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [-0.0093, 0.0007, 0.0207],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 2.0, width: 30.0, rotation: -4.0, saturation: 0.3, stops: -0.2),
+                .init(hue: 30.0, width: 25.0, rotation: 2.0, saturation: 0.1, stops: 0.0),
+                .init(hue: 52.0, width: 30.0, rotation: -6.0, saturation: 0.25, stops: 0.05),
+                .init(hue: 90.0, width: 45.0, rotation: -14.0, saturation: -0.25, stops: -0.2),
+                .init(hue: 175.0, width: 40.0, rotation: 0.0, saturation: -0.15, stops: -0.1),
+                .init(hue: 225.0, width: 45.0, rotation: -5.0, saturation: -0.05, stops: -0.4),
+            ],
+            dyeSaturation: 0.35)
+    }()
+
+    /// Lush: Vivid landscape slide: lush greens, deep violet-leaning skies, warm hues pushed toward red, a hard white clip.
+    static let lushStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06, 0.06, 0.06, 0.06, 0.06001, 0.06001, 0.06001, 0.06001,
+                0.06002, 0.06003, 0.06004, 0.06006, 0.0601, 0.06016, 0.06026, 0.06042,
+                0.0607, 0.06117, 0.06195, 0.06327, 0.06546, 0.06911, 0.07514, 0.08497,
+                0.10075, 0.12534, 0.1622, 0.21463, 0.28469, 0.37233, 0.47539, 0.59055,
+                0.71437, 0.84399, 0.97734, 1.11301, 1.2501, 1.38805, 1.52651, 1.66528,
+                1.80424, 1.94331, 2.08244, 2.22161, 2.3608, 2.50001, 2.63922, 2.77845,
+                2.91767, 3.05689, 3.19612, 3.33535, 3.47457, 3.6138, 3.75303, 3.89225,
+                4.03148, 4.08006, 4.08006, 4.08006, 4.08006,
+            ])
+        return FilmStock(
+            id: "lush",
+            exposure: 0.0,
+            sensitivity: [
+                1.36865, -0.339, -0.02965,
+                -0.13135, 1.161, -0.02965,
+                -0.13135, -0.339, 1.47035,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [0.025, 0.0, -0.03],
+            crossover: [-0.02, 0.0, 0.03],
+            crosstalk: [
+                0.88376, 0.14359, -0.02735,
+                0.12403, 0.82015, 0.05582,
+                0.05582, 0.12403, 0.82015,
+            ],
+            display: [
+                0.97, 0, 0,
+                0, 0.97, 0,
+                0, 0, 0.97,
+            ],
+            halation: [0.02, 0.006, 0.0],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.003,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.6,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 0.0, width: 25.0, rotation: 0.0, saturation: 0.2, stops: -0.1),
+                .init(hue: 28.0, width: 30.0, rotation: -5.0, saturation: 0.1, stops: 0.0),
+                .init(hue: 40.0, width: 35.0, rotation: -9.0, saturation: 0.3, stops: -0.05),
+                .init(hue: 60.0, width: 35.0, rotation: -7.0, saturation: 0.25, stops: 0.0),
+                .init(hue: 100.0, width: 50.0, rotation: 5.0, saturation: 0.5, stops: -0.15),
+                .init(hue: 225.0, width: 45.0, rotation: 12.0, saturation: 0.35, stops: -0.35),
+                .init(hue: 300.0, width: 45.0, rotation: 0.0, saturation: 0.45, stops: -0.1),
+            ],
+            dyeSaturation: 0.3)
+    }()
+
+    /// Three-Strip: Dye-transfer Technicolor: high key, pure dense primaries (a black key under reds, blues and magentas), rosy skin, warm light, solid blacks.
+    static let threestripStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06001, 0.06001, 0.06002, 0.06003, 0.06004, 0.06006, 0.06009, 0.06013,
+                0.06018, 0.06027, 0.06039, 0.06056, 0.06082, 0.0612, 0.06175, 0.06255,
+                0.06372, 0.06542, 0.0679, 0.07149, 0.07668, 0.08411, 0.09467, 0.1095,
+                0.12998, 0.15768, 0.19417, 0.24075, 0.29819, 0.36653, 0.44506, 0.53251,
+                0.62733, 0.72794, 0.83293, 0.94115, 1.05169, 1.16388, 1.27721, 1.39134,
+                1.50603, 1.6211, 1.73643, 1.85194, 1.96757, 2.08329, 2.19906, 2.31487,
+                2.43071, 2.54657, 2.66244, 2.77832, 2.8942, 3.01009, 3.12599, 3.24188,
+                3.35777, 3.47367, 3.58957, 3.70546, 4.08006,
+            ])
+        return FilmStock(
+            id: "threestrip",
+            exposure: 0.0,
+            sensitivity: [
+                1.18433, -0.1695, -0.01482,
+                -0.06567, 1.0805, -0.01482,
+                -0.06567, -0.1695, 1.23517,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [-0.03, 0.0, 0.03],
+            crossover: [0.12, 0.0, -0.07],
+            crosstalk: [
+                0.64164, 0.37546, -0.01709,
+                0.07752, 0.88759, 0.03489,
+                0.03489, 0.36324, 0.60188,
+            ],
+            display: [
+                0.96, 0, 0,
+                0, 0.96, 0,
+                0, 0, 0.96,
+            ],
+            halation: [0.03, 0.01, 0.0],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.003,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.35,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 25.0, width: 40.0, rotation: -10.0, saturation: 0.15, stops: 0.1),
+                .init(hue: 5.0, width: 20.0, rotation: 0.0, saturation: 0.3, stops: -0.1),
+                .init(hue: 80.0, width: 55.0, rotation: 16.0, saturation: 0.3, stops: -0.1),
+                .init(hue: 150.0, width: 55.0, rotation: -14.0, saturation: 0.3, stops: -0.1),
+                .init(hue: 205.0, width: 60.0, rotation: 14.0, saturation: 0.35, stops: -0.2),
+                .init(hue: 270.0, width: 60.0, rotation: -13.0, saturation: 0.3, stops: 0.0),
+                .init(hue: 345.0, width: 40.0, rotation: 10.0, saturation: 0.3, stops: 0.0),
+                .init(hue: 55.0, width: 20.0, rotation: -3.0, saturation: 0.3, stops: 0.15),
+            ],
+            dyeSaturation: 0.6)
+    }()
+
+    /// Blockbuster: Teal and orange the way a colorist does it: skin hue locked and warmed, greens and skies turned teal, purples muted, blacks kept clean.
+    static let blockbusterStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06, 0.06001, 0.06001, 0.06002, 0.06003, 0.06004, 0.06006, 0.06009,
+                0.06014, 0.06021, 0.06031, 0.06046, 0.0607, 0.06105, 0.06158, 0.06239,
+                0.06361, 0.06545, 0.06823, 0.07239, 0.07862, 0.08785, 0.10142, 0.12108,
+                0.149, 0.18765, 0.23943, 0.30618, 0.38869, 0.48646, 0.59784, 0.72051,
+                0.85197, 0.98998, 1.13267, 1.27864, 1.42686, 1.57659, 1.72735, 1.87879,
+                2.03067, 2.18286, 2.33525, 2.48777, 2.64037, 2.79304, 2.94574, 3.09846,
+                3.2512, 3.40396, 3.55672, 3.70948, 3.86225, 4.01502, 4.08005, 4.08005,
+                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
+            ])
+        return FilmStock(
+            id: "blockbuster",
+            exposure: 0.0,
+            sensitivity: [
+                1.14746, -0.1356, -0.01186,
+                -0.05254, 1.0644, -0.01186,
+                -0.05254, -0.1356, 1.18814,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [0.0, 0.0, 0.0],
+            crossover: [0.12, 0.0, -0.22],
+            crosstalk: [
+                0.86923, 0.16154, -0.03077,
+                0.13954, 0.79767, 0.06279,
+                0.06279, 0.13954, 0.79767,
+            ],
+            display: [
+                0.96, 0, 0,
+                0, 0.96, 0,
+                0, 0, 0.96,
+            ],
+            halation: [0.2, 0.05, 0.005],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.008,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.6,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 0.0, width: 30.0, rotation: 6.0, saturation: 0.0, stops: 0.0),
+                .init(hue: 15.0, width: 30.0, rotation: 8.0, saturation: 0.35, stops: 0.05),
+                .init(hue: 50.0, width: 35.0, rotation: -10.0, saturation: 0.35, stops: 0.05),
+                .init(hue: 105.0, width: 90.0, rotation: 40.0, saturation: 0.15, stops: -0.3),
+                .init(hue: 185.0, width: 40.0, rotation: 0.0, saturation: 0.4, stops: -0.1),
+                .init(hue: 240.0, width: 70.0, rotation: -30.0, saturation: 0.3, stops: -0.2),
+                .init(hue: 290.0, width: 70.0, rotation: -35.0, saturation: -0.45, stops: 0.0),
+            ],
+            dyeSaturation: 0.15)
+    }()
+
+    /// Night 800: Tungsten 800 after dark: cyan shadows under amber light, a red halation glow around lights, pushed contrast and grain.
+    static let night800Stock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06003, 0.06005, 0.06007, 0.06011, 0.06015, 0.06023, 0.06033, 0.06048,
+                0.0607, 0.06102, 0.06149, 0.06218, 0.06318, 0.06465, 0.06678, 0.06987,
+                0.07436, 0.08082, 0.09008, 0.10321, 0.1216, 0.14692, 0.181, 0.22566,
+                0.28234, 0.35178, 0.43388, 0.52766, 0.63156, 0.74372, 0.86235, 0.98584,
+                1.11288, 1.24248, 1.37388, 1.50654, 1.64008, 1.77422, 1.90878, 2.04363,
+                2.17867, 2.31384, 2.44911, 2.58444, 2.71981, 2.85521, 2.99063, 3.12607,
+                3.26151, 3.39696, 3.53242, 3.66787, 3.80333, 3.9388, 4.07426, 4.08005,
+                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
+            ])
+        return FilmStock(
+            id: "night800",
+            exposure: 0.0,
+            sensitivity: [
+                1.14746, -0.1356, -0.01186,
+                -0.05254, 1.0644, -0.01186,
+                -0.05254, -0.1356, 1.18814,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [0.07, 0.0, -0.09],
+            crossover: [0.18, 0.0, -0.28],
+            crosstalk: [
+                0.86923, 0.16154, -0.03077,
+                0.13954, 0.79767, 0.06279,
+                0.06279, 0.13954, 0.79767,
+            ],
+            display: [
+                0.96, 0, 0,
+                0, 0.96, 0,
+                0, 0, 0.96,
+            ],
+            halation: [0.55, 0.12, 0.01],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.6, displayBoost: 4.0,
+                sigmas: [3.0, 12.0], weights: [0.5, 0.5]),
+            grainDensity: 0.012,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.3,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [-0.01701, 0.00299, 0.02299],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 5.0, width: 35.0, rotation: 0.0, saturation: 0.3, stops: 0.15),
+                .init(hue: 45.0, width: 35.0, rotation: -5.0, saturation: 0.2, stops: 0.1),
+                .init(hue: 110.0, width: 75.0, rotation: 35.0, saturation: -0.15, stops: -0.1),
+                .init(hue: 220.0, width: 50.0, rotation: 0.0, saturation: 0.2, stops: -0.15),
+            ],
+            dyeSaturation: 0.1)
+    }()
+
+    /// Bleach Bypass: Silver left in the print: dyes drained in density (saturated colors lose the most), hard contrast, inky blacks, grit.
+    static let bleachbypassStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06, 0.06, 0.06, 0.06001, 0.06001, 0.06002, 0.06002, 0.06004,
+                0.06005, 0.06008, 0.06012, 0.06018, 0.06028, 0.06043, 0.06067, 0.06104,
+                0.06163, 0.06255, 0.06398, 0.06622, 0.0697, 0.0751, 0.08342, 0.0961,
+                0.11516, 0.1432, 0.1833, 0.23855, 0.31132, 0.40259, 0.51154, 0.63586,
+                0.7725, 0.91838, 1.07082, 1.22777, 1.38774, 1.54969, 1.71294, 1.87702,
+                2.04164, 2.2066, 2.37178, 2.5371, 2.70251, 2.86797, 3.03348, 3.199,
+                3.36455, 3.5301, 3.69565, 3.86121, 4.02678, 4.08005, 4.08005, 4.08005,
+                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
+            ])
+        return FilmStock(
+            id: "bleachbypass",
+            exposure: 0.0,
+            sensitivity: [
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [0.01, 0.0, -0.01],
+            crossover: [0.0, 0.0, 0.0],
+            crosstalk: [
+                0.8547, 0.17949, -0.03419,
+                0.15504, 0.77519, 0.06977,
+                0.06977, 0.15504, 0.77519,
+            ],
+            display: [
+                0.98, 0, 0,
+                0, 0.98, 0,
+                0, 0, 0.98,
+            ],
+            halation: [0.05, 0.04, 0.03],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.012,
+            grainChroma: 0.15,
+            grainSize: 0.13,
+            huePreserve: 0.0,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0],
+            hueTwists: [
+                .init(hue: 30.0, width: 35.0, rotation: 0.0, saturation: 0.3, stops: 0.0),
+            ],
+            dyeSaturation: -0.6)
+    }()
+
+    /// Punch: Vivid negative pushed hard: maximum color, bold contrast, bright and clean.
+    static let punchStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06003, 0.06005, 0.06007, 0.06009, 0.06013, 0.06019, 0.06026, 0.06037,
+                0.06052, 0.06073, 0.06103, 0.06146, 0.06206, 0.0629, 0.06409, 0.06577,
+                0.06812, 0.07143, 0.07606, 0.08252, 0.09146, 0.10376, 0.1205, 0.14298,
+                0.17266, 0.21103, 0.25943, 0.31881, 0.38954, 0.47134, 0.56332, 0.66421,
+                0.7725, 0.88674, 1.00559, 1.12793, 1.25287, 1.37972, 1.50795, 1.63718,
+                1.76713, 1.89758, 2.0284, 2.15947, 2.29073, 2.42212, 2.5536, 2.68514,
+                2.81673, 2.94835, 3.08, 3.21166, 3.34334, 3.47502, 3.6067, 3.7384,
+                3.87009, 4.00179, 4.08006, 4.08006, 4.08006,
+            ])
+        return FilmStock(
+            id: "punch",
+            exposure: 0.0,
+            sensitivity: [
+                2.25341, -1.1526, -0.10081,
+                -0.44659, 1.5474, -0.10081,
+                -0.44659, -1.1526, 2.59919,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [-0.02, 0.0, 0.05],
+            crossover: [0.02, 0.0, -0.04],
+            crosstalk: [
+                0.98547, 0.01795, -0.00342,
+                0.0155, 0.97752, 0.00698,
+                0.00698, 0.0155, 0.97752,
+            ],
+            display: [
+                0.98, 0, 0,
+                0, 0.98, 0,
+                0, 0, 0.98,
+            ],
+            halation: [0.04, 0.01, 0.0],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.0033,
+            grainChroma: 0.1,
+            grainSize: 0.13,
+            huePreserve: 0.8,
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0])
+    }()
+
+    /// Noir: Pushed black and white: inky cold-toned blacks, hard contrast, heavy grain and glow.
+    static let noirStock: FilmStock = {
+        let printCurve = FilmCurve(
+            x: [
+                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
+                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
+                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
+                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
+                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
+                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
+                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
+                0.8, 0.80961, 0.81687, 0.8232, 0.83,
+            ],
+            y: [
+                0.06, 0.06, 0.06, 0.06, 0.06001, 0.06001, 0.06002, 0.06002,
+                0.06003, 0.06005, 0.06008, 0.06013, 0.06022, 0.06036, 0.06059, 0.06098,
+                0.06165, 0.06275, 0.06461, 0.0677, 0.07283, 0.08129, 0.09504, 0.11692,
+                0.1507, 0.20064, 0.27045, 0.36198, 0.47435, 0.6044, 0.7479, 0.90085,
+                1.06003, 1.22317, 1.38877, 1.55586, 1.72385, 1.89238, 2.06123, 2.23028,
+                2.39944, 2.56867, 2.73794, 2.90724, 3.07655, 3.24586, 3.41519, 3.58451,
+                3.75384, 3.92317, 4.08005, 4.08005, 4.08005, 4.08005, 4.08005, 4.08005,
+                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
+            ])
+        return FilmStock(
+            id: "noir",
+            exposure: 0.0,
+            sensitivity: [
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+            ],
+            negative: [sharedNegative, sharedNegative, sharedNegative],
+            print: [printCurve, printCurve, printCurve],
+            printer: [0.0, 0.0, 0.0],
+            crossover: [0.0, 0.0, 0.0],
+            crosstalk: [
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+            ],
+            display: [
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+            ],
+            halation: [0.09, 0.09, 0.09],
+            halationSpread: .init(
+                threshold: 1.0, boost: 3.0,
+                displayThreshold: 0.75, displayBoost: 6.0,
+                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
+            grainDensity: 0.012,
+            grainChroma: 0.0,
+            grainSize: 0.13,
+            huePreserve: 0.0,
+            monoTone: [0.9, 0.97, 1.13],
+            shadowTint: [0.0, 0.0, 0.0],
+            highlightTint: [0.0, 0.0, 0.0])
     }()
 
     /// Desert: A desert epic: warm ochre and sand, low saturation, soft lifted blacks and a long, gentle highlight roll-off. No teal.
@@ -436,66 +1096,7 @@ extension FilmStock {
             highlightTint: [0.08323, -0.02677, -0.00677])
     }()
 
-    /// Bleach Bypass: Silver left in the print: hard contrast, drained color, bright metallic highlights and gritty grain.
-    static let bleachStock: FilmStock = {
-        let printCurve = FilmCurve(
-            x: [
-                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
-                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
-                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
-                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
-                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
-                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
-                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
-                0.8, 0.80961, 0.81687, 0.8232, 0.83,
-            ],
-            y: [
-                0.06, 0.06, 0.06001, 0.06001, 0.06001, 0.06002, 0.06003, 0.06004,
-                0.06006, 0.06009, 0.06014, 0.06022, 0.06034, 0.06053, 0.06083, 0.06129,
-                0.06202, 0.06316, 0.06494, 0.06771, 0.07201, 0.07865, 0.08883, 0.10424,
-                0.12712, 0.16026, 0.20667, 0.26901, 0.34882, 0.44602, 0.55894, 0.68488,
-                0.82081, 0.964, 1.11223, 1.26388, 1.41778, 1.57316, 1.7295, 1.88645,
-                2.04379, 2.20139, 2.35915, 2.51701, 2.67493, 2.8329, 2.9909, 3.14891,
-                3.30693, 3.46496, 3.62299, 3.78103, 3.93907, 4.08005, 4.08005, 4.08005,
-                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
-            ])
-        return FilmStock(
-            id: "bleach",
-            exposure: 0.0,
-            sensitivity: [
-                0.74194, 0.2373, 0.02075,
-                0.09194, 0.8873, 0.02075,
-                0.09194, 0.2373, 0.67075,
-            ],
-            negative: [sharedNegative, sharedNegative, sharedNegative],
-            print: [printCurve, printCurve, printCurve],
-            printer: [0.02, 0.0, -0.01],
-            crossover: [0.0, 0.0, 0.0],
-            crosstalk: [
-                0.8547, 0.17949, -0.03419,
-                0.15504, 0.77519, 0.06977,
-                0.06977, 0.15504, 0.77519,
-            ],
-            display: [
-                0.98, 0, 0,
-                0, 0.98, 0,
-                0, 0, 0.98,
-            ],
-            halation: [0.05, 0.04, 0.03],
-            halationSpread: .init(
-                threshold: 1.0, boost: 3.0,
-                displayThreshold: 0.75, displayBoost: 6.0,
-                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
-            grainDensity: 0.012,
-            grainChroma: 0.1,
-            grainSize: 0.13,
-            huePreserve: 0.0,
-            monoTone: [1.0, 1.0, 1.0],
-            shadowTint: [-0.02818, 0.00682, 0.02182],
-            highlightTint: [0.0, 0.0, 0.0])
-    }()
-
-    /// Slide: Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.
+    /// Slide 70s: Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.
     static let slideStock: FilmStock = {
         let printCurve = FilmCurve(
             x: [
@@ -554,8 +1155,8 @@ extension FilmStock {
             highlightTint: [0.03016, -0.00484, -0.04484])
     }()
 
-    /// Punch: Vivid negative pushed hard: maximum color, bold contrast, bright and clean.
-    static let punchStock: FilmStock = {
+    /// Bleach Grit: Silver left in the print: hard contrast, drained color, bright metallic highlights and gritty grain.
+    static let bleachStock: FilmStock = {
         let printCurve = FilmCurve(
             x: [
                 -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
@@ -568,107 +1169,48 @@ extension FilmStock {
                 0.8, 0.80961, 0.81687, 0.8232, 0.83,
             ],
             y: [
-                0.06003, 0.06005, 0.06007, 0.06009, 0.06013, 0.06019, 0.06026, 0.06037,
-                0.06052, 0.06073, 0.06103, 0.06146, 0.06206, 0.0629, 0.06409, 0.06577,
-                0.06812, 0.07143, 0.07606, 0.08252, 0.09146, 0.10376, 0.1205, 0.14298,
-                0.17266, 0.21103, 0.25943, 0.31881, 0.38954, 0.47134, 0.56332, 0.66421,
-                0.7725, 0.88674, 1.00559, 1.12793, 1.25287, 1.37972, 1.50795, 1.63718,
-                1.76713, 1.89758, 2.0284, 2.15947, 2.29073, 2.42212, 2.5536, 2.68514,
-                2.81673, 2.94835, 3.08, 3.21166, 3.34334, 3.47502, 3.6067, 3.7384,
-                3.87009, 4.00179, 4.08006, 4.08006, 4.08006,
+                0.06, 0.06, 0.06001, 0.06001, 0.06001, 0.06002, 0.06003, 0.06004,
+                0.06006, 0.06009, 0.06014, 0.06022, 0.06034, 0.06053, 0.06083, 0.06129,
+                0.06202, 0.06316, 0.06494, 0.06771, 0.07201, 0.07865, 0.08883, 0.10424,
+                0.12712, 0.16026, 0.20667, 0.26901, 0.34882, 0.44602, 0.55894, 0.68488,
+                0.82081, 0.964, 1.11223, 1.26388, 1.41778, 1.57316, 1.7295, 1.88645,
+                2.04379, 2.20139, 2.35915, 2.51701, 2.67493, 2.8329, 2.9909, 3.14891,
+                3.30693, 3.46496, 3.62299, 3.78103, 3.93907, 4.08005, 4.08005, 4.08005,
+                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
             ])
         return FilmStock(
-            id: "punch",
+            id: "bleach",
             exposure: 0.0,
             sensitivity: [
-                2.25341, -1.1526, -0.10081,
-                -0.44659, 1.5474, -0.10081,
-                -0.44659, -1.1526, 2.59919,
+                0.74194, 0.2373, 0.02075,
+                0.09194, 0.8873, 0.02075,
+                0.09194, 0.2373, 0.67075,
             ],
             negative: [sharedNegative, sharedNegative, sharedNegative],
             print: [printCurve, printCurve, printCurve],
-            printer: [-0.02, 0.0, 0.05],
-            crossover: [0.02, 0.0, -0.04],
+            printer: [0.02, 0.0, -0.01],
+            crossover: [0.0, 0.0, 0.0],
             crosstalk: [
-                0.98547, 0.01795, -0.00342,
-                0.0155, 0.97752, 0.00698,
-                0.00698, 0.0155, 0.97752,
+                0.8547, 0.17949, -0.03419,
+                0.15504, 0.77519, 0.06977,
+                0.06977, 0.15504, 0.77519,
             ],
             display: [
                 0.98, 0, 0,
                 0, 0.98, 0,
                 0, 0, 0.98,
             ],
-            halation: [0.04, 0.01, 0.0],
-            halationSpread: .init(
-                threshold: 1.0, boost: 3.0,
-                displayThreshold: 0.75, displayBoost: 6.0,
-                sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
-            grainDensity: 0.0033,
-            grainChroma: 0.1,
-            grainSize: 0.13,
-            huePreserve: 0.8,
-            monoTone: [1.0, 1.0, 1.0],
-            shadowTint: [0.0, 0.0, 0.0],
-            highlightTint: [0.0, 0.0, 0.0])
-    }()
-
-    /// Noir: Pushed black and white: inky cold-toned blacks, hard contrast, heavy grain and glow.
-    static let noirStock: FilmStock = {
-        let printCurve = FilmCurve(
-            x: [
-                -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
-                -0.94999, -0.91734, -0.88251, -0.84642, -0.81002, -0.7737, -0.7369, -0.69916,
-                -0.66001, -0.61868, -0.57563, -0.53226, -0.48999, -0.44952, -0.40998, -0.37045,
-                -0.32998, -0.28795, -0.245, -0.20204, -0.16002, -0.11955, -0.08001, -0.04047,
-                -0, 0.0418, 0.08439, 0.12728, 0.17002, 0.21274, 0.25562, 0.29819,
-                0.33998, 0.38092, 0.42123, 0.46093, 0.49999, 0.53961, 0.57938, 0.61696,
-                0.65001, 0.67743, 0.70064, 0.72103, 0.74001, 0.75782, 0.77375, 0.78781,
-                0.8, 0.80961, 0.81687, 0.8232, 0.83,
-            ],
-            y: [
-                0.06, 0.06, 0.06, 0.06, 0.06001, 0.06001, 0.06002, 0.06002,
-                0.06003, 0.06005, 0.06008, 0.06013, 0.06022, 0.06036, 0.06059, 0.06098,
-                0.06165, 0.06275, 0.06461, 0.0677, 0.07283, 0.08129, 0.09504, 0.11692,
-                0.1507, 0.20064, 0.27045, 0.36198, 0.47435, 0.6044, 0.7479, 0.90085,
-                1.06003, 1.22317, 1.38877, 1.55586, 1.72385, 1.89238, 2.06123, 2.23028,
-                2.39944, 2.56867, 2.73794, 2.90724, 3.07655, 3.24586, 3.41519, 3.58451,
-                3.75384, 3.92317, 4.08005, 4.08005, 4.08005, 4.08005, 4.08005, 4.08005,
-                4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
-            ])
-        return FilmStock(
-            id: "noir",
-            exposure: 0.0,
-            sensitivity: [
-                1, 0, 0,
-                0, 1, 0,
-                0, 0, 1,
-            ],
-            negative: [sharedNegative, sharedNegative, sharedNegative],
-            print: [printCurve, printCurve, printCurve],
-            printer: [0.0, 0.0, 0.0],
-            crossover: [0.0, 0.0, 0.0],
-            crosstalk: [
-                1, 0, 0,
-                0, 1, 0,
-                0, 0, 1,
-            ],
-            display: [
-                1, 0, 0,
-                0, 1, 0,
-                0, 0, 1,
-            ],
-            halation: [0.09, 0.09, 0.09],
+            halation: [0.05, 0.04, 0.03],
             halationSpread: .init(
                 threshold: 1.0, boost: 3.0,
                 displayThreshold: 0.75, displayBoost: 6.0,
                 sigmas: [2.0, 6.0], weights: [0.55, 0.45]),
             grainDensity: 0.012,
-            grainChroma: 0.0,
+            grainChroma: 0.1,
             grainSize: 0.13,
             huePreserve: 0.0,
-            monoTone: [0.9, 0.97, 1.13],
-            shadowTint: [0.0, 0.0, 0.0],
+            monoTone: [1.0, 1.0, 1.0],
+            shadowTint: [-0.02818, 0.00682, 0.02182],
             highlightTint: [0.0, 0.0, 0.0])
     }()
 

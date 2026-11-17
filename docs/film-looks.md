@@ -15,8 +15,10 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #9 | Print look (Chromagraph-style film emulation) and Print mode (PHOTO · PRINT · VIDEO) | merged |
 | #15 | Every photo filter is a film stock, plus split toning, spaced apart with a metric | merged |
 | #20 | Grainy Print photos: real RAW noise reduction, exact grain, finer grain | merged |
-| #34 | Phromagraph: a look fitted to Chromagraph's own renders (§5½) | open |
+| #34 | Phromagraph: a look fitted to Chromagraph's own renders (§5½) | merged |
 | #35 | Filters → **Looks**: seven cinematic grades replace the Instagram-ish filters (§1½) | open, into `claude/raw-import` |
+| #36 | Engine 2: the viewfinder un-render, measured (§5¾) | open, into `main` |
+| – | Looks with structure (hue twists, dye saturation), named look sets, engine 3's subtractive Saturation slider (§1¾) | `claude/beautiful-noether-ccuezc` |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
@@ -67,7 +69,9 @@ editor still says which look a photo has) and where a saved camera choice moves:
 Chrome → Slide, Mono 400 and Silver → Noir, the rest → Original.
 
 **The new looks** (names are evocative, never film titles, directors or trademarks;
-inspiration goes in the `detail` text at most):
+inspiration goes in the `detail` text at most). *Superseded before shipping by §1¾:*
+Desert, Pastel, Amber Haze, Sodium and Neon Night were replaced; Bleach Bypass and
+Slide were rebuilt.
 
 | Look (`id`) | Intent | How the stock gets there |
 |---|---|---|
@@ -76,8 +80,8 @@ inspiration goes in the `detail` text at most):
 | Amber Haze (`amber`) | Orange fog over a future city: nearly monochrome amber, smoky highlights | Interlayer −0.8 (almost mono), strong orange printer lights and tints, white 0.86 and floor 0.045 (smoke), a wide warm bloom (σ 6/20 ‰); `huePreserve` 0 or hue protection would re-saturate it |
 | Sodium (`sodium`) | Streetlight thriller: green-yellow cast, muddy desaturated shadows, cold skin, low key | Printer lights −g, +b; olive shadow tint; `channel_mix` takes red from green (cold skin); interlayer −0.35; key 0.12 |
 | Neon Night (`neon`) | Neon-lit romance: saturated reds against green shadows, crushed blacks, strong glow | Interlayer 0.9, slope 2.0, key 0.085, floor 0; green shadow tint, red highlight tint; red halation 0.45 |
-| Bleach Bypass (`bleach`) | Silver retained: hard contrast, drained colour, metallic highlights, grit | Slope 2.1, interlayer −0.35, full dye crosstalk, steel shadow tint, grain 0.012, structure +20 in `Look.all` |
-| Slide (`slide`) | Seventies slide film: rich reds, deep blue skies, dense blacks, warm light | Slope 2.0, floor 0, interlayer 1.1 with crosstalk 0.9 (dense colours darken: deep skies), cool shadows under warm highlights |
+| Bleach Bypass (`bleach`, now "Bleach Grit") | Silver retained: hard contrast, drained colour, metallic highlights, grit | Slope 2.1, interlayer −0.35, full dye crosstalk, steel shadow tint, grain 0.012, structure +20 in `Look.all` |
+| Slide (`slide`, now "Slide 70s") | Seventies slide film: rich reds, deep blue skies, dense blacks, warm light | Slope 2.0, floor 0, interlayer 1.1 with crosstalk 0.9 (dense colours darken: deep skies), cool shadows under warm highlights |
 
 **New tool: `channel_mix`** (`film-looks.json`): a 3×3 mix of scene RGB (linear
 Rec.2020), rows normalised to 1 so neutrals stay neutral, folded into the stock's
@@ -112,8 +116,88 @@ two exactly tied knots survives no longer depends on numpy's sort (the cause of 
 cross-machine drift noted in CLAUDE.md). With it, Print, Phromagraph, Punch and Noir
 regenerate byte-identical (numpy 2.5.3).
 
-**Contact sheet:** `docs/looks-contact-sheet.jpg`, before (the old filters) and after,
-on the two test DNGs and the two Apple JPEGs (film only: no vignette or structure).
+**Contact sheet:** `docs/looks-contact-sheet.jpg` now shows §1¾'s set (Original, Print and Punch,
+then the new looks) on eight test images, film only (no vignette or structure).
+
+## 1¾. Structure, not tint (2026-11-17, second pass)
+
+The owner worried the looks were "still instagramified... not film-esque or movie-esque",
+liked Punch, and wanted nothing that "seem[s] super faded/just turned up the tint". The
+research behind this pass, with sources, is in **`docs/film-looks-research.md`**.
+
+**The diagnosis:** most of §1½'s looks were the Instagram pattern:
+- printer-light casts and split tones over every pixel;
+- lifted floors of 0.01–0.045;
+- a global `channel_mix`.
+
+Film looks differ instead by how colour and tone *interact*. Three new mechanisms do that
+(CLAUDE.md §4). All three are point-wise and baked into the two LUTs, so nothing changes
+per frame:
+- **`hue_twists`:** each film's colour rendering by hue, on scene light in log space.
+  Neutrals are untouched. Emerald greens, golden or rosy skin, deep skies, teal and orange
+  with skin locked.
+- **`dye_saturation`:** saturation in print density. Above 0, richer colours get *darker*
+  (subtractive). Below 0, it's retained silver (bleach bypass).
+- **`key_black`:** Technicolor's black key image, which adds density under colours that
+  pass little green.
+
+**The looks** (details and research in `docs/film-looks-research.md` §4). Every new look
+has `floor` 0, and split toning is gone or a trace.
+
+| Look (`id`) | Reference | Signature |
+|---|---|---|
+| Portrait 400 (`portrait400`) | Portra 400 | High key, soft contrast into real blacks, luminous warm skin, olive greens, pale cyan skies |
+| Evergreen (`evergreen`) | Fuji 400 | Emerald greens, pink skin, magenta highlights over green shadows (crossover [+.05, +.05]) |
+| Slide (`classicslide`) | Kodachrome | Dark key, hard contrast, dense crimson reds and gold against muted olive greens and deep skies |
+| Lush (`lush`) | Velvia | Lush greens, violet-leaning deep skies, warm hues pushed to red, hard white clip |
+| Three-Strip (`threestrip`) | Technicolor dye transfer | High key, pure dense primaries (key black), rosy skin, warm light |
+| Blockbuster (`blockbuster`) | Teal and orange, done by a colourist | Skin hue locked, greens and skies turned teal, purples muted, neutral blacks |
+| Night 800 (`night800`) | CineStill 800T | Cyan shadows under amber light, red halation, low key, grain |
+| Bleach Bypass (`bleachbypass`) | ENR / CCE | Dye saturation −0.6 (silver), hard contrast, inky blacks, grit |
+
+**Unchanged:** Print, Phromagraph, Punch and Noir (they regenerate byte-identical).
+
+**Named sets (same day, at the owner's request: "create diff sets of looks... so i can try
+and test"):** every look stays available and the pickers switch between sets (`LookSet`;
+CLAUDE.md §4).
+- Essentials: Print, Phromagraph, Punch, Noir.
+- Film Stocks and Movie: the looks above.
+- Grades: §1½'s pass, ids and tunings untouched. Its Slide and Bleach Bypass keep ids
+  `slide` / `bleach`, shown as "Slide 70s" / "Bleach Grit"; the new ones are
+  `classicslide` / `bleachbypass`. (A first version reused `slide` / `bleach` for the new
+  looks; a review caught that saved choices, default grades and the editor would then
+  point at the wrong look.)
+
+`spread` measures each set together with the essentials, and every set clears 0.06
+(nearest 0.060–0.079, re-measured after #36's engine-2 un-render moved the JPEG
+columns: Three-Strip and Night 800 were retuned for it).
+
+**Retired camera choices now land on a successor:** Skin → Portrait 400, Cool Air →
+Evergreen, Cine → Blockbuster.
+
+**The Saturation slider was additive, and is fixed from film engine 3.** It spread density
+about the mean, which brightens a saturated colour's dominant channel (a yellow at +50 went
+from 0.34 to 0.57 luminance). From engine 3 it pivots on the least dense channel like
+`dye_saturation`. Edits from engines 1–2, or with no engine, keep the old slider. Engine 2
+is #36's measured un-render; engine 3 keeps that un-render and renders exactly like engine 2
+at Saturation 0.
+
+**Spread** (official four images, before #36's un-render; see above for today's): every new look's nearest was ≥ 0.061, with a median of
+0.065. Print and Phromagraph stay close by design.
+
+On a wider 16-image set (Kodak portraits, parrots, a ColorChecker DNG, sun flare,
+aerial):
+
+| Set | Nearest-neighbour range |
+|---|---|
+| New looks | 0.056–0.071 |
+| Today's app filters | 0.052–0.070 |
+| §1½'s looks | 0.060–0.081 |
+
+**Read §4's "mean ΔE rewards tints" before chasing the 0.06 rule.**
+
+**Not checked:** a real night scene for Night 800 (only daylight and sun flare), and
+anything on the device.
 
 ## 2. The owner's taste (from their own words)
 
@@ -145,8 +229,9 @@ scene light ─ exposure ─ halation ─ shaper ─ [negative cube 48³] ─ + 
 
 - **Two sources.**
   - `sceneLinear` is a RAW develop: boost 0, no local tone map, no sharpening.
-  - `displayReferred` is the viewfinder or a processed HEIF. It is un-rendered first,
-    *on luminance with channel ratios kept*, by a gentle inverse phone curve.
+  - `displayReferred` is the viewfinder or a processed HEIF. It is un-rendered first, on
+    luminance, with Apple's measured curve and its saturation divided out (engine 2,
+    §5¾; engine 1 used a guessed curve and kept channel ratios).
 - **The negative cube** holds the stock's sensitivity (interlayer), the negative curve
   (Vision3 5219) and the density.
 - **The print cube** holds, in order: printer lights, the print curve (derived from the
@@ -219,6 +304,9 @@ confirmed by measurement):
 | `halation`, `halation_spread` | Red glow by default. Equal R/G/B with wide sigmas and a low threshold gives a neutral bloom (Skin). | – |
 | `shadow_tint` / `highlight_tint` | Split toning: encoded RGB offsets weighted (1−Y)² / Y², made luminance-neutral by `filmlooks.py` | ±0.08 |
 | `grain` | Density std at 4032 px (Print uses 0.008) | 0.0027 – 0.0133 |
+| `hue_twists` | Film colour by hue: `[hue°, width°, rotate°, saturation, stops]` each, on scene light in log space (neutrals untouched). Hues: red 5, skin 28, orange 40, yellow 56, foliage 80, green 97, cyan 200, sky 224, blue 242, magenta 312. Converging rotations compress a palette (Blockbuster: 15–50° onto skin; Three-Strip: onto the primaries) | widths 20–60°, rotations ±70°, saturation −0.45…+0.5, stops −0.5…+0.25 |
+| `dye_saturation` | Saturation in print density. > 0 pivots on each colour's least dense channel, so richer colours get *darker*. < 0 pulls toward the mean density (silver) | −0.55 (Bleach) … +0.55 (Three-Strip) |
+| `key_black` | Technicolor's key: green-record density added under every channel (rows renormalised), so reds, blues and magentas get extra black | 0.3 (Three-Strip) |
 | `huePreserve` | Keeps bright warm colours from turning yellow (0 = pure film). Re-saturates desaturated looks and partly undoes a `channel_mix`: keep it low there | 0 (Amber Haze, Bleach) – 0.9 (Print 0) |
 | `mono_tone` | B&W toning gains | Noir [.90,.97,1.13]; Silver [1.1,1,.82] |
 
@@ -240,6 +328,32 @@ confirmed by measurement):
 - **A desaturated look plus hue protection gets its colour back in the highlights.**
   `huePreserve` blends toward the scene colour with the interlayer undone; Amber Haze and
   Bleach Bypass use 0.
+- **Mean ΔE rewards tints.** The spread rule averages over all pixels, and most pixels are
+  near-neutral.
+  - A look that leaves greys alone and bends only skies, foliage and skin scores low
+    (0.035–0.05) even when it reads as clearly different.
+  - A cast moves every pixel and scores high.
+  - Chasing 0.06 with printer lights, split tones and floors is how looks become
+    Instagram filters.
+  - Separate looks by key, contrast, dye density and hue signature instead. Check with
+    `print-look.py scope OUT.jpg`, a ColorChecker vectorscope: a tint shows as parallel
+    arrows or a collapse to one blob. A bounded
+    search over grey, slope and dye saturation helps (the 2026-11-17 pass used a scratch
+    tool; the bounds keep each look's character).
+- **Density saturation about the mean *brightens* saturated colours.** Spreading a red's
+  densities about their mean lowers the cyan density, which is the red channel, and red
+  transmittance shoots up: Y 0.07 → 0.22 at +0.4. Engines 1–2's Saturation slider does this;
+  engine 3's pivots like `dye_saturation`.
+  The stock's `dyeSaturation` pivots on the least dense channel instead, so purity costs
+  density, as with real dyes.
+- **Hue twists can fold the hue order.** A raised-cosine twist's steepest slope is
+  rotation·π/(2·width); past 1 the output hue runs backwards (Blockbuster's first greens
+  twist, +70° over ±60°, made yellow-greens come out more teal than greens: seams in
+  foliage gradients). `filmlooks.py` now refuses any stock whose d(hue out)/d(hue in)
+  drops below 0.2; keep |rotation| under ~0.5·width and widen twists that converge.
+- **Hue measured after the sensitivity matrix is useless for yellows.** Interlayer pushes
+  their blue exposure below zero, and it clamps, so every saturated yellow and orange
+  reads as hue 60. Twists therefore measure hue on scene light, in log(x + 0.01).
 - **"Washed out" is a floor and a white, not a mood.** The first Desert (floor 0.04,
   white 0.93, slope 1.0) read grey and flat; the fix was contrast (slope 1.6) with a small
   floor, letting the warm cast carry the look.
@@ -352,6 +466,64 @@ iPhone 12 Pro on iOS 18.7.3. Not committed (personal photos). Ask the owner for 
     and Chromagraph back to back, from a tripod or steady hands.
 - **Highlights above the develop's clip** (CIRAWFilter with boost 0 tops out at 1.0) aren't
   in the data, so the shoulder's very top is extrapolated.
+
+## 5¾. The viewfinder un-render, measured (engine 2, 2026-11-17)
+
+The viewfinder and processed photos reach the film already rendered by Apple, so the
+film first has to undo that rendering ("un-render"). Engine 1's undo was a guess. The
+Chromagraph DNGs made it measurable.
+
+**The method:**
+- Each DNG is developed twice with CIRAWFilter:
+  - Apple's defaults (`raw-develop.swift --apple`), a stand-in for the processed
+    photo and the video feed;
+  - neutral, exactly as the app develops a RAW.
+- Each shot's exposure is solved, then Apple's display luminance is compared with
+  scene luminance pixel by pixel. Scratch scripts did this; the numbers are in the
+  tables.
+
+**What Apple does, and what engine 1 got wrong:**
+- **Shadows are crushed hard.** −4 stops renders at 0.003, where engine 1 assumed 0.014.
+  Un-rendering read dark areas 1–2 stops too dark.
+- **Highlights roll off much sooner.** +3 stops renders at about 0.65; engine 1 put
+  +3.5 stops at white.
+- **Saturation is boosted, following the curve's slope:** ×3.4 in the toe, ×1.4 at grey,
+  ×1.1 in the shoulder. Engine 1 kept display channel ratios, so the un-rendered
+  picture was ~1.45× more saturated than the scene, and the film added its own on top.
+- Neither a per-channel curve nor a luminance curve alone reproduces Apple's colour. A
+  luminance curve plus the saturation boost does (chroma 0.036 vs Apple's 0.037).
+- **Exposure was applied before un-rendering,** so +1 EV in the editor on a processed
+  photo clipped everything above display 0.5 to white.
+
+**What engine 2 does** (`FilmLUT.sceneFromDisplay(rgb:engine:)`, mirrored in
+`filmmodel.py`):
+- un-renders luminance through the measured table;
+- divides chroma by the boost;
+- applies exposure afterwards, in scene light.
+
+**Why the table is E[scene | display]:** it holds the median scene light behind each
+display level, rather than the inverse of the forward curve. With Apple's local tone
+mapping scattering pixels ±0.6–1 stop, inverting the forward curve over-stretches the
+ends. End to end, viewfinder against saved photo:
+
+| Inverse | Median ΔE (Oklab) |
+|---|---|
+| Engine 1 | 0.043 |
+| Inverted forward curve | 0.045 |
+| E[scene \| display] | 0.028 |
+
+It flattens near white at +3.5 stops, which is right here, because the RAW develop clips
+there too.
+
+**Kept for older photos:** edits pinned with engine 1 (or with no engine) render exactly
+as before, and `FrozenTuningTests` checks engine 1's un-render bit for bit.
+
+**Unknowns:**
+- The tables come from CIRAWFilter's rendering of ProRAW, not from the live video feed.
+  Best next data is real viewfinder frames saved next to each DNG (a diagnostic capture).
+- The fit covers one phone (iPhone 12 Pro) and Apple's default style.
+- What's left (median ~0.03) is Apple's local tone mapping, which no global un-render can
+  remove.
 
 ## 6. Grain and noise: what's known and what isn't
 

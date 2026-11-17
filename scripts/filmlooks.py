@@ -68,6 +68,25 @@ def derive_print_curve(neg_curve, Y, white):
     return {"x": [round(float(v), 5) for v in x], "y": [round(float(v), 5) for v in Dp]}
 
 
+TWIST_MIN_SLOPE = 0.2
+
+
+def twist_min_slope(twists):
+    """The smallest d(hue out)/d(hue in) a set of hue twists gives, and where. Below 0 the
+    hue order folds (yellow-greens would come out more teal than greens); near 0 hues are
+    squeezed so hard that gradients posterise. A raised-cosine twist's steepest slope is
+    rotation·π/(2·width), so keep |rotation| under ~0.5·width, and remember overlapping
+    twists add."""
+    h = np.arange(0.0, 360.0, 0.05)
+    rot = np.zeros_like(h)
+    for hue, width, r, _s, _stops in twists:
+        d = np.abs((h - hue + 180.0) % 360.0 - 180.0)
+        rot += np.where(d < width, 0.5 + 0.5 * np.cos(np.pi * np.minimum(d / width, 1.0)), 0.0) * r
+    slope = np.gradient(np.unwrap(np.radians(h + rot)), np.radians(0.05))
+    i = int(np.argmin(slope))
+    return float(slope[i]), float(h[i])
+
+
 def build_stock(name, spec, base):
     st = copy.deepcopy(base)
     st["name"] = name
@@ -97,6 +116,14 @@ def build_stock(name, spec, base):
         c = spec["crosstalk"]
         X = np.eye(3) + c * (np.array(base["crosstalk"]).reshape(3, 3) - np.eye(3))
         st["crosstalk"] = [round(float(v), 5) for v in X.ravel()]
+    if "key_black" in spec:
+        # Technicolor dye transfer's key: a weak black image of the green record printed
+        # under the dyes. Colors that pass little green (reds, blues, magentas) get extra
+        # black, i.e. denser, deeper primaries. Rows renormalised so neutrals keep their tone.
+        k = spec["key_black"]
+        X = np.array(st["crosstalk"], dtype=np.float64).reshape(3, 3)
+        X = (X + k * np.array([[0.0, 1.0, 0.0]] * 3)) / (1 + k)
+        st["crosstalk"] = [round(float(v), 5) for v in X.ravel()]
     if "halation" in spec:
         st["halation"] = spec["halation"]
     if "halation_spread" in spec:
@@ -105,6 +132,14 @@ def build_stock(name, spec, base):
         t = np.array(spec.get(k_spec, [0.0, 0.0, 0.0]), dtype=np.float64)
         t = t - float(t @ F.LUM_P3)          # luminance-neutral: the tone target holds
         st[k_stock] = [round(float(v), 5) for v in t]
+    # Film color by hue (filmmodel.hue_twist): [hue°, width°, rotate°, saturation, stops].
+    st["hueTwists"] = [[float(v) for v in t] for t in spec.get("hue_twists", [])]
+    if st["hueTwists"]:
+        slope, at = twist_min_slope(st["hueTwists"])
+        if slope < TWIST_MIN_SLOPE:
+            raise ValueError(f"{name}: hue twists squeeze or fold hues near {at:.0f}° (slope {slope:.2f} < "
+                             f"{TWIST_MIN_SLOPE}): widen them or rotate less")
+    st["dyeSaturation"] = float(spec.get("dye_saturation", 0.0))
     st["huePreserve"] = spec.get("huePreserve", 0.0)
     st["monoTone"] = spec.get("mono_tone", [1.0, 1.0, 1.0])
     for k_spec, k_stock in (("grain", "grainDensity"), ("grain_chroma", "grainChroma"), ("grain_size", "grain_size")):

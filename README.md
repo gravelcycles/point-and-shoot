@@ -30,26 +30,33 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   is saved with the look as an *editable edit*. The untouched original stays one tap away
   in the editor or Photos.
   - **Every look is a film or a movie grade,** not a tint or a saturation slider. Each is
-    a film stock with its own tone curve and shoulder, color balance and crossover, film
-    color (rich colors get denser, not louder), halation and grain.
-    - **Print** and **Phromagraph:** film from the sensor (below).
-    - **Punch:** a vivid negative pushed hard: maximum color.
-    - **Desert:** inspired by desert epics: warm ochre and sand, quiet color, soft lifted
-      blacks, a gentle highlight roll-off.
-    - **Pastel:** a storybook grade: high key, candy pinks, butter yellows, mint, cream
-      whites.
-    - **Amber Haze:** orange fog: nearly monochrome amber, smoky highlights, a wide glow.
-    - **Sodium:** a streetlight thriller: green-yellow light, muddy shadows, cold skin.
-    - **Neon Night:** saturated reds against green shadows, crushed blacks, a strong red
-      glow around lights.
-    - **Bleach Bypass:** silver left in the print: hard contrast, drained color, grit.
-    - **Slide:** seventies slide film: rich reds, deep blue skies, dense blacks.
-    - **Noir:** pushed black and white: inky cold blacks, heavy grain and glow.
+    a film stock with its own tone curve and shoulder, color balance and crossover, its
+    own rendering of each hue (skin, foliage, skies), film color (rich colors get denser
+    and darker, not louder), real blacks, halation and grain.
+    - **Named sets.** Looks come in sets you can switch between from the stack button at
+      the left of the LOOK strip (and in the editor's Looks tool), so whole families can
+      be compared. **About** groups them by set.
+      - **Essentials:** **Print** and **Phromagraph** (film from the sensor, below),
+        **Punch** (a vivid negative pushed hard) and **Noir** (pushed black and white).
+      - **Film Stocks:** **Portrait 400** (soft into real blacks, luminous skin, olive
+        greens), **Evergreen** (Fuji-style emerald greens, pink-leaning skin), **Slide**
+        (dense crimson and gold against muted greens and deep skies) and **Lush** (lush
+        greens, deep violet-leaning skies).
+      - **Movie:** **Three-Strip** (dye-transfer Technicolor: pure dense primaries, rosy
+        skin), **Blockbuster** (teal and orange with skin locked, clean blacks), **Night
+        800** (tungsten after dark: cyan shadows, amber light, red glow) and **Bleach
+        Bypass** (drained color, hard contrast, inky blacks).
+      - **Grades:** an earlier, softer pass, kept to compare: Desert, Pastel, Amber Haze,
+        Sodium, Neon Night, Slide 70s and Bleach Grit.
   - **Each look has its own key, contrast, color and shadows,** spaced further apart than
     Instagram-style filters, so they're easy to tell apart at a glance.
   - **Photos keep the look they were made with.** Looks from earlier versions (Natural,
     Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400, Silver) are no longer offered,
     but photos made with them look exactly as before.
+  - **The live preview matches the saved photo.** The viewfinder undoes Apple's own
+    rendering (its curve and extra saturation, measured on real shots) before applying
+    the film, so the look you frame is the look you get. Photos edited before this
+    keep their original rendering.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
   - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.
@@ -156,8 +163,8 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
     swipes still adjust); double-tap for fit ↔ 2.5×. Zoomed in, the preview renders from
     the full-resolution photo, so you can judge grain, sharpening and noise.
   - **Looks** (with an **About** guide explaining each): Print (the film emulation above),
-    Phromagraph (Chromagraph, measured), Punch, Desert, Pastel, Amber Haze, Sodium, Neon
-    Night, Bleach Bypass, Slide and Noir, with live thumbnails. On a photo with a DNG,
+    Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks; Movie; and the
+    Grades set, with live thumbnails and a set menu. On a photo with a DNG,
     every look develops from the sensor data.
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.

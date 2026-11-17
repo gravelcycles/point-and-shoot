@@ -9,10 +9,12 @@ let idxNeg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33),
 let idxPrint = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
 var ctl = FilmControls()
 ctl.contrast = 0.4; ctl.saturation = 0.5; ctl.crossover = -0.5; ctl.highlights = 0.3; ctl.shadows = -0.4
+var ctl2 = ctl      // engine 3: the Saturation slider adds saturation subtractively
+ctl2.subtractiveSaturation = true
 
 var out: [String: Any] = [:]
 var timing: [String: [Double]] = [:]
-for id in ["print", "phromagraph", "punch", "pastel", "amber", "neon", "noir"] {
+for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleachbypass", "bleach", "noir"] {
     let s = FilmStock.named(id)
     var neutral: [[Double]] = [], neutralCtl: [[Double]] = []
     for st in stride(from: -6.0, through: 6.0, by: 0.5) {
@@ -26,6 +28,11 @@ for id in ["print", "phromagraph", "punch", "pastel", "amber", "neon", "noir"] {
         let r = FilmLUT.display(negative: FilmLUT.negativeDensity(c, stock: s), stock: s)
         colors.append([r.0, r.1, r.2])
     }
+    var colors2: [[Double]] = []
+    for c in [(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)] {
+        let r = FilmLUT.display(negative: FilmLUT.negativeDensity(c, stock: s), stock: s, controls: ctl2)
+        colors2.append([r.0, r.1, r.2])
+    }
     let t0 = Date()
     let neg = FilmLUT.negativeCube(stock: s, source: .sceneLinear)
     let t1 = Date()
@@ -35,13 +42,18 @@ for id in ["print", "phromagraph", "punch", "pastel", "amber", "neon", "noir"] {
     let t3 = Date()
     let pcCtl = FilmLUT.printCube(stock: s, controls: ctl)
     let t4 = Date()
+    let pcCtl2 = FilmLUT.printCube(stock: s, controls: ctl2)
     timing[id] = [t1, t2, t3, t4].enumerated().map { i, t in t.timeIntervalSince([t0, t1, t2, t3][i]) * 1000 }
     out[id] = [
         "neutral": neutral, "neutral_ctl": neutralCtl, "colors": colors,
         "neg": sample(neg, FilmLUT.negativeDimension, idxNeg),
         "negD": sample(negD, FilmLUT.negativeDimension, idxNeg),
+        "negD_v1": sample(FilmLUT.negativeCube(stock: s, source: .displayReferred, engine: 1), FilmLUT.negativeDimension, idxNeg),
+        "negD_ev": sample(FilmLUT.negativeCube(stock: s, source: .displayReferred, exposure: 0.7), FilmLUT.negativeDimension, idxNeg),
         "print": sample(pc, FilmLUT.printDimension, idxPrint),
         "print_ctl": sample(pcCtl, FilmLUT.printDimension, idxPrint),
+        "print_ctl2": sample(pcCtl2, FilmLUT.printDimension, idxPrint),
+        "colors_ctl2": colors2,
     ]
 }
 out["timing_ms"] = timing

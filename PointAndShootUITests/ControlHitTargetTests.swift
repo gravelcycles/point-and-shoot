@@ -29,7 +29,7 @@ final class ControlHitTargetTests: XCTestCase {
 
     func testLookCellOpensLookPickerFromTheEdge() {
         tapOffLabel(app.buttons["strip.look"], dx: 0.1)
-        XCTAssertTrue(app.buttons["Desert"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.buttons["Portrait 400"].waitForExistence(timeout: 3),
                       "Tapping the edge of LOOK didn't open the look picker")
     }
 
@@ -121,14 +121,32 @@ final class ControlHitTargetTests: XCTestCase {
     func testFilterCardsSelectAndDoubleTapResets() {
         let strip = app.buttons["strip.look"]
         tapOffLabel(strip, dx: 0.1)
-        let desert = app.buttons["filter.desert"]
-        XCTAssertTrue(desert.waitForExistence(timeout: 3), "Look cards didn't appear")
-        desert.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Desert'"), evaluatedWith: strip)
+        // Punch: an early card that's on screen without scrolling (the set menu takes room).
+        let punch = app.buttons["filter.punch"]
+        XCTAssertTrue(punch.waitForExistence(timeout: 3), "Look cards didn't appear")
+        punch.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Punch'"), evaluatedWith: strip)
         waitForExpectations(timeout: 3)
         strip.doubleTap()
         expectation(for: NSPredicate(format: "label CONTAINS 'Off'"), evaluatedWith: strip)
         waitForExpectations(timeout: 3)
+    }
+
+    /// The set menu narrows the LOOK strip to one named set. Opened from the edge of its
+    /// button (an off-center tap: the whole button must take taps).
+    func testLookSetMenuFiltersTheStrip() {
+        tapOffLabel(app.buttons["strip.look"], dx: 0.1)
+        XCTAssertTrue(app.buttons["filter.portrait400"].waitForExistence(timeout: 3), "Look cards didn't appear")
+        let menu = app.buttons["filter.set"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3), "no look-set menu")
+        tapOffLabel(menu, dx: 0.85, dy: 0.85)
+        let movie = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", LookSetNames.movie)).firstMatch
+        XCTAssertTrue(movie.waitForExistence(timeout: 3), "the set menu didn't open")
+        movie.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["filter.portrait400"])
+        waitForExpectations(timeout: 3)
+        XCTAssertTrue(app.buttons["filter.blockbuster"].exists, "Movie set should show Blockbuster")
+        XCTAssertTrue(menu.label.contains(LookSetNames.movie), "the set button should say Movie, says \(menu.label)")
     }
 
     func testFilterGuideExplainsAndPicks() {
@@ -239,4 +257,9 @@ final class ControlHitTargetTests: XCTestCase {
         viewfinder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
         XCTAssertTrue(app.otherElements["focus.reticle"].waitForExistence(timeout: 3))
     }
+}
+
+/// Set names as the menu shows them (the UI test target can't see the app's `LookSet`).
+private enum LookSetNames {
+    static let movie = "Movie"
 }
