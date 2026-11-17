@@ -16,6 +16,8 @@ enum FilmPipeline {
         /// A photo's pinned tuning (`FilmRecipe.tuning`); overrides `stockID` when set.
         var tuning: FilmStock?
         var source: FilmLUT.Source = .sceneLinear
+        /// The film math's version the photo was made with (`FilmRecipe.renderEngine`).
+        var engine = FilmLUT.currentEngine
         /// Stops, applied to scene light before the film.
         var exposure: Double = 0
         /// 0…2, 1 = the look as designed.
@@ -51,7 +53,12 @@ enum FilmPipeline {
         }
     }
 
-    private struct NegativeKey: Hashable { let stock: String; let source: FilmLUT.Source }
+    /// Display-referred tables depend on the engine (the un-render) and, from engine 2, on
+    /// the exposure (applied after the un-render, inside the table). Scene-linear tables
+    /// depend on neither, so they key with engine 0 and exposure 0.
+    private struct NegativeKey: Hashable {
+        let stock: String; let source: FilmLUT.Source; let engine: Int; let exposure: Int
+    }
     private struct PrintKey: Hashable { let stock: String; let controls: FilmControls }
 
     /// Cache identity: the id for a stock as it is in code, id + a hash of the values for a
@@ -61,22 +68,41 @@ enum FilmPipeline {
     }
 
     private static let lock = NSLock()
-    private static let negativeCubes = TableCache<NegativeKey>(capacity: 16)
-    private static let printCubes = TableCache<PrintKey>(capacity: 18)
+    /// A display-referred viewfinder table for every stock, the RAW looks' tables, plus
+    /// room for an edit's exposures on a processed photo (each exposure is its own table)
+    /// and a few editor slider positions. Sized from the stock count: the LOOK strip's
+    /// "All" previews touch every stock every 2 s (on their own queue), so a smaller cache
+    /// would evict the viewfinder's tables, which would then rebuild on the render queue
+    /// and stall it. ~1.8 MB a table: ~45 MB each at 19 stocks.
+    static let tableCapacity = FilmStock.all.count + 6
+    private static let negativeCubes = TableCache<NegativeKey>(capacity: tableCapacity)
+    private static let printCubes = TableCache<PrintKey>(capacity: tableCapacity)
+    /// Tables with an edit's exposure baked in (processed photos, engine 2+): one per
+    /// 1/100 stop, so dragging Exposure makes many. They get their own small cache, so a
+    /// drag can never evict the viewfinder's and the LOOK strip's tables.
+    private static let exposureCubes = TableCache<NegativeKey>(capacity: 4)
 
-    static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source) -> Data {
-        let key = NegativeKey(stock: cacheKey(stock), source: source)
+    static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source, engine: Int = FilmLUT.currentEngine,
+                             exposure: Double = 0) -> Data {
+        let display = source == .displayReferred
+        // Exposure in 1/100 stops: slider steps, and a table per distinct value.
+        let ev = display && engine >= 2 ? Int((exposure * 100).rounded()) : 0
+        let key = NegativeKey(stock: cacheKey(stock), source: source,
+                              engine: display ? FilmLUT.unrenderEngine(engine) : 0, exposure: ev)
+        let cache = ev == 0 ? negativeCubes : exposureCubes
         lock.lock()
-        if let cube = negativeCubes.get(key) { lock.unlock(); return cube }
+        if let cube = cache.get(key) { lock.unlock(); return cube }
         lock.unlock()
-        let cube = FilmLUT.negativeCube(stock: stock, source: source).withUnsafeBufferPointer { Data(buffer: $0) }
+        let cube = FilmLUT.negativeCube(stock: stock, source: source, engine: key.engine, exposure: Double(ev) / 100)
+            .withUnsafeBufferPointer { Data(buffer: $0) }
         lock.lock()
-        negativeCubes.set(key, cube)
+        cache.set(key, cube)
         lock.unlock()
         return cube
     }
 
     static func printCube(_ stock: FilmStock, _ controls: FilmControls) -> Data {
+        let controls = controls.canonical      // one key per distinct table
         let key = PrintKey(stock: cacheKey(stock), controls: controls)
         lock.lock()
         if let cube = printCubes.get(key) { lock.unlock(); return cube }
@@ -88,7 +114,8 @@ enum FilmPipeline {
         return cube
     }
 
-    /// Builds every stock's viewfinder tables off the main thread (~200 ms of CPU once),
+    /// Builds every stock's viewfinder tables off the main thread (~0.5 s of CPU once for
+    /// 19 stocks, ~35 ms each with hue twists),
     /// so neither the first frame with a filter nor the filter strip's live previews ever
     /// wait for them. The RAW tables too for the looks that shoot RAW (Print, Phromagraph).
     static func prewarm() {
@@ -116,7 +143,10 @@ enum FilmPipeline {
         let bounds = image.extent
         var x = image
         let ev = s.exposure + stock.exposure
-        if ev != 0 {
+        // Engine 2 exposes display-referred input after un-rendering it, inside the negative
+        // table; exposing display values here would clip them at white.
+        let exposeInTable = s.source == .displayReferred && s.engine >= 2
+        if ev != 0 && !exposeInTable {
             x = x.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev])
         }
         if s.halation > 0 {
@@ -140,7 +170,7 @@ enum FilmPipeline {
             .applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / FilmLUT.shaperPower])
             .applyingFilter("CIColorCube", parameters: [
                 "inputCubeDimension": FilmLUT.negativeDimension,
-                "inputCubeData": negativeCube(stock, s.source),
+                "inputCubeData": negativeCube(stock, s.source, engine: s.engine, exposure: exposeInTable ? ev : 0),
             ])
 
         if s.grain > 0 {

@@ -131,8 +131,8 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
         XCTAssertEqual(EditRecipe.decodeSaved(data)?.look, lookID, "\(lookID): the saved recipe doesn't reopen")
     }
 
-    func testBakingAFilterEditsTheAssetAndReopens() async throws {
-        try await bake("mono400")
+    func testBakingALookEditsTheAssetAndReopens() async throws {
+        try await bake("noir")
     }
 
     func testBakingPrintWithoutRAWStillWorks() async throws {

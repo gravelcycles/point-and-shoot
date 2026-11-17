@@ -76,8 +76,8 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
             .accessibilityIdentifier("settings.printPlacement")
             Text(s.printPlacement == .mode
-                 ? "PHOTO · PRINT · VIDEO: Print is its own mode. It always shoots RAW, so it has no format or filter controls."
-                 : "Print is one of the filters under FILTER, alongside Warm 400, Cine and the rest.")
+                 ? "PHOTO · PRINT · VIDEO: Print is its own mode. It always shoots RAW, so it has no format or look controls."
+                 : "Print is one of the looks under LOOK, in the Essentials set.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Picker("Self-timer", selection: camera.binding(\.selfTimer)) {

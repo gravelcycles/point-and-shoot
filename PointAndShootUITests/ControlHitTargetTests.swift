@@ -29,7 +29,7 @@ final class ControlHitTargetTests: XCTestCase {
 
     func testLookCellOpensLookPickerFromTheEdge() {
         tapOffLabel(app.buttons["strip.look"], dx: 0.1)
-        XCTAssertTrue(app.buttons["Warm 400"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.buttons["Portrait 400"].waitForExistence(timeout: 3),
                       "Tapping the edge of LOOK didn't open the look picker")
     }
 
@@ -91,7 +91,7 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping VIDEO didn't switch to video mode")
     }
 
-    /// Print mode always shoots RAW and *is* the filter, so the format pill and the FILTER
+    /// Print mode always shoots RAW and *is* the look, so the format pill and the LOOK
     /// cell go away; the photo controls stay. Back in Photo they return.
     func testPrintModeDropsFormatAndFilterControls() {
         tapOffLabel(app.buttons["mode.print"], dx: 0.5, dy: 0.95)
@@ -105,20 +105,38 @@ final class ControlHitTargetTests: XCTestCase {
         tapOffLabel(app.buttons["mode.photo"], dx: 0.5, dy: 0.95)
         XCTAssertTrue(app.buttons["topbar.format"].waitForExistence(timeout: 3),
                       "Back in Photo, the format pill should return")
-        XCTAssertTrue(app.buttons["strip.look"].exists, "Back in Photo, FILTER should return")
+        XCTAssertTrue(app.buttons["strip.look"].exists, "Back in Photo, LOOK should return")
     }
 
     func testFilterCardsSelectAndDoubleTapResets() {
         let strip = app.buttons["strip.look"]
         tapOffLabel(strip, dx: 0.1)
-        let warm = app.buttons["filter.warm400"]
-        XCTAssertTrue(warm.waitForExistence(timeout: 3), "Filter cards didn't appear")
-        warm.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Warm 400'"), evaluatedWith: strip)
+        // Punch: an early card that's on screen without scrolling (the set menu takes room).
+        let punch = app.buttons["filter.punch"]
+        XCTAssertTrue(punch.waitForExistence(timeout: 3), "Look cards didn't appear")
+        punch.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Punch'"), evaluatedWith: strip)
         waitForExpectations(timeout: 3)
         strip.doubleTap()
         expectation(for: NSPredicate(format: "label CONTAINS 'Off'"), evaluatedWith: strip)
         waitForExpectations(timeout: 3)
+    }
+
+    /// The set menu narrows the LOOK strip to one named set. Opened from the edge of its
+    /// button (an off-center tap: the whole button must take taps).
+    func testLookSetMenuFiltersTheStrip() {
+        tapOffLabel(app.buttons["strip.look"], dx: 0.1)
+        XCTAssertTrue(app.buttons["filter.portrait400"].waitForExistence(timeout: 3), "Look cards didn't appear")
+        let menu = app.buttons["filter.set"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3), "no look-set menu")
+        tapOffLabel(menu, dx: 0.85, dy: 0.85)
+        let movie = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", LookSetNames.movie)).firstMatch
+        XCTAssertTrue(movie.waitForExistence(timeout: 3), "the set menu didn't open")
+        movie.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["filter.portrait400"])
+        waitForExpectations(timeout: 3)
+        XCTAssertTrue(app.buttons["filter.blockbuster"].exists, "Movie set should show Blockbuster")
+        XCTAssertTrue(menu.label.contains(LookSetNames.movie), "the set button should say Movie, says \(menu.label)")
     }
 
     func testFilterGuideExplainsAndPicks() {
@@ -127,11 +145,11 @@ final class ControlHitTargetTests: XCTestCase {
         XCTAssertTrue(info.waitForExistence(timeout: 3))
         info.tap()
         // The guide opens at half height and its List is lazy: only the first few rows
-        // exist until scrolled, so pick one near the top.
-        let warm = app.buttons["guide.warm400"]
-        XCTAssertTrue(warm.waitForExistence(timeout: 4), "Filter guide didn't open")
-        warm.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Warm 400'"), evaluatedWith: app.buttons["strip.look"])
+        // exist until scrolled, so pick one near the top (Original, Phromagraph, Punch, …).
+        let punch = app.buttons["guide.punch"]
+        XCTAssertTrue(punch.waitForExistence(timeout: 4), "Look guide didn't open")
+        punch.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Punch'"), evaluatedWith: app.buttons["strip.look"])
         waitForExpectations(timeout: 3)
     }
 
@@ -206,4 +224,9 @@ final class ControlHitTargetTests: XCTestCase {
         viewfinder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
         XCTAssertTrue(app.otherElements["focus.reticle"].waitForExistence(timeout: 3))
     }
+}
+
+/// Set names as the menu shows them (the UI test target can't see the app's `LookSet`).
+private enum LookSetNames {
+    static let movie = "Movie"
 }

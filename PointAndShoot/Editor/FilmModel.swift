@@ -215,6 +215,36 @@ struct FilmStock: Hashable, Codable {
     var shadowTint: [Double] = [0, 0, 0]
     var highlightTint: [Double] = [0, 0, 0]
 
+    /// One bend of the film's color rendering (`FilmLUT.twist`): the hues within `width`
+    /// degrees of `hue` turn by `rotation` degrees, scale their chroma by 1 + `saturation`
+    /// and get `stops` brighter (or darker). Hues: 0 red, 60 yellow, 120 green, 180 cyan,
+    /// 240 blue, 300 magenta (skin ≈ 30, foliage ≈ 80, sky ≈ 225).
+    /// Pinned tunings decode this with plain synthesized `Decodable` (TolerantJSON doesn't
+    /// recurse into arrays), so never add a required field: new fields must be optional, or
+    /// every photo pinned before them loses its whole edit. `filmlooks.py` refuses twists
+    /// that fold or squeeze the hue order (slope < 0.2).
+    struct HueTwist: Hashable, Codable {
+        var hue: Double
+        var width: Double
+        var rotation: Double
+        var saturation: Double
+        var stops: Double
+    }
+    /// The film's own color by hue, applied to scene light in log space (the same at every
+    /// brightness; neutrals untouched): cyan-leaning greens, golden skin, deep blue skies.
+    /// What separates film stocks by structure rather than by tint. nil = none.
+    /// Optional, and never filled in from the current stock (`offWhenMissing`): a tuning
+    /// pinned before the field existed must render exactly as it did.
+    var hueTwists: [HueTwist]? = nil
+    /// Saturation the print's dyes add in density space (k = 1 + this, times the user's
+    /// Saturation): > 0 dense slide-film color whose saturated hues get darker, < 0 a bleach
+    /// bypass's silver draining color. nil = 0.
+    var dyeSaturation: Double? = nil
+
+    /// Fields a pinned tuning may lack that mean "off" when absent: `EditRecipe.decodeSaved`
+    /// never fills these from the current stock, so older photos keep their look.
+    static let offWhenMissing = ["hueTwists", "dyeSaturation"]
+
     var hasSplitTone: Bool { shadowTint.contains { $0 != 0 } || highlightTint.contains { $0 != 0 } }
 
     /// Density 18% grey produces on the negative, per layer.
@@ -232,6 +262,22 @@ struct FilmControls: Hashable {
     var crossover: Double = 0
     var highlights: Double = 0
     var shadows: Double = 0
+    /// Film engine 3+: more Saturation works like the dyes (about each color's least dense
+    /// channel, so richer is darker). Engines 1 and 2 spread about the mean, which
+    /// brightens saturated colors; photos pinned with them keep that (`FilmRecipe.engine`).
+    var subtractiveSaturation = false
+
+    /// The user's saturation goes about each color's least dense channel.
+    var saturatesSubtractively: Bool { subtractiveSaturation && saturation > 0 }
+
+    /// The same controls with the engine flag cleared where it changes nothing (Saturation
+    /// ≤ 0), so table caches see one key: engine-2 and engine-3 edits share tables, and
+    /// prewarmed tables (built with default controls) serve every engine-3 look.
+    var canonical: FilmControls {
+        var c = self
+        if !c.saturatesSubtractively { c.subtractiveSaturation = false }
+        return c
+    }
 }
 
 /// Builds the two lookup tables the Core Image pipeline uses.
@@ -240,6 +286,17 @@ enum FilmLUT {
     /// raised to 1/`shaperPower` (log-like spacing: ~2.5 cube steps per stop around grey).
     /// 16 = 6.5 stops of headroom over 18% grey.
     static let shaperScale = 16.0
+    /// The film math's version (`FilmRecipe.engine` pins it per photo).
+    /// 2: display-referred input is un-rendered with Apple's measured curve and saturation,
+    ///    and exposed after.
+    /// 3: the Saturation slider adds saturation subtractively, like the dyes (richer is
+    ///    darker); the un-render is engine 2's.
+    /// Hue twists and dye saturation need no engine: they're stock fields, off when absent.
+    static let currentEngine = 3
+
+    /// The un-render a given engine uses (1 or 2): engines 2 and up share engine 2's, so
+    /// their display-referred tables are the same and share a cache entry.
+    static func unrenderEngine(_ engine: Int) -> Int { engine >= 2 ? 2 : 1 }
     static let shaperPower = 4.0
     /// Negative density is stored divided by this, so it fits the print cube's 0…1 input.
     static let densityScale = 4.0
@@ -255,23 +312,65 @@ enum FilmLUT {
         case displayReferred
     }
 
-    /// Inverse of a generic phone rendering, display = 1.273·s / (1 + 0.808·s), which puts
-    /// 18% grey at 0.20 and +3.5 stops at white. (Gentle on purpose: a brightly rendered
-    /// face shouldn't be read as stops over and pushed into the film's shoulder.)
+    /// Engine 1's inverse of a generic phone rendering, display = 1.273·s / (1 + 0.808·s),
+    /// which puts 18% grey at 0.20 and +3.5 stops at white. A guess; engine 2 measures it.
     static func sceneFromDisplay(_ x: Double) -> Double {
         let v = min(max(x, 0), 0.995)
         return v / (1.273 - 0.808 * v)
     }
 
-    /// For a display-referred color (linear Rec.2020): undo the tone curve on luminance
-    /// and keep the color's channel ratios. Inverting per channel would read a saturated
-    /// display red as a red channel stops overexposed, and the film's shoulder would turn
-    /// it orange.
-    static func sceneFromDisplay(rgb: (Double, Double, Double)) -> (Double, Double, Double) {
+    /// Engine 2: the inverse of Apple's rendering, measured on 13 iPhone 12 Pro ProRAWs
+    /// (CIRAWFilter's default render against a neutral develop of the same file; see
+    /// docs/film-looks.md §5¾). Display luminance → scene luminance, linear between knots in
+    /// log2–log2, anchored like engine 1 (display 0.20 = scene 0.18): the median scene light
+    /// behind each display level, which is what makes the viewfinder match the saved photo.
+    /// Apple crushes shadows far more than engine 1 assumed; near white flattens at +3.5
+    /// stops, where the RAW develop clips too.
+    static let unrenderDisplayY: [Double] = [
+        0.0025, 0.004, 0.006, 0.01, 0.016, 0.025, 0.04, 0.06, 0.09, 0.13, 0.2,
+        0.28, 0.38, 0.48, 0.58, 0.66, 0.74, 0.81, 0.87, 0.92, 0.96, 0.995,
+    ]
+    static let unrenderSceneY: [Double] = [
+        0.014848, 0.01808, 0.021215, 0.026133, 0.032434, 0.040882, 0.053768, 0.069891, 0.092267, 0.119648, 0.18,
+        0.285852, 0.411258, 0.525263, 0.67323, 0.862166, 1.16483, 1.51356, 1.79013, 1.93731, 1.96963, 1.96964,
+    ]
+    /// Apple's saturation boost by display luminance (chroma relative to luminance, display
+    /// over scene): it follows the curve's slope, ×3.4 in the toe to ×1.1 in the shoulder.
+    static let unrenderSatY: [Double] = [0.003, 0.01, 0.03, 0.08, 0.18, 0.35, 0.6, 0.85, 1.0]
+    static let unrenderSatBoost: [Double] = [3.357, 2.688, 1.944, 1.58, 1.397, 1.212, 1.124, 1.12, 1.0]
+    private static let unrenderLogDisplay = unrenderDisplayY.map { log2($0) }
+    private static let unrenderLogScene = unrenderSceneY.map { log2($0) }
+    private static let unrenderLogSatY = unrenderSatY.map { log2($0) }
+
+    /// Piecewise-linear interpolation, clamped at the ends (= numpy.interp).
+    static func interp(_ x: Double, _ xs: [Double], _ ys: [Double]) -> Double {
+        if x <= xs[0] { return ys[0] }
+        if x >= xs[xs.count - 1] { return ys[ys.count - 1] }
+        var i = 1
+        while xs[i] < x { i += 1 }
+        return ys[i - 1] + (ys[i] - ys[i - 1]) * (x - xs[i - 1]) / (xs[i] - xs[i - 1])
+    }
+
+    /// For a display-referred color (linear Rec.2020) → scene light (linear Rec.2020).
+    /// Both engines undo the tone curve on luminance, which keeps hues: inverting per
+    /// channel would read a saturated display red as a red channel stops overexposed.
+    /// Engine 1 kept the display's channel ratios (so Apple's saturation stacked under the
+    /// film's own); engine 2 uses the measured curve and divides out Apple's saturation.
+    static func sceneFromDisplay(rgb: (Double, Double, Double), engine: Int = currentEngine)
+        -> (Double, Double, Double) {
         let r = min(max(rgb.0, 0), 1), g = min(max(rgb.1, 0), 1), b = min(max(rgb.2, 0), 1)
         let y = 0.2627 * r + 0.6780 * g + 0.0593 * b
-        let k = sceneFromDisplay(y) / max(y, 1e-6)
-        return (r * k, g * k, b * k)
+        if engine < 2 {
+            let k = sceneFromDisplay(y) / max(y, 1e-6)
+            return (r * k, g * k, b * k)
+        }
+        let yc = max(y, 1e-6), ly = log2(yc)
+        let s = ly < unrenderLogDisplay[0]
+            ? unrenderSceneY[0] * yc / unrenderDisplayY[0]          // toe: proportional to display
+            : exp2(interp(ly, unrenderLogDisplay, unrenderLogScene))
+        let k = interp(ly, unrenderLogSatY, unrenderSatBoost)
+        func chan(_ v: Double) -> Double { max(1 + (v / yc - 1) / k, 0) * s }
+        return (chan(r), chan(g), chan(b))
     }
 
     /// Geometric-mean scene luminance (linear Rec.2020 Y) of a small linear-sRGB sample,
@@ -385,9 +484,48 @@ enum FilmLUT {
         return (out.0 + (tgt.0 - out.0) * w, out.1 + (tgt.1 - out.1) * w, out.2 + (tgt.2 - out.2) * w)
     }
 
+    static let twistChroma = 0.25     // log10 chroma at which a hue's brightness shift is 63% in
+    static let twistOffset = 0.01     // log(x + offset): dark colors fade to neutral instead of exploding
+
+    /// The stock's color rendering by hue (`FilmStock.hueTwists`) on scene light (linear
+    /// Rec.2020), before the film sees it (filmmodel.hue_twist). In log exposure, so it's
+    /// the same at every brightness: hue and chroma in the plane perpendicular to the
+    /// neutral axis, each twist weighted by a raised cosine of its distance in hue. Only
+    /// built into the negative cube, so it costs nothing per frame.
+    static func twist(_ rgb: (Double, Double, Double), _ twists: [FilmStock.HueTwist]) -> (Double, Double, Double) {
+        let l0 = log10(max(rgb.0, 0) + twistOffset)
+        let l1 = log10(max(rgb.1, 0) + twistOffset)
+        let l2 = log10(max(rgb.2, 0) + twistOffset)
+        let m = (l0 + l1 + l2) / 3
+        let u = l0 - 0.5 * (l1 + l2)
+        let v = (3.0.squareRoot() / 2) * (l1 - l2)
+        let c = (u * u + v * v).squareRoot()
+        let h = atan2(v, u) * 180 / .pi
+        var rot = 0.0, sat = 0.0, lum = 0.0
+        for t in twists {
+            var x = (h - t.hue + 180).truncatingRemainder(dividingBy: 360)
+            if x < 0 { x += 360 }
+            let d = abs(x - 180)
+            guard d < t.width else { continue }
+            let w = 0.5 + 0.5 * cos(.pi * d / t.width)
+            rot += w * t.rotation
+            sat += w * t.saturation
+            lum += w * t.stops
+        }
+        let c2 = c * max(1 + sat, 0)
+        let a = (h + rot) * .pi / 180
+        let u2 = c2 * cos(a), v2 = c2 * sin(a)
+        let m2 = m + lum * log10(2.0) * (1 - exp(-c / twistChroma))
+        let r3 = 3.0.squareRoot()
+        return (max(pow(10, m2 + 2 / 3 * u2) - twistOffset, 0),
+                max(pow(10, m2 - u2 / 3 + v2 / r3) - twistOffset, 0),
+                max(pow(10, m2 - u2 / 3 - v2 / r3) - twistOffset, 0))
+    }
+
     /// Scene light (Rec.2020 linear) → negative density per layer.
     static func negativeDensity(_ rgb: (Double, Double, Double), stock s: FilmStock) -> (Double, Double, Double) {
-        let e = FilmMath.mul(s.sensitivity, rgb)
+        let twists = s.hueTwists ?? []
+        let e = FilmMath.mul(s.sensitivity, twists.isEmpty ? rgb : twist(rgb, twists))
         let k = 1 / 0.18
         return (s.negative[0].density(log10(max(e.0, 1e-6) * k)),
                 s.negative[1].density(log10(max(e.1, 1e-6) * k)),
@@ -395,8 +533,13 @@ enum FilmLUT {
     }
 
     /// RGBA float cube, red fastest (CIColorCube's layout). Input: shaped Rec.2020.
-    /// Output: negative density / densityScale.
-    static func negativeCube(stock: FilmStock, source: Source) -> [Float] {
+    /// Output: negative density / densityScale. For display-referred input, `engine` picks
+    /// the un-render, and from engine 2 `exposure` (stops) is applied after it, in scene
+    /// light: exposing display values first clipped them at white and moved mid-tones by
+    /// the wrong amount. (Scene-linear input takes its exposure before the cube.)
+    static func negativeCube(stock: FilmStock, source: Source, engine: Int = currentEngine,
+                             exposure: Double = 0) -> [Float] {
+        let gain = exp2(exposure)
         let n = negativeDimension
         let step = 1 / Double(n - 1)
         var lin = [Double](repeating: 0, count: n)
@@ -406,9 +549,11 @@ enum FilmLUT {
         for b in 0..<n {
             for g in 0..<n {
                 for r in 0..<n {
-                    let rgb = source == .sceneLinear
-                        ? (lin[r], lin[g], lin[b])
-                        : sceneFromDisplay(rgb: (lin[r], lin[g], lin[b]))
+                    var rgb = (lin[r], lin[g], lin[b])
+                    if source == .displayReferred {
+                        rgb = sceneFromDisplay(rgb: rgb, engine: engine)
+                        if engine >= 2 { rgb = (rgb.0 * gain, rgb.1 * gain, rgb.2 * gain) }
+                    }
                     let d = negativeDensity(rgb, stock: stock)
                     cube[o] = Float(d.0 / densityScale)
                     cube[o + 1] = Float(d.1 / densityScale)
@@ -438,22 +583,43 @@ enum FilmLUT {
         return curves[c].density(g - dn + s.printer[c])
     }
 
+    /// The stock's dye saturation (`FilmStock.dyeSaturation`, filmmodel.dye_saturate).
+    /// Film color is subtractive: purity costs density, so the most saturated colors are
+    /// the darkest. > 0 spreads a color's densities away from its least dense channel: the
+    /// dominant color stays and the others get denser, richer *and darker* (spreading
+    /// about the mean would brighten the dominant channel instead). < 0 is retained silver:
+    /// silver adds density in proportion to the mean, which with the print re-timed for
+    /// grey is a pull toward the mean density. A grey whose three densities are equal is
+    /// untouched; a stock's printer lights or crossover give greys a cast, which this scales
+    /// by 1 + amount (and positive amounts add a little density: Slide's grey −0.08 stop).
+    static func dyeSaturate(_ d: (Double, Double, Double), _ amount: Double) -> (Double, Double, Double) {
+        guard amount != 0 else { return d }
+        let pivot = amount > 0 ? min(d.0, d.1, d.2) : (d.0 + d.1 + d.2) / 3
+        let k = 1 + amount
+        return (pivot + (d.0 - pivot) * k, pivot + (d.1 - pivot) * k, pivot + (d.2 - pivot) * k)
+    }
+
     /// Print density → linear Display P3 (dye crosstalk, saturation, highlights/shadows).
     static func display(print dp: (Double, Double, Double), stock s: FilmStock, curves: [FilmCurve],
                         controls c: FilmControls) -> (Double, Double, Double) {
         var dm = FilmMath.mul(s.crosstalk, dp)
         let base = FilmMath.mul(s.crosstalk, (curves[0].y[0], curves[1].y[0], curves[2].y[0]))
 
-        // Saturation in density space: richer colors get denser (darker), like dyes,
-        // instead of brighter.
-        if c.saturation != 0 {
+        // The tone sliders weigh by the neutral density before the stock's dye saturation
+        // (linear in the print densities, so printCube can tabulate it).
+        let neutral = (dm.0 + dm.1 + dm.2) / 3
+        dm = dyeSaturate(dm, s.dyeSaturation ?? 0)
+        // Saturation in density space (the user's slider): from engine 3, more saturation
+        // is subtractive like the dyes; less, or engines 1–2, goes about the mean.
+        if c.saturatesSubtractively {
+            dm = dyeSaturate(dm, 0.6 * c.saturation)
+        } else if c.saturation != 0 {
             let mean = (dm.0 + dm.1 + dm.2) / 3
             let k = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
             dm = (mean + (dm.0 - mean) * k, mean + (dm.1 - mean) * k, mean + (dm.2 - mean) * k)
         }
         // Highlights / shadows: shift density in the bright or the dark part of the scale.
         if c.highlights != 0 || c.shadows != 0 {
-            let neutral = (dm.0 + dm.1 + dm.2) / 3
             let wh = exp(-pow((neutral - 0.25) / 0.45, 2))
             let ws = FilmMath.smoothstep(0.9, 2.4, neutral)
             let shift = -0.22 * c.highlights * wh - 0.45 * c.shadows * ws
@@ -508,7 +674,7 @@ enum FilmLUT {
         // Density mixing: crosstalk, then saturation about the mean (S = k·I + (1−k)/3·1).
         let x = stock.crosstalk
         var a = x
-        if c.saturation != 0 {
+        if c.saturation != 0 && !c.saturatesSubtractively {
             let k = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
             let m = (1 - k) / 3
             for i in 0..<3 {
@@ -580,6 +746,13 @@ enum FilmLUT {
             return encode[i] + (encode[i + 1] - encode[i]) * frac
         }
         let toned = stock.hasSplitTone
+        // Dye saturation, and from engine 3 more user saturation, pivot on each color's own
+        // least dense (or mean) channel, which isn't a product of per-axis terms: those
+        // take a per-cell path (three exps a cell, still a few ms).
+        let dye = stock.dyeSaturation ?? 0
+        let perCell = dye != 0 || c.saturatesSubtractively
+        let userK = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
+        let x0 = x[0], x1 = x[1], x2 = x[2], x3 = x[3], x4 = x[4], x5 = x[5], x6 = x[6], x7 = x[7], x8 = x[8]
         let s0 = stock.shadowTint[0], s1 = stock.shadowTint[1], s2 = stock.shadowTint[2]
         let h0 = stock.highlightTint[0], h1 = stock.highlightTint[1], h2 = stock.highlightTint[2]
 
@@ -599,7 +772,23 @@ enum FilmLUT {
                         let rs1 = hp > 0 ? sa[4 * n + gi] + sa[7 * n + bi] : 0
                         let rs2 = hp > 0 ? sa[5 * n + gi] + sa[8 * n + bi] : 0
                         for ri in 0..<n {
-                            var t0 = p0 * f[ri], t1 = p1 * f[3 * n + ri], t2 = p2 * f[6 * n + ri]
+                            var t0: Double, t1: Double, t2: Double
+                            if !perCell {
+                                t0 = p0 * f[ri]; t1 = p1 * f[3 * n + ri]; t2 = p2 * f[6 * n + ri]
+                            } else {
+                                let q0 = dp[ri], q1 = dp[n + gi], q2 = dp[2 * n + bi]
+                                var m = dyeSaturate((x0 * q0 + x1 * q1 + x2 * q2, x3 * q0 + x4 * q1 + x5 * q2,
+                                                     x6 * q0 + x7 * q1 + x8 * q2), dye)
+                                if c.saturatesSubtractively {
+                                    m = dyeSaturate(m, 0.6 * c.saturation)
+                                } else if userK != 1 {
+                                    let mean = (m.0 + m.1 + m.2) / 3
+                                    m = (mean + (m.0 - mean) * userK, mean + (m.1 - mean) * userK, mean + (m.2 - mean) * userK)
+                                }
+                                t0 = exp(-(m.0 - base.0) * ln10)
+                                t1 = exp(-(m.1 - base.1) * ln10)
+                                t2 = exp(-(m.2 - base.2) * ln10)
+                            }
                             if tone {
                                 let u = min(max((rowNeutral + nw[ri] - toneLo) * toneScale, 0), Double(toneSize))
                                 let i = min(Int(u), toneSize - 1)

@@ -6,7 +6,7 @@ enum EditorTool: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .looks: "Filters"
+        case .looks: "Looks"
         case .tune: "Tune"
         case .details: "Details"
         case .color: "Color"
@@ -69,6 +69,8 @@ struct EditorView: View {
 
     @State private var colorBand: ColorBand = .red
     @State private var showFilterGuide = false
+    /// The named set of looks the Looks tool shows (`LookSet` id, "all" = every look).
+    @AppStorage("editor.lookSet") private var lookSet = "all"
 
     private var adjustments: [Adjustment] {
         if tool == .color { return Adjustment.mixer(colorBand) }
@@ -354,10 +356,74 @@ struct EditorView: View {
         }
     }
 
+    /// Original plus the chosen set's looks (or every look), and the photo's own look when
+    /// it's from another set, so the one in use always shows.
+    private var shownLooks: [Look] {
+        guard let set = LookSet.named(lookSet) else { return Look.all }
+        var looks = [Look.all[0]] + set.looks
+        if let id = session.recipe.look, let look = Look.named(id), !looks.contains(where: { $0.id == id }) {
+            looks.insert(look, at: 1)
+        }
+        return looks
+    }
+
+    /// A photo made with a retired look (Cine, Warm 400, …) still renders with it, but the
+    /// look isn't offered any more, so no card would be selected: show its name, selected
+    /// and inert, so the editor still says which look the photo has.
+    @ViewBuilder
+    private var retiredLookCard: some View {
+        if let id = session.recipe.look, Look.named(id) == nil, let name = Look.displayName(id) {
+            VStack(spacing: 6) {
+                Image(systemName: "film")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Color.yellow)
+                    .frame(width: 68, height: 68)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.yellow, lineWidth: 2))
+                Text(name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.yellow)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(name), a retired look this photo uses")
+            .accessibilityIdentifier("editor.look.retired")
+        }
+    }
+
+    private var lookSetMenu: some View {
+        let current = LookSet.named(lookSet)
+        return Menu {
+            Picker("Look set", selection: Binding(get: { LookSet.named(lookSet)?.rawValue ?? "all" },   // unknown id = all
+                                                  set: { lookSet = $0 })) {
+                Text("All looks").tag("all")
+                ForEach(LookSet.allCases) { set in
+                    Text("\(set.name) (\(set.looks.count))").tag(set.rawValue)
+                }
+            }
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "square.stack.3d.up")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(current == nil ? Color.white : Color.yellow)
+                    .frame(width: 68, height: 68)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(current?.name ?? "All looks")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(current == nil ? Color.white.opacity(0.8) : Color.yellow)
+                    .lineLimit(1)
+            }
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("editor.lookSet")
+        .accessibilityLabel("Look set: \(current?.name ?? "All looks")")
+    }
+
     private var looksPanel: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
-                ForEach(Look.all) { look in
+                lookSetMenu
+                retiredLookCard
+                ForEach(shownLooks) { look in
                     let selected = (session.recipe.look ?? "none") == look.id
                     Button {
                         pushUndo()
@@ -393,13 +459,13 @@ struct EditorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressScaleStyle(scale: 0.94))
-                .accessibilityLabel("About filters")
+                .accessibilityLabel("About looks")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
         }
         .sheet(isPresented: $showFilterGuide) {
-            FilterGuide(thumbnails: session.lookThumbnails, selectedID: session.recipe.look) { id in
+            FilterGuide(thumbnails: session.lookThumbnails, selectedID: session.recipe.look, looks: shownLooks) { id in
                 pushUndo()
                 let look = Look.all.first { $0.id == (id ?? "none") } ?? Look.all[0]
                 withAnimation(.snappy) { session.apply(look: look) }
