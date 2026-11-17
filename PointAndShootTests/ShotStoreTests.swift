@@ -235,6 +235,16 @@ final class ShotStoreTests: XCTestCase {
         XCTAssertEqual(reopened.recipe(for: shot.id).exposure, 42, "the edit must be what's on disk")
     }
 
+    func testASavedFilmGradeKeepsTheBrightnessTheEditorShowed() async throws {
+        let shot = try await addShot()
+        store.setRecipe(Look.all.first { $0.recipe.film != nil }!.recipe, for: shot.id)
+        await waitUntilDeveloped(shot.id)
+        let reopened = ShotStore(root: root)
+        await reopened.load()
+        XCTAssertEqual(reopened.recipe(for: shot.id).rawFilmExposure, 0,
+                       "pinned at what the editor showed, never re-matched later")
+    }
+
     func testLoadDoesNotDropOrDuplicateAShotAddedMeanwhile() async throws {
         let fresh = ShotStore(root: root)
         let added = try await fresh.add(original: jpeg(), fileExtension: "jpg", kind: .processed,
