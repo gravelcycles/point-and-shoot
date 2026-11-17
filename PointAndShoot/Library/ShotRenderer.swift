@@ -73,7 +73,10 @@ enum ShotRenderer {
     /// Settles the RAW develop a fresh shot starts from, as the editor would: the camera's
     /// own noise reduction (floored for film looks, which add grain and have no
     /// sharpening), and a film look's exposure matched to what the viewfinder showed.
-    static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL, viewfinderKey: Double?) -> EditRecipe {
+    /// `matchExposure` false: only the RAW develop (an editor save must keep exactly the
+    /// brightness the editor showed).
+    static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL, viewfinderKey: Double?,
+                        matchExposure: Bool = true) -> EditRecipe {
         var r = recipe
         r.freezeFilmTuning()
         guard shot.isRAW, let raw = rawFilter(shot, in: dir) else {
@@ -88,7 +91,7 @@ enum ShotRenderer {
             r.rawBoost = Double(defaults.boost * 100)
             r.rawInitialized = true
         }
-        if r.film != nil, r.rawFilmExposure == nil {
+        if matchExposure, r.film != nil, r.rawFilmExposure == nil {
             let reference = CIImage(contentsOf: dir.appendingPathComponent("capture.jpg"),
                                     options: [.applyOrientationProperty: true])
             let target = viewfinderKey ?? reference.flatMap {
@@ -105,7 +108,10 @@ enum ShotRenderer {
     private static func matchedExposure(_ raw: CIRAWFilter, recipe: EditRecipe, defaults: RAWDefaults,
                                         target: Double) -> Double? {
         var r = recipe
+        // Measure the base develop: the user's own Exposure goes on top of the match, as in
+        // the viewfinder (which measures before the look's exposure).
         r.rawFilmExposure = 0
+        r.exposure = 0
         EditPipeline.configure(raw, recipe: r, defaults: defaults)
         let native = raw.nativeSize
         raw.scaleFactor = Float(min(1, 256 / max(native.width, native.height, 1)))
@@ -156,7 +162,8 @@ enum ShotRenderer {
     static func embeddedPreview(of data: Data, maxSide: Int = 1440) -> Data? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
-                  kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                  // From the image itself: a DNG's own thumbnail can be ~160 px.
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: maxSide,
               ] as CFDictionary) else { return nil }
