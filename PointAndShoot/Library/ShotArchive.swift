@@ -84,32 +84,30 @@ enum ShotArchive {
     static func importZip(at url: URL, store: ShotStore) async throws -> ImportResult {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
-        // Parsing, inflating and checking DNGs is heavy: all of it off the main thread.
-        let groups = try await Task.detached(priority: .userInitiated) { () -> [ArchivedFolder] in
+        // Parsing, inflating and checking DNGs is heavy: all of it off the main thread. The
+        // archive is read (mapped) once.
+        let (archive, groups) = try await Task.detached(priority: .userInitiated) { () -> (ArchiveData, [ArchivedFolder]) in
             let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            return try Self.folders(in: data).map { ArchivedFolder(name: $0.key, files: $0.value) }
+            let groups = try Self.folders(in: data).map { ArchivedFolder(name: $0.key, files: $0.value) }
                 .sorted { $0.name < $1.name }
+            return (ArchiveData(data: data), groups)
         }.value
         var result = ImportResult()
         for group in groups {
             do {
                 let files = group.files
-                let parsed = try await Task.detached(priority: .userInitiated) { () -> ParsedShot? in
-                    let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                    guard let recordEntry = files["shot.json"],
-                          let record = try? JSONDecoder().decode(Shot.self, from: ZipArchive.extract(recordEntry, from: data)),
-                          let originalEntry = files[record.original] else { return nil }
-                    let original = try ZipArchive.extract(originalEntry, from: data)
-                    let recipe = try files["recipe.json"].flatMap { EditRecipe.decodeSaved(try ZipArchive.extract($0, from: data)) }
-                    let preview = try files["capture.jpg"].map { try ZipArchive.extract($0, from: data) }
-                    return ParsedShot(record: record, original: original, recipe: recipe, preview: preview)
+                // The small record first: shots already here are skipped without inflating
+                // their DNGs.
+                let record = await Task.detached(priority: .userInitiated) { () -> Shot? in
+                    guard let entry = files["shot.json"],
+                          let data = try? ZipArchive.extract(entry, from: archive.data) else { return nil }
+                    return try? JSONDecoder().decode(Shot.self, from: data)
                 }.value
-                guard let parsed else {
+                guard let record, files[record.original] != nil else {
                     Diag.error(.importer, "archive folder \(group.name.prefix(8)) has no shot record or original")
                     result.failed += 1
                     continue
                 }
-                let record = parsed.record
                 if store.shots.contains(where: { $0.id == record.id }) {
                     result.skipped += 1
                     continue
@@ -120,6 +118,13 @@ enum ShotArchive {
                     result.imported += 1
                     continue
                 }
+                let parsed = try await Task.detached(priority: .userInitiated) { () -> ParsedShot in
+                    let data = archive.data
+                    let original = try ZipArchive.extract(files[record.original]!, from: data)
+                    let recipe = try files["recipe.json"].flatMap { EditRecipe.decodeSaved(try ZipArchive.extract($0, from: data)) }
+                    let preview = try files["capture.jpg"].map { try ZipArchive.extract($0, from: data) }
+                    return ParsedShot(record: record, original: original, recipe: recipe, preview: preview)
+                }.value
                 let ext = (record.original as NSString).pathExtension
                 let shot = try await store.add(original: parsed.original, fileExtension: ext.isEmpty ? "dng" : ext,
                                                kind: record.kind, capturePreview: parsed.preview,
@@ -200,6 +205,11 @@ enum ShotArchive {
         f.dateFormat = "yyyy:MM:dd HH:mm:ss"
         return f.date(from: text)
     }
+}
+
+/// The archive's bytes (memory-mapped), shared read-only between the import's steps.
+private struct ArchiveData: @unchecked Sendable {
+    let data: Data
 }
 
 private struct ArchivedFolder: Sendable {
