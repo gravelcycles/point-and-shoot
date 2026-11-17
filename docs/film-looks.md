@@ -342,7 +342,8 @@ confirmed by measurement):
     tool; the bounds keep each look's character).
 - **Density saturation about the mean *brightens* saturated colours.** Spreading a red's
   densities about their mean lowers the cyan density, which is the red channel, and red
-  transmittance shoots up: Y 0.07 → 0.22 at +0.4. The Saturation slider still does this.
+  transmittance shoots up: Y 0.07 → 0.22 at +0.4. Engines 1–2's Saturation slider does this;
+  engine 3's pivots like `dye_saturation`.
   The stock's `dyeSaturation` pivots on the least dense channel instead, so purity costs
   density, as with real dyes.
 - **Hue twists can fold the hue order.** A raised-cosine twist's steepest slope is

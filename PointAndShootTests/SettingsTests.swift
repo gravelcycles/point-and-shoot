@@ -135,6 +135,13 @@ final class SettingsTests: XCTestCase {
         }
         // A look added without `set:` silently lands in Essentials: pin its membership.
         XCTAssertEqual(LookSet.essentials.looks.map(\.id), ["print", "phromagraph", "punch", "noir"])
+        // Grades keep PR #35's ids, so its photos, saved choices and default grades still mean
+        // the same looks; the new Slide and Bleach Bypass have ids of their own.
+        XCTAssertEqual(LookSet.grades.looks.map(\.id), ["desert", "pastel", "amber", "sodium", "neon", "slide", "bleach"])
+        XCTAssertEqual(Look.named("slide")?.name, "Slide 70s")
+        XCTAssertEqual(Look.named("bleach")?.name, "Bleach Grit")
+        XCTAssertEqual(Look.named("classicslide")?.set, .stocks)
+        XCTAssertEqual(Look.named("bleachbypass")?.set, .movie)
         // Every film look's stock exists (a typo would fall back to Print without a word).
         for look in Look.all {
             guard let stock = look.recipe.film?.stock else { continue }

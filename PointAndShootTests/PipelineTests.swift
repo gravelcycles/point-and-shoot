@@ -129,6 +129,18 @@ final class PipelineTests: XCTestCase {
         }
     }
 
+    /// The cache itself: an engine-3 look at Saturation 0 gets the very table prewarm built
+    /// with default controls (same storage), not a rebuild on the render queue.
+    func testPrewarmedPrintTablesServeEngineThreeLooks() {
+        let stock = FilmStock.named("blockbuster")
+        let prewarmed = FilmPipeline.printCube(stock, FilmControls())
+        var engine3 = FilmControls()
+        engine3.subtractiveSaturation = true
+        let asked = FilmPipeline.printCube(stock, engine3)
+        let shared = prewarmed.withUnsafeBytes { a in asked.withUnsafeBytes { b in a.baseAddress == b.baseAddress } }
+        XCTAssertTrue(shared, "an engine-3 look at Saturation 0 should reuse the prewarmed table")
+    }
+
     /// Cache keys: the engine flag only matters with Saturation above 0, so a look at its
     /// defaults asks for the same tables prewarm built (with default controls).
     func testFilmControlsCanonicalKeySharesTables() {

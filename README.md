@@ -46,7 +46,7 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
         skin), **Blockbuster** (teal and orange with skin locked, clean blacks), **Night
         800** (tungsten after dark: cyan shadows, amber light, red glow) and **Bleach
         Bypass** (drained color, hard contrast, inky blacks).
-      - **Grades:** the first cinematic pass, kept to compare: Desert, Pastel, Amber Haze,
+      - **Grades:** an earlier, softer pass, kept to compare: Desert, Pastel, Amber Haze,
         Sodium, Neon Night, Slide 70s and Bleach Grit.
   - **Each look has its own key, contrast, color and shadows,** spaced further apart than
     Instagram-style filters, so they're easy to tell apart at a glance.

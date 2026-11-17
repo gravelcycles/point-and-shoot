@@ -44,8 +44,10 @@ final class PreviewRenderer {
     private var lastBase: CIImage?
     /// Latest frame before any look, for the look picker's live thumbnails.
     private var lastClean: CIImage?
-    /// Look thumbnails render here, off the viewfinder's queue (`filterThumbnails`).
+    /// Look thumbnails render here, off the viewfinder's queue (`filterThumbnails`), with
+    /// their own context on their own Metal command queue.
     private let thumbnailQueue = DispatchQueue(label: "preview.thumbnails", qos: .utility)
+    private let thumbnailContext: CIContext
     /// A thumbnail refresh is running, and the one asked for meanwhile (renderQueue only).
     private var thumbnailsBusy = false
     private var pendingThumbnails: (() -> Void)?
@@ -76,6 +78,13 @@ final class PreviewRenderer {
             .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
             .cacheIntermediates: false,
             .name: "preview",
+        ])
+        // Look thumbnails get their own GPU command queue, so a refresh's ~20 renders never
+        // sit in front of a viewfinder frame on the preview's queue.
+        self.thumbnailContext = CIContext(mtlCommandQueue: device.makeCommandQueue() ?? queue, options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+            .cacheIntermediates: false,
+            .name: "thumbnails",
         ])
     }
 
@@ -251,7 +260,7 @@ final class PreviewRenderer {
                         continue
                     }
                     let img = EditPipeline.apply(look.recipe, to: small, developedFromRAW: false, applyCrop: false)
-                    if let cg = self.context.createCGImage(img, from: rect, format: .RGBA8, colorSpace: self.displayColorSpace) {
+                    if let cg = self.thumbnailContext.createCGImage(img, from: rect, format: .RGBA8, colorSpace: self.displayColorSpace) {
                         thumbs[look.id] = UIImage(cgImage: cg)
                     }
                 }

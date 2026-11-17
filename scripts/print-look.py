@@ -75,6 +75,7 @@ def check_look_sets(specs, swift_path=LOOKS_SWIFT):
     import re
     src = open(swift_path).read()
     app = {}
+    unreadable = []
     for block in re.split(r"\n        Look\(", src)[1:]:
         head = block.split("),\n")[0]
         mid = re.match(r'id: "(\w+)"', head)
@@ -83,7 +84,12 @@ def check_look_sets(specs, swift_path=LOOKS_SWIFT):
         mset = re.search(r"set: \.(\w+)", head)
         mfilm = re.search(r'film\("(\w+)"', head)
         app[mid.group(1)] = (mset.group(1) if mset else "essentials", mfilm.group(1) if mfilm else None)
-    problems = []
+        # Refuse what this parse can't read, rather than silently calling it Essentials.
+        if "set:" in head and not mset:
+            unreadable.append(f"{mid.group(1)}: write its set as `set: .name`")
+        if "film(" in head and not mfilm:
+            unreadable.append(f'{mid.group(1)}: write its stock as film("id")')
+    problems = list(unreadable)
     for lid, spec in specs.items():
         want = spec.get("set", "essentials")
         if lid not in app:
