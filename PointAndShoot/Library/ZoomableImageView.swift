@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /// A photo that zooms like Photos: a UIScrollView, so pinch is anchored under the fingers,
 /// you can pan while pinching, it rubber-bands at the edges and below 1×, and double-tap
@@ -15,6 +16,10 @@ struct ZoomableImageView: UIViewRepresentable {
     var onTap: () -> Void = {}
     /// Zoom scale (1 = fit) as it changes, including while pinching from 1×.
     var onZoom: (CGFloat) -> Void = { _ in }
+    /// A touch sequence on the photo started (`false`, one finger) or a second finger joined
+    /// it (`true`). Synchronous, straight from UIKit's touch handling, so the viewer knows
+    /// before its swipe-down drag ends that this was a pinch, not a pull.
+    var onTouches: (_ multiTouch: Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -30,6 +35,7 @@ struct ZoomableImageView: UIViewRepresentable {
         let c = context.coordinator
         c.onTap = onTap
         c.onZoom = onZoom
+        c.onTouches = onTouches
         view.pixelSize = pixelSize
         view.setImage(image)
         if !isCurrent { view.resetZoom(animated: false) }
@@ -39,6 +45,7 @@ struct ZoomableImageView: UIViewRepresentable {
         weak var view: ZoomingScrollView?
         var onTap: () -> Void = {}
         var onZoom: (CGFloat) -> Void = { _ in }
+        var onTouches: (Bool) -> Void = { _ in }
         private var lastReported: CGFloat = 1
 
         /// `immediately` from inside a gesture, so the viewer knows before its own drag
@@ -82,6 +89,9 @@ final class ZoomingScrollView: UIScrollView, UIScrollViewDelegate {
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         tap.require(toFail: doubleTap)
         addGestureRecognizer(tap)
+
+        let touches = TouchCountRecognizer { [weak self] multi in self?.coordinator?.onTouches(multi) }
+        addGestureRecognizer(touches)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -163,5 +173,44 @@ final class ZoomingScrollView: UIScrollView, UIScrollViewDelegate {
 
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
         coordinator?.report(scale)
+    }
+}
+
+/// Watches touches without ever recognizing anything (it stays `.possible` until the
+/// fingers lift, then fails, so it never blocks, delays or cancels another gesture): reports when a touch sequence starts and when a second finger joins it.
+final class TouchCountRecognizer: UIGestureRecognizer {
+    private let report: (Bool) -> Void
+    private var down = 0
+    private var reportedMulti = false
+
+    init(report: @escaping (Bool) -> Void) {
+        self.report = report
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    // Never stopped by the pinch/pan recognizing, and never stops them.
+    override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool { false }
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if down == 0 { reportedMulti = false; report(false) }
+        down += touches.count
+        if down >= 2, !reportedMulti { reportedMulti = true; report(true) }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { lift(touches) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { lift(touches) }
+
+    private func lift(_ touches: Set<UITouch>) {
+        down = max(0, down - touches.count)
+        if down == 0 { state = .failed }
+    }
+
+    override func reset() {
+        down = 0
+        reportedMulti = false
     }
 }

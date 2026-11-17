@@ -27,6 +27,8 @@ struct PhotoViewer: View {
     @State private var dismissing = false
     /// Two fingers pinched since the current drag began.
     @State private var pinchedDuringDrag = false
+    /// UI tests: the last zoom report (scale @ whether it was for the selected page).
+    @State private var zoomProbe = "none"
 
     private static let pendingID = ViewerSelection.pendingID
 
@@ -86,6 +88,18 @@ struct PhotoViewer: View {
         .preferredColorScheme(.dark)
         .statusBarHidden(chromeHidden)
         .overlay(alignment: .topLeading) { RollCountProbe(store: store).padding(.top, 2) }
+        .overlay(alignment: .topTrailing) {
+            if TestHooks.isUITest {
+                let state = "zoomed=\(pageZoomed ? 1 : 0) pinched=\(pinchedDuringDrag ? 1 : 0) dragY=\(Int(dragY)) last=\(zoomProbe)"
+                Text(state)
+                    .font(.system(size: 6))
+                    .foregroundStyle(.white.opacity(0.02))
+                    .frame(width: 20, height: 8)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("viewer.zoomProbe")
+                    .accessibilityLabel(state)
+            }
+        }
         .task { reconcileSelection() }
         .onChange(of: store.shots.map(\.id)) { _, _ in reconcileSelection() }
         .onChange(of: camera.capturesInFlight) { _, _ in reconcileSelection() }
@@ -153,12 +167,21 @@ struct PhotoViewer: View {
                              developing: store.developing.contains(shot.id),
                              onTap: toggleChrome,
                              onZoom: { scale in
+                                 if TestHooks.isUITest { zoomProbe = String(format: "%.2f@%d", scale, id == selectedID ? 1 : 0) }
                                  guard id == selectedID else { return }
                                  let zoomed = scale > 1.01
                                  if zoomed != pageZoomed { pageZoomed = zoomed }
-                                 // Remember a pinch for the rest of this drag: its fingers
-                                 // must never count as a swipe-down when they lift.
-                                 if zoomed { pinchedDuringDrag = true } else if !dismissDragActive { pinchedDuringDrag = false }
+                                 if zoomed { pinchedDuringDrag = true }
+                             },
+                             onTouches: { multiTouch in
+                                 // Two fingers anywhere in this touch sequence make it a
+                                 // pinch: when they lift it must never count as a swipe-down.
+                                 if multiTouch {
+                                     pinchedDuringDrag = true
+                                     if dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
+                                 } else if !dismissDragActive {
+                                     pinchedDuringDrag = false
+                                 }
                              })
                         .containerRelativeFrame([.horizontal, .vertical])
                         .id(id)
@@ -513,6 +536,7 @@ private struct ShotPage: View {
     var developing = false
     var onTap: () -> Void = {}
     var onZoom: (CGFloat) -> Void = { _ in }
+    var onTouches: (Bool) -> Void = { _ in }
 
     @State private var image: UIImage?
     /// A full-resolution render from the RAW for zooming in, made the first time the page is
@@ -551,7 +575,8 @@ private struct ShotPage: View {
                             onZoom: { scale in
                                 onZoom(scale)
                                 if scale > 1.3 { loadDetail() }
-                            })
+                            },
+                            onTouches: onTouches)
                         .frame(width: geo.size.width, height: geo.size.height)
                     }
                 } else {
