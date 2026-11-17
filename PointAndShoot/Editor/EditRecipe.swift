@@ -84,7 +84,7 @@ struct EditRecipe: Codable, Equatable {
                 // A pinned tuning from an older app version may lack fields stocks gained
                 // since: take those from the current stock of the same id.
                 if let tuning = film["tuning"] as? [String: Any],
-                   let current = TolerantJSON.object(FilmStock.named((tuning["id"] as? String) ?? (film["stock"] as? String))) {
+                   let current = TolerantJSON.object(FilmStock.namedOrRetired((tuning["id"] as? String) ?? (film["stock"] as? String))) {
                     film["tuning"] = TolerantJSON.merging(tuning, over: current)
                 }
                 saved["film"] = TolerantJSON.merging(film, over: base)
@@ -295,14 +295,14 @@ struct Adjustment: Identifiable {
 struct Look: Identifiable {
     let id: String
     let name: String
-    /// One or two plain sentences shown in the filter guide.
+    /// One or two plain sentences shown in the look guide.
     let detail: String
-    /// The camera shoots Bayer RAW for this look (Print). Other filters work on whatever
+    /// The camera shoots Bayer RAW for this look (Print). Other looks work on whatever
     /// the camera's processing setting produces, and develop from RAW when there is one.
     var capturesRAW = false
     let apply: (inout EditRecipe) -> Void
 
-    /// A film-stock filter: the stock (FilmStock+Stocks.swift) does tone, color, halation
+    /// A film-stock look: the stock (FilmStock+Stocks.swift) does tone, color, halation
     /// and grain; `extra` adds ordinary adjustments on top (B&W, vignette, texture).
     private static func film(_ stock: String, _ extra: @escaping (inout EditRecipe) -> Void = { _ in })
         -> (inout EditRecipe) -> Void {
@@ -315,7 +315,7 @@ struct Look: Identifiable {
     }
 
     static let all: [Look] = [
-        Look(id: "none", name: "Original", detail: "No filter — the photo exactly as captured.") { _ in },
+        Look(id: "none", name: "Original", detail: "No look: the photo exactly as captured.") { _ in },
         // Negative printed to print film, applied to the RAW sensor data (FilmModel.swift).
         // Dense blacks, a long soft highlight shoulder, warm highlights over cool shadows,
         // film color, halation and grain.
@@ -332,31 +332,46 @@ struct Look: Identifiable {
         // gives Chromagraph's grain 1.25.
         Look(id: "phromagraph", name: "Phromagraph", detail: "Matched to Chromagraph's own renders: creamy highlights, teal-leaning mid-tones, dense soft blacks and a faint glow. Grain off; add it with the Grain slider. Shoots RAW.",
              capturesRAW: true, apply: film("phromagraph") { $0.grain = 0 }),
-        // The rest are film stocks too (scripts/film-looks.json), each with its own tone
-        // curve, color balance and crossover, dye behavior, halation and grain.
-        Look(id: "natural", name: "Natural", detail: "A clean color-negative scan: a gentle film curve, open highlights, true color and a whisper of grain.",
-             apply: film("natural")),
-        Look(id: "warm400", name: "Warm 400", detail: "Golden-hour color negative: amber light, matte brown blacks, low contrast, visible grain and a soft vignette.",
-             apply: film("warm400") { $0.vignette = 22 }),
-        Look(id: "portrait", name: "Skin", detail: "Bright, soft portrait stock: high key, peach warmth, a gentle glow around highlights and smoothed texture.",
-             apply: film("portrait") { $0.structure = -12 }),
-        Look(id: "cool", name: "Cool Air", detail: "Cool, airy negative: blue-cyan shadows, crisp light, cool whites and quiet color. Overcast days, cities, snow.",
-             apply: film("cool")),
-        Look(id: "cine", name: "Cine", detail: "Tungsten cinema print: low key, teal shadows under amber highlights, a red glow around lights and a vignette.",
-             apply: film("cine") { $0.vignette = 22 }),
-        Look(id: "chrome", name: "Chrome", detail: "Slide film: deep blacks, hard contrast, rich saturated color and neutral-cool whites.",
-             apply: film("chrome") { $0.vignette = 16 }),
-        Look(id: "faded", name: "Faded", detail: "An old print left in the sun: milky indigo blacks, creamy dimmed whites and faded color.",
-             apply: film("faded") { $0.vignette = 15 }),
         Look(id: "punch", name: "Punch", detail: "Vivid color negative pushed hard: maximum color, bold contrast, bright and clean, with extra crunch.",
              apply: film("punch") { $0.structure = 15 }),
-        Look(id: "mono400", name: "Mono 400", detail: "Classic black-and-white 400 film: punchy mid-tones, a long toe into black and visible grain.",
-             apply: film("mono400") { $0.mono = true; $0.structure = 8 }),
+        // The rest are film stocks too (scripts/film-looks.json): each a film or a movie
+        // grade with its own tone curve, color balance and crossover, dye behavior,
+        // halation and grain. The looks they replaced (Natural, Warm 400, Skin, Cool Air,
+        // Cine, Chrome, Faded, Mono 400, Silver) are retired: photos made with them keep
+        // rendering from their pinned tuning or `FilmStock.Legacy` (see `Look.retired`).
+        Look(id: "desert", name: "Desert", detail: "Inspired by desert epics: warm ochre and sand, quiet color, soft lifted blacks and a long, gentle highlight roll-off.",
+             apply: film("desert") { $0.vignette = 14 }),
+        Look(id: "pastel", name: "Pastel", detail: "A storybook grade: high key and soft, candy pinks, butter yellows, mint and warm cream whites.",
+             apply: film("pastel") { $0.structure = -8 }),
+        Look(id: "amber", name: "Amber Haze", detail: "Orange fog over a future city: nearly monochrome amber, smoky highlights and a wide, warm glow.",
+             apply: film("amber") { $0.vignette = 18 }),
+        Look(id: "sodium", name: "Sodium", detail: "A streetlight thriller: green-yellow sodium light, muddy desaturated shadows, cold skin and a low key.",
+             apply: film("sodium") { $0.vignette = 24 }),
+        Look(id: "neon", name: "Neon Night", detail: "Neon-lit romance: saturated reds against green shadows, crushed blacks and a strong red glow around lights.",
+             apply: film("neon") { $0.vignette = 26 }),
+        Look(id: "bleach", name: "Bleach Bypass", detail: "Silver left in the print: hard contrast, drained color, metallic highlights and gritty grain.",
+             apply: film("bleach") { $0.structure = 20; $0.vignette = 12 }),
+        Look(id: "slide", name: "Slide", detail: "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
+             apply: film("slide") { $0.vignette = 12 }),
         Look(id: "noir", name: "Noir", detail: "Pushed black and white: inky cold-toned blacks, hard contrast, heavy grain, glow and a deep vignette.",
              apply: film("noir") { $0.mono = true; $0.vignette = 34 }),
-        Look(id: "silver", name: "Silver", detail: "Sepia-toned black and white: soft contrast, open shadows, warm pearly highlights.",
-             apply: film("silver") { $0.mono = true }),
     ]
+
+    /// Looks that are no longer offered, by id: their names, so a photo made with one can
+    /// still say which look it has, and the look a saved camera choice moves to (nil =
+    /// Original). Their photos render exactly as before (pinned tuning or
+    /// `FilmStock.Legacy`); only the camera's choice and the pickers move on.
+    static let retired: [String: (name: String, successor: String?)] = [
+        "natural": ("Natural", nil), "warm400": ("Warm 400", nil), "portrait": ("Skin", nil),
+        "cool": ("Cool Air", nil), "cine": ("Cine", nil), "chrome": ("Chrome", "slide"),
+        "faded": ("Faded", nil), "mono400": ("Mono 400", "noir"), "silver": ("Silver", "noir"),
+    ]
+
+    /// The name to show for a recipe's look id, retired looks included (nil = no look).
+    static func displayName(_ id: String?) -> String? {
+        guard let id else { return nil }
+        return named(id)?.name ?? retired[id]?.name
+    }
 }
 
 enum CropAspect: String, CaseIterable, Identifiable {
@@ -404,5 +419,12 @@ extension FilmStock {
         if let id = film.stock { return Legacy.v2[id] ?? named(id) }
         return recipe.rawNoiseReduction < EditRecipe.filmMinimumNoiseReduction
             ? Legacy.printV1 : (Legacy.v2[printLook.id] ?? printLook)
+    }
+
+    /// The stock for an id, including retired looks' stocks (as they last shipped, from
+    /// the frozen history). For filling gaps in an older pinned tuning, never for picking.
+    static func namedOrRetired(_ id: String?) -> FilmStock {
+        if let id, all[id] == nil, let retired = Legacy.v2[id] { return retired }
+        return named(id)
     }
 }

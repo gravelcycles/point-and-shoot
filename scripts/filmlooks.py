@@ -9,6 +9,10 @@ with its own:
   - color: printer lights (balance), color crossover, interlayer saturation, and how
     much print-dye crosstalk darkens dense colors.
   - texture: halation and grain.
+  - optionally a channel mix (`channel_mix`, 3x3 rows in linear Rec.2020, each row
+    normalised to sum 1 so neutrals stay neutral): what a colourist's RGB mixer or a
+    film's odd spectral sensitivity does — cold skin, pink reds, mint greens, a sodium
+    cast. It folds into the stock's sensitivity matrix, so the app needs no new code.
 Anything a spec leaves out comes from the Print stock (scripts/print-stock.json).
 """
 from __future__ import annotations
@@ -56,7 +60,7 @@ def derive_print_curve(neg_curve, Y, white):
     N0 = float(F.curve_density(neg_curve, 0.0))
     x = -(N - N0)
     Dp = np.minimum(DMIN - np.log10(np.maximum(Y(s), 1e-9) / white), DMAX)
-    order = np.argsort(x)
+    order = np.argsort(x, kind="stable")   # ties keep curve order: reproducible across numpy versions
     x, Dp = x[order], Dp[order]
     keep = np.concatenate([[True], np.diff(x) > 1e-4])
     x, Dp = x[keep], Dp[keep]
@@ -80,9 +84,15 @@ def build_stock(name, spec, base):
     if "crossover" in spec:
         r, b = spec["crossover"]
         st["crossover"] = [r, 0.0, b]
-    if "interlayer" in spec:
-        k = spec["interlayer"]
-        st["sensitivity"] = [round(float(v), 5) for v in (np.eye(3) * (1 + k) - k * LUM2020[None, :]).ravel()]
+    if "interlayer" in spec or "channel_mix" in spec:
+        k = spec.get("interlayer", None)
+        S = (np.eye(3) * (1 + k) - k * LUM2020[None, :]) if k is not None \
+            else np.array(base["sensitivity"]).reshape(3, 3)
+        if "channel_mix" in spec:
+            M = np.array(spec["channel_mix"], dtype=np.float64).reshape(3, 3)
+            M = M / M.sum(axis=1, keepdims=True)       # neutrals stay neutral
+            S = S @ M
+        st["sensitivity"] = [round(float(v), 5) for v in S.ravel()]
     if "crosstalk" in spec:
         c = spec["crosstalk"]
         X = np.eye(3) + c * (np.array(base["crosstalk"]).reshape(3, 3) - np.eye(3))

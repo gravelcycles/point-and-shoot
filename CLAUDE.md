@@ -134,7 +134,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   UI/CameraView.swift             main screen, top bar, lens picker, shutter (tap/hold-burst),
                                   thumbnail, gestures, hints, launch-request handling
   UI/TopBar.swift                 top bar: flash/timer/settings buttons, format pill, format panels
-  UI/ControlStrip.swift           FOCUS/WB/ISO/SHUTTER/EV/FILTER readouts + DialPanel
+  UI/ControlStrip.swift           FOCUS/WB/ISO/SHUTTER/EV/LOOK readouts + DialPanel
   UI/ScrubDial.swift              haptic tick-mark jog dial (reused in the editor's straighten)
   UI/PreviewView.swift            CAMetalLayer host + UIKit gestures; volume-button interaction
   UI/Overlays.swift               grid, frame lines, level, histogram, meter, reticle, EV slider, toast
@@ -157,7 +157,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/ColorMixer.swift         8-band HSL → cached 32³ color cube
   Editor/RecipeBaker.swift        applies a recipe to a library asset (capture Looks; film looks from the DNG)
   Editor/FilmModel.swift          Print look math: film curves, LUT builders (Foundation only, testable anywhere)
-  Editor/FilmStock+Stocks.swift   GENERATED film stocks: Print + every photo filter (from scripts/*.json)
+  Editor/FilmStock+Stocks.swift   GENERATED film stocks: Print + every look (from scripts/*.json)
   Editor/FilmPipeline.swift       Print look in Core Image: halation, neg cube, grain, print cube
   Editor/CropOverlay.swift, MetalImageView.swift  (MetalImageView: Metal canvas + pinch/pan zoom)
   UI/ZoomMath.swift               pure zoom math (anchor, settle, rubber band, double-tap) — unit-tested
@@ -176,13 +176,14 @@ codemagic.yaml                    optional alternative CI
 scripts/print-look.py             film-look tools: preview on DNGs, fit to reference pairs, export-swift, parity
 scripts/filmmodel.py              reference (numpy) implementation of FilmModel/FilmPipeline
 scripts/print-stock.json          the Print look's parameters (source of truth)
-scripts/film-looks.json           the photo filters as compact film-stock specs (source of truth)
+scripts/film-looks.json           the looks as compact film-stock specs (source of truth)
 scripts/phromagraph-stock.json    Phromagraph (fitted to Chromagraph's own renders; source of truth)
 scripts/phromagraph.py            fits Phromagraph to Chromagraph DNG+HEIC pairs; measures exposure/grain
 scripts/raw-develop.swift         macOS CIRAWFilter develop exactly as the app does (for the Python tools)
 scripts/filmlooks.py              builds full stocks from film-looks.json (tone curve derivation)
 scripts/cssgram.py                the 26 Instagram-style CSSgram filters, browser-exact: the yardstick
-                                  for how far apart our filters are (`print-look.py spread --cssgram`)
+                                  for how far apart our looks are (`print-look.py spread --cssgram`)
+docs/looks-contact-sheet.jpg      before/after sheet of the looks (old filters vs new looks)
 docs/film-looks.md                ★ handoff notes for the film looks: history, tuning loop, pitfalls,
                                   unknowns, test images, environment tricks
 CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
@@ -230,7 +231,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   meant to avoid `NSInvalidArgumentException` from AVFoundation. ProRAW is enabled on the
   output only when selected.
 - **Zoom is locked at 1× while shooting Bayer RAW** (`CameraSettings.zoomLocked`: Print,
-  Zero, film filters, RAW = Bayer). AVFoundation throws on Bayer RAW when
+  Zero, film looks, RAW = Bayer). AVFoundation throws on Bayer RAW when
   `videoZoomFactor > 1` (crashed on device: Print, front camera, pinch-zoomed). The owner
   chose "disable zoom" over falling back to the processed photo. Entering such a mode ramps
   back to 1×; pinch shows a toast instead of zooming; cropped lens chips (48 mm) and the
@@ -283,46 +284,57 @@ is the only source of truth for what exists. Everything else reacts to it.
 | Already-deleted asset deleted again | `PhotoLibrary.delete` always asks Photos to delete exactly what was tapped; only if Photos refuses does it drop items that are gone (`isGone`) and retry. **Never pre-filter with `isGone`:** that made Delete silently do nothing on device (#19). |
 | Open in the editor when deleted | Save/Revert fail, then `isGone` confirms it and the editor offers **Save as New Photo** (renders from the editing input) or Discard. |
 | Camera thumbnail | A capture's own thumbnail shows instantly but only until the roll has the shot *and* has rendered it (`handOffThumbnail`); then the roll's newest item is shown, so deleting it anywhere updates the button (empty roll → empty button). A failed save clears it. Without read access the capture's thumbnail is all there is. |
-| Shot with a filter / Print | The shot is reported saved as soon as the plain develop is in Photos (so the camera can suspend and the next shot isn't held up), and its ID goes into `camera.developingAssetIDs` until the look is baked. The viewer shows its page blurred under "Developing…" meanwhile, and the camera thumbnail waits for the developed version. Bakes run one at a time (`BakeQueue`); the overlay gives up after 45 s. Blocking capture completion on the bake (#25) left shots stuck on "Developing…" on device. `PhotoPage` cancels and ignores image requests for older revisions, so a slow load of the unedited image can't overwrite the edited one. |
+| Shot with a look / Print | The shot is reported saved as soon as the plain develop is in Photos (so the camera can suspend and the next shot isn't held up), and its ID goes into `camera.developingAssetIDs` until the look is baked. The viewer shows its page blurred under "Developing…" meanwhile, and the camera thumbnail waits for the developed version. Bakes run one at a time (`BakeQueue`); the overlay gives up after 45 s. Blocking capture completion on the bake (#25) left shots stuck on "Developing…" on device. `PhotoPage` cancels and ignores image requests for older revisions, so a slow load of the unedited image can't overwrite the edited one. |
 | Shot still developing | Can't be deleted (no asset yet). If its save fails, `lastSavedAssetID` is cleared so the viewer's "Developing…" page doesn't wait forever. A Print bake on a shot deleted meanwhile fails quietly. |
 | Lock Screen shots parked for import | Imported once: one import at a time, and imported file keys are remembered, so a deleted shot never comes back if its parked file couldn't be removed. |
 | Recently Deleted | Deleted items sit there for 30 days (Photos' behaviour). Recovering one re-inserts it through the change observer. |
 
-### Film looks: Print and every photo filter
-- **Every filter except Original is a film stock** in the same model. Print is the
-  original. Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir
-  and Silver each have their own:
+### Film looks: Print and every other look
+- **Every look except Original is a film stock** in the same model, and is meant to read
+  as a film or a movie grade, never an Instagram filter (the owner's brief, 2026-11-17:
+  "as original looks as 'print'"). Print is the original; Phromagraph is Chromagraph
+  measured; Punch is kept as is. The cinematic looks are Desert, Pastel, Amber Haze,
+  Sodium, Neon Night, Bleach Bypass and Slide, plus Noir as the one B&W look. Each has
+  its own:
   - tone curve: grey placement, contrast slope, shoulder, white, black floor
   - printer-light balance and crossover
-  - interlayer saturation and dye crosstalk
-  - halation and grain (Skin's "halation" is a neutral, wide bloom)
+  - interlayer saturation, an optional scene channel mix (`channel_mix`: Pastel's pink
+    reds and mint, Sodium's cold skin; folded into the sensitivity matrix, no app code),
+    and dye crosstalk
+  - halation and grain (Amber Haze's "halation" is a wide warm bloom)
   - split toning (`shadowTint` / `highlightTint`): luminance-neutral offsets added to the
-    print's *encoded* output with weight (1 − Y)² / Y². This is what gives each filter
-    its own shadows. Without it every film black converges to the same neutral, which was
-    the main reason the filters read as alike (Cine's teal shadows, Cool Air's blue,
-    Warm 400's brown, Faded's indigo).
-  - B&W filters are color stocks followed by the existing mono mix, so the color mixer
+    print's *encoded* output with weight (1 − Y)² / Y². This is what gives each look
+    its own shadows (Neon Night's green, Desert's brown, Sodium's olive, Slide's cool
+    blue). Without it every film black converges to the same neutral, which was the main
+    reason the first filters read as alike.
+  - B&W looks are color stocks followed by the existing mono mix, so the color mixer
     still works like darkroom filters. The stock's `monoTone` gains tone the result: Noir
-    is cold, Silver warm, Mono 400 neutral.
-  - Signatures are deliberately far apart. Each filter owns 2–3 axes that survive a
+    is cold.
+  - Signatures are deliberately far apart. Each look owns 2–3 axes that survive a
     thumbnail: brightness (key), contrast, chroma, shadow tint, highlight tint and
     vignette. Grain and structure don't show at thumbnail size, so they never carry a
-    filter on their own.
-    - **Rule:** every filter's nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
-      `scripts/print-look.py spread IMG… [--cssgram] [--sheet out.jpg]`, which prints
-      the table, flags offenders, and can add CSSgram's table and a contact sheet. The
-      tuning loop and pitfalls are in `docs/film-looks.md`.
-    - Today the nearest pairs are 0.067–0.075 (B&W 0.063). That is more spread out than
-      Instagram-style filters: CSSgram's 26 filters have a nearest-neighbour median of
+    look on their own.
+    - **Rule:** every look's nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
+      `scripts/print-look.py spread IMG… [--cssgram] [--sheet out.jpg] [--looks OLD.json]`,
+      which measures every look in one table (Print, Phromagraph and B&W included),
+      flags offenders, and can add CSSgram's table and a contact sheet. The tuning loop
+      and pitfalls are in `docs/film-looks.md`.
+    - Today the nearest pairs are 0.063–0.079 (median 0.070). The exception is
+      Print–Phromagraph (0.023): the same rendering by design, never retuned from each
+      other. CSSgram's 26 Instagram-style filters have a nearest-neighbour median of
       0.050 and a minimum of 0.021.
-    - On a ColorChecker (CIE76) our colour filters are ≥ 14.9 from each other, vs a
-      median of ~11 for CSSgram.
-    - The first pass sat at 0.014–0.03 and the second at 0.032–0.055. Both read as "they
-      all look the same".
+  - **Retired looks** (Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400,
+    Silver; 2026-11-17) are out of `Look.all` and `FilmStock.all` but every photo made
+    with one renders exactly as before: pinned tuning, else `FilmStock.Legacy.v2`
+    (`resolved(for:)`; `namedOrRetired` fills gaps in an older pinned tuning from that
+    retired stock, not from Print). `Look.retired` keeps their names (`displayName`, the
+    editor's info row) and moves a saved camera choice on: Chrome → Slide, Mono 400 /
+    Silver → Noir, the rest → Original (`CameraSettings.decodeSaved`). Never reuse a
+    retired id for a different look.
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
 - **Only Print and Phromagraph capture RAW** (`Look.capturesRAW`). The others apply to
   whatever Photo mode's processing produced, and develop from RAW when the shot has a DNG.
-- **Phromagraph** (`phromagraph`, a FILTER, never a mode) is a separate stock *fitted* to
+- **Phromagraph** (`phromagraph`, a look, never a mode) is a separate stock *fitted* to
   Chromagraph Camera's own exports of its own ProRAWs, where Print was calibrated from
   public samples. Keep the two separate: don't retune Print from Phromagraph's data or
   vice versa. Details, numbers and caveats: `docs/film-looks.md` §5½.
@@ -348,23 +360,24 @@ is the only source of truth for what exists. Everything else reacts to it.
   - The print cube blends toward the scene's own color, with the interlayer saturation
     undone, as luminance rises.
   - The scene color is carried by the stock's own neutral cast at that exposure
-    (`neutralTable`), so warm or cool filters keep their cast in the highlights instead
+    (`neutralTable`), so warm or cool looks keep their cast in the highlights instead
     of being pulled back to neutral.
-  - Print keeps 0 to stay faithful to Chromagraph. The color filters use 0.4–0.9.
+  - Print keeps 0 to stay faithful to Chromagraph. Most color looks use 0.2–0.8;
+    desaturated ones (Amber Haze, Bleach Bypass) use 0, because hue protection restores
+    the scene's colour (it undoes the interlayer and any `channel_mix`).
 - **Source of truth:**
   - `scripts/print-stock.json` holds Print (fitted).
   - `scripts/phromagraph-stock.json` holds Phromagraph, written by
     `scripts/phromagraph.py fit` (a full stock, not a compact spec).
-  - `scripts/film-looks.json` holds the filters: compact specs, with anything left out
+  - `scripts/film-looks.json` holds the other looks: compact specs, with anything left out
     inherited from Print. `scripts/filmlooks.py` derives each stock's print curve from
     its tone target.
   - `FilmStock+Stocks.swift` is generated from all three: `scripts/print-look.py export-swift`.
-  - ⚠️ `export-swift` is **not reproducible across numpy versions**: `derive_print_curve`
-    deduplicates exactly tied knots after an unstable `np.argsort`, so a different numpy
-    picks a different last knot for the film-looks.json filters (Natural's print cube
-    moves by up to 23/255; Warm 400 and Chrome then fail `parity`). Until that's fixed,
-    don't regenerate the filters on a new machine without comparing; the Phromagraph PR
-    inserted only its own block.
+  - `derive_print_curve` used to deduplicate exactly tied knots after an unstable
+    `np.argsort`, so a different numpy picked a different last knot (Natural's print cube
+    moved by up to 23/255). It now sorts with `kind="stable"`; regenerating keeps Print,
+    Phromagraph, Punch and Noir byte-identical. Still compare the stocks you didn't mean
+    to change after any regenerate.
   - `scripts/filmmodel.py` mirrors the Swift math exactly.
   - After touching either side, run `scripts/print-look.py parity`. It compiles
     FilmModel.swift with `swiftc`, works on Linux too, and fails on any difference
@@ -382,7 +395,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **Tables** (per stock):
   - The negative cube (48³, 1.8 MB) is fixed per stock and source, built once (~15 ms).
     At launch every stock's viewfinder cube is prewarmed in the background (~200 ms of
-    CPU), so the FILTER strip's live previews never stall the viewfinder.
+    CPU), so the LOOK strip's live previews never stall the viewfinder.
   - Both caches are small LRUs (16 negative, 18 print; 1.8 MB each).
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
     highlights, shadows) and is cached. It rebuilds in ~2 ms (Print) to ~7 ms (hue
@@ -406,16 +419,16 @@ is the only source of truth for what exists. Everything else reacts to it.
   "Print film look".
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
     (`isStill`), so it uses the photo pipeline.
-    - It drops the controls that don't apply: no format pill (always RAW), no FILTER
-      cell (Print *is* the filter), and no burst (RAW can't burst).
+    - It drops the controls that don't apply: no format pill (always RAW), no LOOK
+      cell (Print *is* the look), and no burst (RAW can't burst).
     - Photo ↔ Print switches without rebuilding the session. Only a ProRAW on/off change
       reconfigures (`CameraController.proRAWActive`).
-    - Print is left out of the FILTER list.
-  - **Filter:** Print is the first item under FILTER, and there is no Print mode.
+    - Print is left out of the LOOK list.
+  - **Look:** Print is the first item under LOOK, and there is no Print mode.
   - `CameraSettings.activeLook` is what actually gets applied: Print in Print mode,
-    otherwise the chosen filter.
-  - The editor's Filters tab always includes Print.
-- **Capture:** the Print mode (or the Print filter) makes the camera shoot Bayer RAW and
+    otherwise the chosen look.
+  - The editor's Looks tool always includes Print.
+- **Capture:** the Print mode (or the Print look) makes the camera shoot Bayer RAW and
   keep the DNG (`CameraSettings.developsBayerRAW`). `RecipeBaker` then renders the edit
   from the in-memory DNG.
   - **Noise.** A Bayer RAW is a single frame with none of Apple's multi-frame noise
@@ -446,7 +459,8 @@ is the only source of truth for what exists. Everything else reacts to it.
   reopened and re-saved in the editor.
   - **Photos from before pinning** (no `tuning`) resolve to the exact tuning they were made
     with, from the frozen history in `FilmStock+Legacy.swift`:
-    - a stock id (film-stock filters, #15+) → the stocks as shipped from #15/#20;
+    - a stock id (film-stock looks, #15+) → the stocks as shipped from #15/#20 (this is
+      also how the retired looks keep rendering);
     - no stock id is Print, which never stored one before pinning: luminance NR under 50
       (#9's Print set 15%) → Print as shipped in #9 (grain 0.012); otherwise (the #20+
       baker floors NR at 50) → Print as shipped from #20 (grain 0.008).
@@ -489,7 +503,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
 | Film looks: inverse of a phone's tone curve (viewfinder, processed photos) | `FilmLUT.sceneFromDisplay` | display = 1.273·s/(1+0.808·s), applied to luminance |
-| Photo filters' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
+| Looks' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
 
 ---
 
@@ -505,11 +519,11 @@ is the only source of truth for what exists. Everything else reacts to it.
     `isShutterSoundSuppressionSupported`; `camera.canSilenceShutter` drives the Settings
     toggle). The Lock Screen extension is always silent where allowed. The app plays no
     other sounds.
-  - Capture **Filters** (called Looks in code): film stocks (§4 "Film looks"), previewed
+  - Capture **Looks**: film stocks and movie grades (§4 "Film looks"), previewed
     live and baked on as an editable edit (needs full Photos access).
   - Hold the shutter for **burst**.
 - **Controls:**
-  - One control row: FOCUS/WB/ISO/SHUTTER/EV/FILTER (FILTER in Photo only). The owner wants
+  - One control row: FOCUS/WB/ISO/SHUTTER/EV/LOOK (LOOK in Photo only). The owner wants
     all of them visible at once; don't hide them behind a "more"/PRO toggle (tried in #12,
     reverted). White = auto, yellow = manual.
   - Scrub dials for ISO (⅓ stops), shutter (⅓ stops), EV, Kelvin WB and manual focus.
@@ -567,7 +581,7 @@ is the only source of truth for what exists. Everything else reacts to it.
   every test on the newest iPhone simulator (`.github/scripts/pick-simulator.py`):
   - `PointAndShootTests` (unit + integration, hosted in the app): settings and recipe
     back-compat, the capture planner's crash invariants, viewer/thumbnail logic, every
-    filter through the film pipeline on the simulator GPU, and the real Photos library
+    look through the film pipeline on the simulator GPU, and the real Photos library
     (save, RAW pairs with a generated DNG, Zero develop orientation, baking a look).
   - `PointAndShootUITests`: tap targets, Print zoom lock, settings, and the roll flows
     (viewer, delete with iOS's confirmation, Don't Allow, grid batch delete) against
@@ -712,12 +726,19 @@ to be wrong.
       the camera thumbnail each time; delete everything; delete in Photos while the viewer,
       the grid in Select mode, the Info sheet or the editor is open; tap Don't Allow.
 11. **Editor**
-    - Each tool. Swipe gestures feel right. Color mixer: try Blue Luminance with Mono 400.
+    - Each tool. Swipe gestures feel right. Color mixer: try Blue Luminance with Noir.
     - Save → shows Edited in Photos → reopen restores sliders → Revert works.
     - Save as New Photo; copy/paste between photos.
     - RAW tab on a RAW/Zero photo.
 12. **Capture Looks:** pick one, shoot. The photo is edited in Photos; the editor shows the
     Look selected and lets you remove it.
+    - Each cinematic look (Desert, Pastel, Amber Haze, Sodium, Neon Night, Bleach Bypass,
+      Slide) reads as a film or movie grade in the viewfinder and on skin, daylight and
+      night scenes; the LOOK strip's thumbnails are easy to tell apart. Watch viewfinder
+      smoothness with Amber Haze (the widest bloom).
+    - A photo made with a retired look (e.g. Cine, Warm 400) still looks the same and the
+      editor still names its look; a camera left on Chrome / Mono 400 / Silver now opens
+      on Slide / Noir, any other retired look on Original.
 13. **Shortcuts / Action button:** "Take a Photo" and "Record a Video" in the Shortcuts app
     open the right mode.
 14. **iOS 18 Control + Lock Screen camera**
@@ -729,10 +750,10 @@ to be wrong.
 15. **Print look**
     - Tap PRINT (or swipe from PHOTO). It switches instantly with no session blur, and the
       viewfinder shows the look live with moving grain at full frame rate.
-    - Print mode shows no format pill, no FILTER cell, and doesn't burst. Flash, timer and
+    - Print mode shows no format pill, no LOOK cell, and doesn't burst. Flash, timer and
       exposure controls are still there.
-    - Settings → Print film look → Filter: PRINT leaves the mode picker and appears under
-      FILTER. The format pill then reads "Print · RAW" when it's picked.
+    - Settings → Print film look → Look: PRINT leaves the mode picker and appears under
+      LOOK. The format pill then reads "Print · RAW" when it's picked.
     - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ The saved
       photo should be about as bright as the viewfinder was (indoors, outdoors, at
       night). If it's consistently off, check `rawFilmExposure` in the edit's recipe and
@@ -742,7 +763,7 @@ to be wrong.
       there is no banding in skies or shadow gradients.
     - Indoors at night, the shot shouldn't look noisy. Fine grain should be visible
       only when you zoom in.
-    - Editor: Print from the Filters tab. Details → Grain/Halation/Crossover respond;
+    - Editor: Print from the Looks tool. Details → Grain/Halation/Crossover respond;
       Tune sliders behave. Revert in Photos gives the neutral Zero develop.
     - Switch the look back to Natural: sharpening and the RAW tab's tone sliders return.
 16. **Robustness:**

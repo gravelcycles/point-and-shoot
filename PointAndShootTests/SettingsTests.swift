@@ -114,9 +114,26 @@ final class SettingsTests: XCTestCase {
     func testRoundTrip() throws {
         var s = CameraSettings()
         s.rawMode = .proRAW
-        s.captureLook = "cine"
+        s.captureLook = "desert"
         s.flash = .auto
         let data = try JSONEncoder().encode(s)
         XCTAssertEqual(CameraSettings.decodeSaved(data), s)
+    }
+
+    /// A look that's no longer offered never stays the camera's choice: it moves to its
+    /// successor, or to Original.
+    func testRetiredLookMovesToItsSuccessorOrOff() throws {
+        for (retired, expected) in [("chrome", "slide"), ("mono400", "noir"), ("silver", "noir"),
+                                    ("cine", nil), ("warm400", nil), ("bogus", nil)] as [(String, String?)] {
+            var s = CameraSettings()
+            s.captureLook = retired
+            let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
+            XCTAssertEqual(decoded.captureLook, expected, retired)
+            if let id = decoded.captureLook { XCTAssertNotNil(Look.named(id), "\(retired) → \(id) isn't offered") }
+        }
+        for (id, entry) in Look.retired {
+            XCTAssertNil(Look.named(id), "\(id) is offered again: take it out of Look.retired")
+            if let next = entry.successor { XCTAssertNotNil(Look.named(next), "\(id)'s successor \(next) isn't offered") }
+        }
     }
 }

@@ -107,6 +107,38 @@ final class FrozenTuningTests: XCTestCase {
         }
     }
 
+    // MARK: Retired looks
+
+    /// The filters replaced by the looks keep rendering exactly as they were made:
+    /// pinned tuning first, else the frozen history, never Print or a current look.
+    func testRetiredLooksStillRenderWithTheirOwnTuning() throws {
+        for (id, entry) in Look.retired {
+            XCTAssertNil(FilmStock.all[id], "\(id) is retired but still offered")
+            let shipped = try XCTUnwrap(FilmStock.Legacy.v2[id], "\(id) missing from the frozen history")
+            var unpinned = EditRecipe()
+            unpinned.look = id
+            unpinned.film = FilmRecipe(stock: id, tuning: nil, engine: nil)
+            XCTAssertEqual(FilmStock.resolved(for: unpinned), shipped, id)
+            XCTAssertEqual(FilmStock.namedOrRetired(id), shipped, id)
+            XCTAssertEqual(Look.displayName(id), entry.name, "the editor should still name \(id)")
+        }
+    }
+
+    func testRetiredPinnedTuningMissingAFieldFillsFromItsOwnStock() throws {
+        var r = EditRecipe()
+        r.look = "cine"
+        r.film = FilmRecipe(stock: "cine", tuning: FilmStock.Legacy.v2["cine"], engine: 1)
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as? [String: Any])
+        var film = try XCTUnwrap(obj["film"] as? [String: Any])
+        var tuning = try XCTUnwrap(film["tuning"] as? [String: Any])
+        tuning.removeValue(forKey: "shadowTint")      // as if pinned before the field existed
+        film["tuning"] = tuning
+        obj["film"] = film
+        let reopened = try XCTUnwrap(EditRecipe.decodeSaved(try JSONSerialization.data(withJSONObject: obj)))
+        XCTAssertEqual(reopened.film?.tuning, FilmStock.Legacy.v2["cine"],
+                       "A retired look's missing field must come from that look, not from Print")
+    }
+
     func testSavingAnOlderEditPinsTheTuningItWasMadeWith() {
         var r = printV1Edit
         r.freezeFilmTuning()
