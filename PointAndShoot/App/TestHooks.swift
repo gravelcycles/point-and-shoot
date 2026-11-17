@@ -28,6 +28,7 @@ enum TestHooks {
     static var photosSeedCount: Int { intArg("-uitest-photos") }
 
     /// UI tests: an empty library, then the seeded shots, newest first in capture order.
+    @MainActor
     static func prepareLibrary(_ store: ShotStore) async {
         guard isUITest else { return }
         let existing = (try? FileManager.default.contentsOfDirectory(at: store.root, includingPropertiesForKeys: nil)) ?? []

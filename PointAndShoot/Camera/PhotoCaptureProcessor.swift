@@ -141,16 +141,6 @@ actor BakeQueue {
     static let shared = BakeQueue()
     private var tail: Task<Void, Never>?
 
-    func value<T>(_ operation: @escaping @Sendable () async -> T) async -> T {
-        let previous = tail
-        let task = Task { () -> T in
-            await previous?.value
-            return await operation()
-        }
-        tail = Task { _ = await task.value }
-        return await task.value
-    }
-
     func run(_ operation: @escaping @Sendable () async -> Void) async {
         let previous = tail
         let task = Task {

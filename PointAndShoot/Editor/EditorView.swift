@@ -1,4 +1,3 @@
-import Photos
 import SwiftUI
 
 enum EditorTool: String, CaseIterable, Identifiable {
@@ -62,8 +61,8 @@ struct EditorView: View {
 
     private enum DragMode { case choose, adjust }
 
-    init(asset: PHAsset, onSaved: @escaping (String) -> Void = { _ in }) {
-        _session = State(initialValue: EditSession(asset: asset))
+    init(shot: Shot, store: ShotStore, onSaved: @escaping (String) -> Void = { _ in }) {
+        _session = State(initialValue: EditSession(shot: shot, store: store))
         self.onSaved = onSaved
     }
 
@@ -100,7 +99,7 @@ struct EditorView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: zeroTick)
         .interactiveDismissDisabled(session.hasChanges)
         .confirmationDialog("Discard your edits?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-            Button("Save to Photos") { Task { await saveAndClose() } }
+            Button("Save") { Task { await saveAndClose() } }
             Button("Discard Edits", role: .destructive) { dismiss() }
             Button("Keep Editing", role: .cancel) {}
         }
@@ -114,16 +113,12 @@ struct EditorView: View {
         // Own anchor: one presentation per view.
         .background {
             Color.clear
-                .alert("This photo was deleted", isPresented: Binding(
+                .alert("This photo was moved to the Trash", isPresented: Binding(
                     get: { session.assetDeleted },
                     set: { if !$0 { session.assetDeleted = false } })) {
-                    Button("Save as New Photo") {
-                        Task { if await session.saveCopy() { finish("Saved as a new photo") } }
-                    }
-                    Button("Discard Edits", role: .destructive) { dismiss() }
-                    Button("Keep Editing", role: .cancel) {}
+                    Button("Discard Edits", role: .cancel) { dismiss() }
                 } message: {
-                    Text("It's no longer in your library (check Recently Deleted in Photos). Your edit can still be saved as a new photo.")
+                    Text("Restore it from the Trash in the grid to keep editing.")
                 }
         }
     }
@@ -161,9 +156,9 @@ struct EditorView: View {
             Menu {
                 Button {
                     Task {
-                        if await session.saveCopy() { finish("Saved as a new photo") }
+                        if await session.saveCopy() { finish("Saved to Photos") }
                     }
-                } label: { Label("Save as New Photo", systemImage: "plus.square.on.square") }
+                } label: { Label("Export to Photos", systemImage: "square.and.arrow.down") }
 
                 Divider()
                 Button {
@@ -180,9 +175,9 @@ struct EditorView: View {
                     Divider()
                     Button(role: .destructive) {
                         Task {
-                            if await session.revertToOriginal() { finish("Reverted to original") }
+                            if await session.revertToOriginal() { finish("Reset to original") }
                         }
-                    } label: { Label("Revert to Original", systemImage: "arrow.counterclockwise") }
+                    } label: { Label("Reset to Original", systemImage: "arrow.counterclockwise") }
                 }
             } label: {
                 Image(systemName: "ellipsis.circle").font(.system(size: 19, weight: .semibold))
@@ -210,10 +205,9 @@ struct EditorView: View {
         .frame(height: 52)
     }
 
-    /// One tap: writes the edit to the photo in your camera roll (non-destructively —
-    /// Photos keeps the original and you can revert there or here).
+    /// Saves the grade in the app's library (the RAW is untouched; reset any time).
     private func saveAndClose() async {
-        if await session.save() { finish("Saved to Photos") }
+        if await session.save() { finish("Saved") }
     }
 
     private func finish(_ message: String) {

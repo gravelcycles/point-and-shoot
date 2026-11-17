@@ -126,7 +126,8 @@ final class ShotStore {
 
     private nonisolated static func renderPreviews(shot: Shot, dir: URL, recipe: EditRecipe, settle: Bool,
                                                    viewfinderKey: Double?) async -> EditRecipe? {
-        await BakeQueue.shared.value { () -> EditRecipe? in
+        let box = RecipeBox()
+        await BakeQueue.shared.run {
             let start = Date()
             var r = recipe
             if settle {
@@ -135,7 +136,7 @@ final class ShotStore {
             }
             guard let preview = ShotRenderer.render(shot, in: dir, recipe: r, maxSide: ShotRenderer.previewSide) else {
                 Diag.error(.bake, "couldn't render \(shot.id.uuidString.prefix(8))")
-                return nil
+                return
             }
             do {
                 try ShotRenderer.writeJPEG(preview, to: dir.appendingPathComponent("preview.jpg"), quality: 0.9)
@@ -145,8 +146,9 @@ final class ShotStore {
             } catch {
                 Diag.error(.bake, "couldn't write the preview of \(shot.id.uuidString.prefix(8))", error)
             }
-            return r
+            box.value = r
         }
+        return box.value
     }
 
     private func bumpRevision(_ id: UUID) {
@@ -250,4 +252,9 @@ final class ShotStore {
     func cachedImage(_ shot: Shot, _ kind: ImageKind) -> UIImage? {
         images.object(forKey: "\(shot.id.uuidString)-\(shot.revision)-\(kind.rawValue)" as NSString)
     }
+}
+
+/// Carries a settled grade out of a `BakeQueue` job.
+private final class RecipeBox: @unchecked Sendable {
+    var value: EditRecipe?
 }

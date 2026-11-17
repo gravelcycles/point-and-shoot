@@ -1203,7 +1203,9 @@ final class CameraController: NSObject {
                         if let shotID {
                             self.lastSavedShotID = shotID
                             if s.autoExport {
-                                Task { await ShotExporter.autoExport(shotID, store: .shared, options: .init(s)) }
+                                Task { @MainActor in
+                                    await ShotExporter.autoExport(shotID, store: ShotStore.shared, options: .init(s))
+                                }
                             }
                         } else {
                             // Nothing was saved: don't keep showing a thumbnail of it.
