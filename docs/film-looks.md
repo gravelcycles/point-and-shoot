@@ -16,7 +16,7 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #15 | Every photo filter is a film stock, plus split toning, spaced apart with a metric | merged |
 | #20 | Grainy Print photos: real RAW noise reduction, exact grain, finer grain | merged |
 | #34 | Phromagraph: a look fitted to Chromagraph's own renders (§5½) | open |
-| – | Filters → **Looks**: seven cinematic grades replace the Instagram-ish filters (§1½) | open, into `claude/raw-import` |
+| #35 | Filters → **Looks**: seven cinematic grades replace the Instagram-ish filters (§1½) | open, into `claude/raw-import` |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
