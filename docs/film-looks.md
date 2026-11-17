@@ -67,7 +67,9 @@ editor still says which look a photo has) and where a saved camera choice moves:
 Chrome → Slide, Mono 400 and Silver → Noir, the rest → Original.
 
 **The new looks** (names are evocative, never film titles, directors or trademarks;
-inspiration goes in the `detail` text at most):
+inspiration goes in the `detail` text at most). *Superseded before shipping by §1¾:*
+Desert, Pastel, Amber Haze, Sodium and Neon Night were replaced; Bleach Bypass and
+Slide were rebuilt.
 
 | Look (`id`) | Intent | How the stock gets there |
 |---|---|---|
@@ -112,8 +114,66 @@ two exactly tied knots survives no longer depends on numpy's sort (the cause of 
 cross-machine drift noted in CLAUDE.md). With it, Print, Phromagraph, Punch and Noir
 regenerate byte-identical (numpy 2.5.3).
 
-**Contact sheet:** `docs/looks-contact-sheet.jpg`, before (the old filters) and after,
-on the two test DNGs and the two Apple JPEGs (film only: no vignette or structure).
+**Contact sheet:** `docs/looks-contact-sheet.jpg` now shows §1¾'s set (Original, Print and Punch,
+then the new looks) on eight test images, film only (no vignette or structure).
+
+## 1¾. Structure, not tint (2026-11-17, second pass)
+
+The owner worried the looks were "still instagramified... not film-esque or movie-esque",
+liked Punch, and wanted nothing that "seem[s] super faded/just turned up the tint". The
+research behind this pass, with sources, is in **`docs/film-looks-research.md`**.
+
+**The diagnosis:** most of §1½'s looks were the Instagram pattern:
+- printer-light casts and split tones over every pixel;
+- lifted floors of 0.01–0.045;
+- a global `channel_mix`.
+
+Film looks differ instead by how colour and tone *interact*. Three new mechanisms do that
+(CLAUDE.md §4). All three are point-wise and baked into the two LUTs, so nothing changes
+per frame:
+- **`hue_twists`:** each film's colour rendering by hue, on scene light in log space.
+  Neutrals are untouched. Emerald greens, golden or rosy skin, deep skies, teal and orange
+  with skin locked.
+- **`dye_saturation`:** saturation in print density. Above 0, richer colours get *darker*
+  (subtractive). Below 0, it's retained silver (bleach bypass).
+- **`key_black`:** Technicolor's black key image, which adds density under colours that
+  pass little green.
+
+**The looks** (details and research in `docs/film-looks-research.md` §4). Every new look
+has `floor` 0, and split toning is gone or a trace.
+
+| Look (`id`) | Reference | Signature |
+|---|---|---|
+| Portrait 400 (`portrait400`) | Portra 400 | High key, soft contrast into real blacks, luminous warm skin, olive greens, pale cyan skies |
+| Evergreen (`evergreen`) | Fuji 400 | Emerald greens, pink skin, magenta highlights over green shadows (crossover [+.05, +.05]) |
+| Slide (`slide`) | Kodachrome | Dark key, hard contrast, dense crimson reds and gold against muted olive greens and deep skies |
+| Lush (`lush`) | Velvia | Lush greens, violet-leaning deep skies, warm hues pushed to red, hard white clip |
+| Three-Strip (`threestrip`) | Technicolor dye transfer | High key, pure dense primaries (key black), rosy skin, warm light |
+| Blockbuster (`blockbuster`) | Teal and orange, done by a colourist | Skin hue locked, greens and skies turned teal, purples muted, neutral blacks |
+| Night 800 (`night800`) | CineStill 800T | Cyan shadows under amber light, red halation, low key, grain |
+| Bleach Bypass (`bleach`) | ENR / CCE | Dye saturation −0.55 (silver), hard contrast, inky blacks, grit |
+
+**Unchanged:** Print, Phromagraph, Punch and Noir (they regenerate byte-identical).
+
+**Retired camera choices now land on a successor:** Skin → Portrait 400, Cool Air →
+Evergreen, Cine → Blockbuster.
+
+**Spread** (official four images): every new look's nearest is ≥ 0.061, with a median of
+0.065. Print and Phromagraph stay close by design.
+
+On a wider 16-image set (Kodak portraits, parrots, a ColorChecker DNG, sun flare,
+aerial):
+
+| Set | Nearest-neighbour range |
+|---|---|
+| New looks | 0.056–0.071 |
+| Today's app filters | 0.052–0.070 |
+| §1½'s looks | 0.060–0.081 |
+
+**Read §4's "mean ΔE rewards tints" before chasing the 0.06 rule.**
+
+**Not checked:** a real night scene for Night 800 (only daylight and sun flare), and
+anything on the device.
 
 ## 2. The owner's taste (from their own words)
 
@@ -219,6 +279,9 @@ confirmed by measurement):
 | `halation`, `halation_spread` | Red glow by default. Equal R/G/B with wide sigmas and a low threshold gives a neutral bloom (Skin). | – |
 | `shadow_tint` / `highlight_tint` | Split toning: encoded RGB offsets weighted (1−Y)² / Y², made luminance-neutral by `filmlooks.py` | ±0.08 |
 | `grain` | Density std at 4032 px (Print uses 0.008) | 0.0027 – 0.0133 |
+| `hue_twists` | Film colour by hue: `[hue°, width°, rotate°, saturation, stops]` each, on scene light in log space (neutrals untouched). Hues: red 5, skin 28, orange 40, yellow 56, foliage 80, green 97, cyan 200, sky 224, blue 242, magenta 312. Converging rotations compress a palette (Blockbuster: 15–50° onto skin; Three-Strip: onto the primaries) | widths 20–60°, rotations ±70°, saturation −0.45…+0.5, stops −0.5…+0.25 |
+| `dye_saturation` | Saturation in print density. > 0 pivots on each colour's least dense channel, so richer colours get *darker*. < 0 pulls toward the mean density (silver) | −0.55 (Bleach) … +0.55 (Three-Strip) |
+| `key_black` | Technicolor's key: green-record density added under every channel (rows renormalised), so reds, blues and magentas get extra black | 0.3 (Three-Strip) |
 | `huePreserve` | Keeps bright warm colours from turning yellow (0 = pure film). Re-saturates desaturated looks and partly undoes a `channel_mix`: keep it low there | 0 (Amber Haze, Bleach) – 0.9 (Print 0) |
 | `mono_tone` | B&W toning gains | Noir [.90,.97,1.13]; Silver [1.1,1,.82] |
 
@@ -240,6 +303,24 @@ confirmed by measurement):
 - **A desaturated look plus hue protection gets its colour back in the highlights.**
   `huePreserve` blends toward the scene colour with the interlayer undone; Amber Haze and
   Bleach Bypass use 0.
+- **Mean ΔE rewards tints.** The spread rule averages over all pixels, and most pixels are
+  near-neutral.
+  - A look that leaves greys alone and bends only skies, foliage and skin scores low
+    (0.035–0.05) even when it reads as clearly different.
+  - A cast moves every pixel and scores high.
+  - Chasing 0.06 with printer lights, split tones and floors is how looks become
+    Instagram filters.
+  - Separate looks by key, contrast, dye density and hue signature instead. A bounded
+    search over grey, slope and dye saturation helps (the 2026-11-17 pass used a scratch
+    tool; the bounds keep each look's character).
+- **Density saturation about the mean *brightens* saturated colours.** Spreading a red's
+  densities about their mean lowers the cyan density, which is the red channel, and red
+  transmittance shoots up: Y 0.07 → 0.22 at +0.4. The Saturation slider still does this.
+  The stock's `dyeSaturation` pivots on the least dense channel instead, so purity costs
+  density, as with real dyes.
+- **Hue measured after the sensitivity matrix is useless for yellows.** Interlayer pushes
+  their blue exposure below zero, and it clamps, so every saturated yellow and orange
+  reads as hue 60. Twists therefore measure hue on scene light, in log(x + 0.01).
 - **"Washed out" is a floor and a white, not a mood.** The first Desert (floor 0.04,
   white 0.93, slope 1.0) read grey and flat; the fix was contrast (slope 1.6) with a small
   floor, letting the warm cast carry the look.

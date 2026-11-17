@@ -207,6 +207,28 @@ final class FrozenTuningTests: XCTestCase {
         XCTAssertEqual(reopened.film?.tuning?.exposure, FilmStock.printLook.exposure)
     }
 
+    /// Hue twists and dye saturation came after tunings were pinned. A tuning pinned before
+    /// them reopens *without* them (never filled in from today's stock of the same id),
+    /// so the photo renders exactly as it was made.
+    func testPinnedTuningFromBeforeHueTwistsReopensWithoutThem() throws {
+        let r = try XCTUnwrap(Look.named("blockbuster")).recipe
+        XCTAssertNotNil(r.film?.tuning?.hueTwists, "Blockbuster should use hue twists")
+        XCTAssertNotNil(r.film?.tuning?.dyeSaturation, "Blockbuster should use dye saturation")
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as? [String: Any])
+        var film = try XCTUnwrap(obj["film"] as? [String: Any])
+        var tuning = try XCTUnwrap(film["tuning"] as? [String: Any])
+        for key in FilmStock.offWhenMissing { tuning.removeValue(forKey: key) }
+        film["tuning"] = tuning
+        obj["film"] = film
+        let reopened = try XCTUnwrap(EditRecipe.decodeSaved(try JSONSerialization.data(withJSONObject: obj)))
+        XCTAssertNotNil(reopened.film?.tuning, "the older tuning made the edit unreadable")
+        XCTAssertNil(reopened.film?.tuning?.hueTwists, "hue twists were filled in from today's stock")
+        XCTAssertNil(reopened.film?.tuning?.dyeSaturation, "dye saturation was filled in from today's stock")
+        // ...while a tuning that has them keeps them through a save.
+        let saved = try XCTUnwrap(EditRecipe.decodeSaved(try JSONEncoder().encode(r)))
+        XCTAssertEqual(saved.film?.tuning, r.film?.tuning)
+    }
+
     func testPickingTheLookAgainMovesToTheNewestTuning() {
         var r = printRecipe
         var older = FilmStock.printLook

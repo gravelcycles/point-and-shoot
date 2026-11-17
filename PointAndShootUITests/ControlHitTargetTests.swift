@@ -29,7 +29,7 @@ final class ControlHitTargetTests: XCTestCase {
 
     func testLookCellOpensLookPickerFromTheEdge() {
         tapOffLabel(app.buttons["strip.look"], dx: 0.1)
-        XCTAssertTrue(app.buttons["Desert"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.buttons["Portrait 400"].waitForExistence(timeout: 3),
                       "Tapping the edge of LOOK didn't open the look picker")
     }
 
@@ -121,10 +121,10 @@ final class ControlHitTargetTests: XCTestCase {
     func testFilterCardsSelectAndDoubleTapResets() {
         let strip = app.buttons["strip.look"]
         tapOffLabel(strip, dx: 0.1)
-        let desert = app.buttons["filter.desert"]
-        XCTAssertTrue(desert.waitForExistence(timeout: 3), "Look cards didn't appear")
-        desert.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Desert'"), evaluatedWith: strip)
+        let portrait = app.buttons["filter.portrait400"]
+        XCTAssertTrue(portrait.waitForExistence(timeout: 3), "Look cards didn't appear")
+        portrait.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Portrait 400'"), evaluatedWith: strip)
         waitForExpectations(timeout: 3)
         strip.doubleTap()
         expectation(for: NSPredicate(format: "label CONTAINS 'Off'"), evaluatedWith: strip)

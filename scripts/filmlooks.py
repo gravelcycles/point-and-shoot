@@ -97,6 +97,14 @@ def build_stock(name, spec, base):
         c = spec["crosstalk"]
         X = np.eye(3) + c * (np.array(base["crosstalk"]).reshape(3, 3) - np.eye(3))
         st["crosstalk"] = [round(float(v), 5) for v in X.ravel()]
+    if "key_black" in spec:
+        # Technicolor dye transfer's key: a weak black image of the green record printed
+        # under the dyes. Colors that pass little green (reds, blues, magentas) get extra
+        # black, i.e. denser, deeper primaries. Rows renormalised so neutrals keep their tone.
+        k = spec["key_black"]
+        X = np.array(st["crosstalk"], dtype=np.float64).reshape(3, 3)
+        X = (X + k * np.array([[0.0, 1.0, 0.0]] * 3)) / (1 + k)
+        st["crosstalk"] = [round(float(v), 5) for v in X.ravel()]
     if "halation" in spec:
         st["halation"] = spec["halation"]
     if "halation_spread" in spec:
@@ -105,6 +113,9 @@ def build_stock(name, spec, base):
         t = np.array(spec.get(k_spec, [0.0, 0.0, 0.0]), dtype=np.float64)
         t = t - float(t @ F.LUM_P3)          # luminance-neutral: the tone target holds
         st[k_stock] = [round(float(v), 5) for v in t]
+    # Film color by hue (filmmodel.hue_twist): [hue°, width°, rotate°, saturation, stops].
+    st["hueTwists"] = [[float(v) for v in t] for t in spec.get("hue_twists", [])]
+    st["dyeSaturation"] = float(spec.get("dye_saturation", 0.0))
     st["huePreserve"] = spec.get("huePreserve", 0.0)
     st["monoTone"] = spec.get("mono_tone", [1.0, 1.0, 1.0])
     for k_spec, k_stock in (("grain", "grainDensity"), ("grain_chroma", "grainChroma"), ("grain_size", "grain_size")):

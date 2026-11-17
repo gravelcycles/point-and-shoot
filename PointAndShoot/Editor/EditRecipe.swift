@@ -82,9 +82,12 @@ struct EditRecipe: Codable, Equatable {
             var saved = saved
             if var film = saved["film"] as? [String: Any], let base = TolerantJSON.object(FilmRecipe()) {
                 // A pinned tuning from an older app version may lack fields stocks gained
-                // since: take those from the current stock of the same id.
+                // since: take those from the current stock of the same id, except fields
+                // whose absence means "off" (hue twists, dye saturation): filling those
+                // from today's stock would change how the older photo looks.
                 if let tuning = film["tuning"] as? [String: Any],
-                   let current = TolerantJSON.object(FilmStock.namedOrRetired((tuning["id"] as? String) ?? (film["stock"] as? String))) {
+                   var current = TolerantJSON.object(FilmStock.namedOrRetired((tuning["id"] as? String) ?? (film["stock"] as? String))) {
+                    for key in FilmStock.offWhenMissing { current.removeValue(forKey: key) }
                     film["tuning"] = TolerantJSON.merging(tuning, over: current)
                 }
                 saved["film"] = TolerantJSON.merging(film, over: base)
@@ -334,25 +337,32 @@ struct Look: Identifiable {
              capturesRAW: true, apply: film("phromagraph") { $0.grain = 0 }),
         Look(id: "punch", name: "Punch", detail: "Vivid color negative pushed hard: maximum color, bold contrast, bright and clean, with extra crunch.",
              apply: film("punch") { $0.structure = 15 }),
-        // The rest are film stocks too (scripts/film-looks.json): each a film or a movie
-        // grade with its own tone curve, color balance and crossover, dye behavior,
+        // The rest are film stocks too (scripts/film-looks.json). What makes them film and
+        // not filters is structure, not tint: each has its own color rendering by hue
+        // (`FilmStock.hueTwists`: Fuji's emerald greens, a slide film's deep skies,
+        // teal-and-orange with skin locked), dye saturation in density (saturated colors
+        // get darker, as with dyes), its own tone curve and crossover, real blacks,
         // halation and grain. The looks they replaced (Natural, Warm 400, Skin, Cool Air,
         // Cine, Chrome, Faded, Mono 400, Silver) are retired: photos made with them keep
         // rendering from their pinned tuning or `FilmStock.Legacy` (see `Look.retired`).
-        Look(id: "desert", name: "Desert", detail: "Inspired by desert epics: warm ochre and sand, quiet color, soft lifted blacks and a long, gentle highlight roll-off.",
-             apply: film("desert") { $0.vignette = 14 }),
-        Look(id: "pastel", name: "Pastel", detail: "A storybook grade: high key and soft, candy pinks, butter yellows, mint and warm cream whites.",
-             apply: film("pastel") { $0.structure = -8 }),
-        Look(id: "amber", name: "Amber Haze", detail: "Orange fog over a future city: nearly monochrome amber, smoky highlights and a wide, warm glow.",
-             apply: film("amber") { $0.vignette = 18 }),
-        Look(id: "sodium", name: "Sodium", detail: "A streetlight thriller: green-yellow sodium light, muddy desaturated shadows, cold skin and a low key.",
-             apply: film("sodium") { $0.vignette = 24 }),
-        Look(id: "neon", name: "Neon Night", detail: "Neon-lit romance: saturated reds against green shadows, crushed blacks and a strong red glow around lights.",
-             apply: film("neon") { $0.vignette = 26 }),
-        Look(id: "bleach", name: "Bleach Bypass", detail: "Silver left in the print: hard contrast, drained color, metallic highlights and gritty grain.",
-             apply: film("bleach") { $0.structure = 20; $0.vignette = 12 }),
-        Look(id: "slide", name: "Slide", detail: "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
+        // Film stocks:
+        Look(id: "portrait400", name: "Portrait 400", detail: "Portrait negative: soft contrast into real blacks, warm luminous skin, olive-leaning greens, pale cyan skies and a long, forgiving highlight roll-off.",
+             apply: film("portrait400") { $0.structure = -6 }),
+        Look(id: "evergreen", name: "Evergreen", detail: "Fuji-style negative: cool and crisp, emerald greens, pink-leaning skin, magenta highlights over green shadows.",
+             apply: film("evergreen") { $0.vignette = 8 }),
+        Look(id: "slide", name: "Slide", detail: "Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.",
              apply: film("slide") { $0.vignette = 12 }),
+        Look(id: "lush", name: "Lush", detail: "Vivid landscape slide: lush greens, deep violet-leaning skies, warm colors pushed toward red and a hard white clip.",
+             apply: film("lush") { $0.vignette = 14; $0.structure = 8 }),
+        // Movie looks:
+        Look(id: "threestrip", name: "Three-Strip", detail: "Dye-transfer Technicolor: high key, pure dense primaries, rosy skin, warm light and solid blacks.",
+             apply: film("threestrip") { $0.vignette = 10 }),
+        Look(id: "blockbuster", name: "Blockbuster", detail: "Teal and orange done like a colorist: skin locked and warmed, greens and skies turned teal, purples muted, blacks kept clean.",
+             apply: film("blockbuster") { $0.vignette = 18; $0.structure = 10 }),
+        Look(id: "night800", name: "Night 800", detail: "Tungsten 800 after dark: cyan shadows under amber light, a red glow around every light, pushed contrast and grain.",
+             apply: film("night800") { $0.vignette = 22 }),
+        Look(id: "bleach", name: "Bleach Bypass", detail: "Silver left in the print: drained color, hard contrast, inky blacks and gritty grain.",
+             apply: film("bleach") { $0.structure = 20; $0.vignette = 12 }),
         Look(id: "noir", name: "Noir", detail: "Pushed black and white: inky cold-toned blacks, hard contrast, heavy grain, glow and a deep vignette.",
              apply: film("noir") { $0.mono = true; $0.vignette = 34 }),
     ]
@@ -362,8 +372,8 @@ struct Look: Identifiable {
     /// Original). Their photos render exactly as before (pinned tuning or
     /// `FilmStock.Legacy`); only the camera's choice and the pickers move on.
     static let retired: [String: (name: String, successor: String?)] = [
-        "natural": ("Natural", nil), "warm400": ("Warm 400", nil), "portrait": ("Skin", nil),
-        "cool": ("Cool Air", nil), "cine": ("Cine", nil), "chrome": ("Chrome", "slide"),
+        "natural": ("Natural", nil), "warm400": ("Warm 400", nil), "portrait": ("Skin", "portrait400"),
+        "cool": ("Cool Air", "evergreen"), "cine": ("Cine", "blockbuster"), "chrome": ("Chrome", "slide"),
         "faded": ("Faded", nil), "mono400": ("Mono 400", "noir"), "silver": ("Silver", "noir"),
     ]
 

@@ -215,6 +215,32 @@ struct FilmStock: Hashable, Codable {
     var shadowTint: [Double] = [0, 0, 0]
     var highlightTint: [Double] = [0, 0, 0]
 
+    /// One bend of the film's color rendering (`FilmLUT.twist`): the hues within `width`
+    /// degrees of `hue` turn by `rotation` degrees, scale their chroma by 1 + `saturation`
+    /// and get `stops` brighter (or darker). Hues: 0 red, 60 yellow, 120 green, 180 cyan,
+    /// 240 blue, 300 magenta (skin ≈ 30, foliage ≈ 80, sky ≈ 225).
+    struct HueTwist: Hashable, Codable {
+        var hue: Double
+        var width: Double
+        var rotation: Double
+        var saturation: Double
+        var stops: Double
+    }
+    /// The film's own color by hue, applied to scene light in log space (the same at every
+    /// brightness; neutrals untouched): cyan-leaning greens, golden skin, deep blue skies.
+    /// What separates film stocks by structure rather than by tint. nil = none.
+    /// Optional, and never filled in from the current stock (`offWhenMissing`): a tuning
+    /// pinned before the field existed must render exactly as it did.
+    var hueTwists: [HueTwist]? = nil
+    /// Saturation the print's dyes add in density space (k = 1 + this, times the user's
+    /// Saturation): > 0 dense slide-film color whose saturated hues get darker, < 0 a bleach
+    /// bypass's silver draining color. nil = 0.
+    var dyeSaturation: Double? = nil
+
+    /// Fields a pinned tuning may lack that mean "off" when absent: `EditRecipe.decodeSaved`
+    /// never fills these from the current stock, so older photos keep their look.
+    static let offWhenMissing = ["hueTwists", "dyeSaturation"]
+
     var hasSplitTone: Bool { shadowTint.contains { $0 != 0 } || highlightTint.contains { $0 != 0 } }
 
     /// Density 18% grey produces on the negative, per layer.
@@ -385,9 +411,48 @@ enum FilmLUT {
         return (out.0 + (tgt.0 - out.0) * w, out.1 + (tgt.1 - out.1) * w, out.2 + (tgt.2 - out.2) * w)
     }
 
+    static let twistChroma = 0.25     // log10 chroma at which a hue's brightness shift is 63% in
+    static let twistOffset = 0.01     // log(x + offset): dark colors fade to neutral instead of exploding
+
+    /// The stock's color rendering by hue (`FilmStock.hueTwists`) on scene light (linear
+    /// Rec.2020), before the film sees it (filmmodel.hue_twist). In log exposure, so it's
+    /// the same at every brightness: hue and chroma in the plane perpendicular to the
+    /// neutral axis, each twist weighted by a raised cosine of its distance in hue. Only
+    /// built into the negative cube, so it costs nothing per frame.
+    static func twist(_ rgb: (Double, Double, Double), _ twists: [FilmStock.HueTwist]) -> (Double, Double, Double) {
+        let l0 = log10(max(rgb.0, 0) + twistOffset)
+        let l1 = log10(max(rgb.1, 0) + twistOffset)
+        let l2 = log10(max(rgb.2, 0) + twistOffset)
+        let m = (l0 + l1 + l2) / 3
+        let u = l0 - 0.5 * (l1 + l2)
+        let v = (3.0.squareRoot() / 2) * (l1 - l2)
+        let c = (u * u + v * v).squareRoot()
+        let h = atan2(v, u) * 180 / .pi
+        var rot = 0.0, sat = 0.0, lum = 0.0
+        for t in twists {
+            var x = (h - t.hue + 180).truncatingRemainder(dividingBy: 360)
+            if x < 0 { x += 360 }
+            let d = abs(x - 180)
+            guard d < t.width else { continue }
+            let w = 0.5 + 0.5 * cos(.pi * d / t.width)
+            rot += w * t.rotation
+            sat += w * t.saturation
+            lum += w * t.stops
+        }
+        let c2 = c * max(1 + sat, 0)
+        let a = (h + rot) * .pi / 180
+        let u2 = c2 * cos(a), v2 = c2 * sin(a)
+        let m2 = m + lum * log10(2.0) * (1 - exp(-c / twistChroma))
+        let r3 = 3.0.squareRoot()
+        return (max(pow(10, m2 + 2 / 3 * u2) - twistOffset, 0),
+                max(pow(10, m2 - u2 / 3 + v2 / r3) - twistOffset, 0),
+                max(pow(10, m2 - u2 / 3 - v2 / r3) - twistOffset, 0))
+    }
+
     /// Scene light (Rec.2020 linear) → negative density per layer.
     static func negativeDensity(_ rgb: (Double, Double, Double), stock s: FilmStock) -> (Double, Double, Double) {
-        let e = FilmMath.mul(s.sensitivity, rgb)
+        let twists = s.hueTwists ?? []
+        let e = FilmMath.mul(s.sensitivity, twists.isEmpty ? rgb : twist(rgb, twists))
         let k = 1 / 0.18
         return (s.negative[0].density(log10(max(e.0, 1e-6) * k)),
                 s.negative[1].density(log10(max(e.1, 1e-6) * k)),
@@ -438,14 +503,31 @@ enum FilmLUT {
         return curves[c].density(g - dn + s.printer[c])
     }
 
+    /// The stock's dye saturation (`FilmStock.dyeSaturation`, filmmodel.dye_saturate).
+    /// Film color is subtractive: purity costs density, so the most saturated colors are
+    /// the darkest. > 0 spreads a color's densities away from its least dense channel: the
+    /// dominant color stays and the others get denser, richer *and darker* (spreading
+    /// about the mean would brighten the dominant channel instead). < 0 is retained silver:
+    /// silver adds density in proportion to the mean, which with the print re-timed for
+    /// grey is a pull toward the mean density. Neutrals are untouched either way.
+    static func dyeSaturate(_ d: (Double, Double, Double), _ amount: Double) -> (Double, Double, Double) {
+        guard amount != 0 else { return d }
+        let pivot = amount > 0 ? min(d.0, d.1, d.2) : (d.0 + d.1 + d.2) / 3
+        let k = 1 + amount
+        return (pivot + (d.0 - pivot) * k, pivot + (d.1 - pivot) * k, pivot + (d.2 - pivot) * k)
+    }
+
     /// Print density → linear Display P3 (dye crosstalk, saturation, highlights/shadows).
     static func display(print dp: (Double, Double, Double), stock s: FilmStock, curves: [FilmCurve],
                         controls c: FilmControls) -> (Double, Double, Double) {
         var dm = FilmMath.mul(s.crosstalk, dp)
         let base = FilmMath.mul(s.crosstalk, (curves[0].y[0], curves[1].y[0], curves[2].y[0]))
 
-        // Saturation in density space: richer colors get denser (darker), like dyes,
-        // instead of brighter.
+        // The tone sliders weigh by the neutral density before the stock's dye saturation
+        // (linear in the print densities, so printCube can tabulate it).
+        let neutral = (dm.0 + dm.1 + dm.2) / 3
+        dm = dyeSaturate(dm, s.dyeSaturation ?? 0)
+        // Saturation in density space (the user's slider), about the mean.
         if c.saturation != 0 {
             let mean = (dm.0 + dm.1 + dm.2) / 3
             let k = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
@@ -453,7 +535,6 @@ enum FilmLUT {
         }
         // Highlights / shadows: shift density in the bright or the dark part of the scale.
         if c.highlights != 0 || c.shadows != 0 {
-            let neutral = (dm.0 + dm.1 + dm.2) / 3
             let wh = exp(-pow((neutral - 0.25) / 0.45, 2))
             let ws = FilmMath.smoothstep(0.9, 2.4, neutral)
             let shift = -0.22 * c.highlights * wh - 0.45 * c.shadows * ws
@@ -580,6 +661,12 @@ enum FilmLUT {
             return encode[i] + (encode[i + 1] - encode[i]) * frac
         }
         let toned = stock.hasSplitTone
+        // Dye saturation pivots on each color's own least dense (or mean) channel, which
+        // isn't a product of per-axis terms: those stocks take a per-cell path (three
+        // exps a cell, still a few ms). The user's saturation then applies about the mean.
+        let dye = stock.dyeSaturation ?? 0
+        let userK = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
+        let x0 = x[0], x1 = x[1], x2 = x[2], x3 = x[3], x4 = x[4], x5 = x[5], x6 = x[6], x7 = x[7], x8 = x[8]
         let s0 = stock.shadowTint[0], s1 = stock.shadowTint[1], s2 = stock.shadowTint[2]
         let h0 = stock.highlightTint[0], h1 = stock.highlightTint[1], h2 = stock.highlightTint[2]
 
@@ -599,7 +686,21 @@ enum FilmLUT {
                         let rs1 = hp > 0 ? sa[4 * n + gi] + sa[7 * n + bi] : 0
                         let rs2 = hp > 0 ? sa[5 * n + gi] + sa[8 * n + bi] : 0
                         for ri in 0..<n {
-                            var t0 = p0 * f[ri], t1 = p1 * f[3 * n + ri], t2 = p2 * f[6 * n + ri]
+                            var t0: Double, t1: Double, t2: Double
+                            if dye == 0 {
+                                t0 = p0 * f[ri]; t1 = p1 * f[3 * n + ri]; t2 = p2 * f[6 * n + ri]
+                            } else {
+                                let q0 = dp[ri], q1 = dp[n + gi], q2 = dp[2 * n + bi]
+                                var m = dyeSaturate((x0 * q0 + x1 * q1 + x2 * q2, x3 * q0 + x4 * q1 + x5 * q2,
+                                                     x6 * q0 + x7 * q1 + x8 * q2), dye)
+                                if userK != 1 {
+                                    let mean = (m.0 + m.1 + m.2) / 3
+                                    m = (mean + (m.0 - mean) * userK, mean + (m.1 - mean) * userK, mean + (m.2 - mean) * userK)
+                                }
+                                t0 = exp(-(m.0 - base.0) * ln10)
+                                t1 = exp(-(m.1 - base.1) * ln10)
+                                t2 = exp(-(m.2 - base.2) * ln10)
+                            }
                             if tone {
                                 let u = min(max((rowNeutral + nw[ri] - toneLo) * toneScale, 0), Double(toneSize))
                                 let i = min(Int(u), toneSize - 1)

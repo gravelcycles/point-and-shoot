@@ -175,7 +175,8 @@ scripts/raw-develop.swift         macOS CIRAWFilter develop exactly as the app d
 scripts/filmlooks.py              builds full stocks from film-looks.json (tone curve derivation)
 scripts/cssgram.py                the 26 Instagram-style CSSgram filters, browser-exact: the yardstick
                                   for how far apart our looks are (`print-look.py spread --cssgram`)
-docs/looks-contact-sheet.jpg      before/after sheet of the looks (old filters vs new looks)
+docs/looks-contact-sheet.jpg      the looks on 8 test images (Original, Print, Punch, then the 2026-11-17 set)
+docs/film-looks-research.md       ★ why film looks read as film (Yedlin, subtractive colour, stocks, labs), with sources
 docs/film-looks.md                ★ handoff notes for the film looks: history, tuning loop, pitfalls,
                                   unknowns, test images, environment tricks
 CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
@@ -285,20 +286,49 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **Every look except Original is a film stock** in the same model, and is meant to read
   as a film or a movie grade, never an Instagram filter (the owner's brief, 2026-11-17:
   "as original looks as 'print'"). Print is the original; Phromagraph is Chromagraph
-  measured; Punch is kept as is. The cinematic looks are Desert, Pastel, Amber Haze,
-  Sodium, Neon Night, Bleach Bypass and Slide, plus Noir as the one B&W look. Each has
-  its own:
+  measured; Punch is kept as is. The others are film stocks and movie grades:
+  - Film stocks: Portrait 400, Evergreen, Slide and Lush.
+  - Movie grades: Three-Strip, Blockbuster, Night 800 and Bleach Bypass.
+  - Noir is the one B&W look.
+  - **What makes them film and not filters is structure, not tint** (the owner: nothing
+    "super faded / just turned up the tint"; research and sources in
+    `docs/film-looks-research.md`): dense blacks (`floor` 0), colour that depends on hue
+    and brightness, and saturated colours that get *darker*.
+  Each has its own:
   - tone curve: grey placement, contrast slope, shoulder, white, black floor
-  - printer-light balance and crossover
-  - interlayer saturation, an optional scene channel mix (`channel_mix`: Pastel's pink
-    reds and mint, Sodium's cold skin; folded into the sensitivity matrix, no app code),
-    and dye crosstalk
-  - halation and grain (Amber Haze's "halation" is a wide warm bloom)
+  - printer-light balance and crossover (per-channel print gamma: casts that differ in
+    shadows and highlights and die out at black and white; preferred over split toning)
+  - **hue twists** (`FilmStock.hueTwists`, `FilmLUT.twist`): the film's colour rendering
+    by hue.
+    - Each twist is `[hue°, width°, rotate°, saturation, stops]`, applied on scene light in
+      log(x + 0.01) before the sensitivity matrix, so it's the same at every brightness
+      and neutrals are untouched.
+    - Examples: Evergreen's emerald greens, Blockbuster's skin lock with teal greens and
+      skies, Three-Strip's pull to pure primaries.
+    - Built only into the negative cube (~35 ms per stock vs ~14), so nothing changes per
+      frame.
+  - **dye saturation** (`FilmStock.dyeSaturation`, `FilmLUT.dyeSaturate`), in print
+    density:
+    - > 0 pivots on each colour's least dense channel, so richer colours get *darker*, as
+      with real dyes.
+    - < 0 pulls toward the mean density: retained silver, a bleach bypass.
+    - Spreading about the mean, like the Saturation slider, would *brighten* saturated
+      colours.
+    - Stocks that use it take a per-cell path in `printCube` (~5–9 ms), since the pivot
+      isn't a product of per-axis terms.
+  - interlayer saturation, an optional scene channel mix (`channel_mix`, folded into the
+    sensitivity matrix), dye crosstalk, and Technicolor's key black (`key_black`, folded
+    into crosstalk; Three-Strip). None of these three needs app code.
+  - halation and grain (Night 800's red halation is wide, with a low threshold)
   - split toning (`shadowTint` / `highlightTint`): luminance-neutral offsets added to the
-    print's *encoded* output with weight (1 − Y)² / Y². This is what gives each look
-    its own shadows (Neon Night's green, Desert's brown, Sodium's olive, Slide's cool
-    blue). Without it every film black converges to the same neutral, which was the main
-    reason the first filters read as alike.
+    print's *encoded* output with weight (1 − Y)² / Y².
+    - It gave the first filters their own shadows; without it every film black converged
+      to the same neutral.
+    - It reads as a tint, so the new looks use crossover and hue twists instead (at most
+      a trace).
+  - **Older photos:** `hueTwists` and `dyeSaturation` are optional, and nil means off.
+    `EditRecipe.decodeSaved` never fills them in from today's stock
+    (`FilmStock.offWhenMissing`), so tunings pinned before they existed render as they did.
   - B&W looks are color stocks followed by the existing mono mix, so the color mixer
     still works like darkroom filters. The stock's `monoTone` gains tone the result: Noir
     is cold.
@@ -306,12 +336,16 @@ is the only source of truth for what exists. Everything else reacts to it.
     thumbnail: brightness (key), contrast, chroma, shadow tint, highlight tint and
     vignette. Grain and structure don't show at thumbnail size, so they never carry a
     look on their own.
+    - **Caveat:** mean ΔE rewards tints. Most pixels are near-neutral, so hue-selective
+      looks measure closer than they read. Meet the rule with key, contrast, dye density
+      and hue signatures, never casts or lifted floors (`docs/film-looks.md` §4,
+      pitfalls).
     - **Rule:** every look's nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
       `scripts/print-look.py spread IMG… [--cssgram] [--sheet out.jpg] [--looks OLD.json]`,
       which measures every look in one table (Print, Phromagraph and B&W included),
       flags offenders, and can add CSSgram's table and a contact sheet. The tuning loop
       and pitfalls are in `docs/film-looks.md`.
-    - Today the nearest pairs are 0.063–0.079 (median 0.070). The exception is
+    - Today the nearest pairs are 0.061–0.077 (median 0.065). The exception is
       Print–Phromagraph (0.023): the same rendering by design, never retuned from each
       other. CSSgram's 26 Instagram-style filters have a nearest-neighbour median of
       0.050 and a minimum of 0.021.
@@ -320,8 +354,9 @@ is the only source of truth for what exists. Everything else reacts to it.
     with one renders exactly as before: pinned tuning, else `FilmStock.Legacy.v2`
     (`resolved(for:)`; `namedOrRetired` fills gaps in an older pinned tuning from that
     retired stock, not from Print). `Look.retired` keeps their names (`displayName`, the
-    editor's info row) and moves a saved camera choice on: Chrome → Slide, Mono 400 /
-    Silver → Noir, the rest → Original (`CameraSettings.decodeSaved`). Never reuse a
+    editor's info row) and moves a saved camera choice on: Chrome → Slide, Skin → Portrait
+    400, Cool Air → Evergreen, Cine → Blockbuster, Mono 400 / Silver → Noir, the rest →
+    Original (`CameraSettings.decodeSaved`). Never reuse a
     retired id for a different look.
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
 - **Only Print and Phromagraph capture RAW** (`Look.capturesRAW`). The others apply to
@@ -355,7 +390,7 @@ is the only source of truth for what exists. Everything else reacts to it.
     (`neutralTable`), so warm or cool looks keep their cast in the highlights instead
     of being pulled back to neutral.
   - Print keeps 0 to stay faithful to Chromagraph. Most color looks use 0.2–0.8;
-    desaturated ones (Amber Haze, Bleach Bypass) use 0, because hue protection restores
+    desaturated ones (Bleach Bypass) use 0, because hue protection restores
     the scene's colour (it undoes the interlayer and any `channel_mix`).
 - **Source of truth:**
   - `scripts/print-stock.json` holds Print (fitted).
@@ -724,13 +759,20 @@ to be wrong.
     - RAW tab on a RAW/Zero photo.
 12. **Capture Looks:** pick one, shoot. The photo is edited in Photos; the editor shows the
     Look selected and lets you remove it.
-    - Each cinematic look (Desert, Pastel, Amber Haze, Sodium, Neon Night, Bleach Bypass,
-      Slide) reads as a film or movie grade in the viewfinder and on skin, daylight and
-      night scenes; the LOOK strip's thumbnails are easy to tell apart. Watch viewfinder
-      smoothness with Amber Haze (the widest bloom).
+    - Each look (Portrait 400, Evergreen, Slide, Lush, Three-Strip, Blockbuster,
+      Night 800, Bleach Bypass) reads as a film or movie grade in the viewfinder, on skin,
+      and in daylight and night scenes, with no faded blacks or global tint. The LOOK
+      strip's thumbnails are easy to tell apart.
+      - Night 800 at night: red glow around lights, cyan shadows. It was designed only on
+        daylight and sun-flare images.
+      - Skin under Portrait 400, Evergreen and Blockbuster (the twists were designed on
+        film scans and two iPhone photos).
+      - Viewfinder smoothness on switching looks: the twisted negative cubes take ~35 ms
+        to build (prewarmed).
     - A photo made with a retired look (e.g. Cine, Warm 400) still looks the same and the
-      editor still names its look; a camera left on Chrome / Mono 400 / Silver now opens
-      on Slide / Noir, any other retired look on Original.
+      editor still names its look. A camera left on a retired look opens on its
+      successor: Chrome → Slide, Skin → Portrait 400, Cool Air → Evergreen,
+      Cine → Blockbuster, Mono 400 / Silver → Noir. The rest open on Original.
 13. **Shortcuts / Action button:** "Take a Photo" and "Record a Video" in the Shortcuts app
     open the right mode.
 14. **iOS 18 Control + Lock Screen camera**

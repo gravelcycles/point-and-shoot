@@ -127,7 +127,17 @@ def export_swift(stock_path=STOCK, out=SWIFT):
             f"            huePreserve: {float(st.get('huePreserve', 0.0))},",
             f"            monoTone: {[float(v) for v in st.get('monoTone', [1.0, 1.0, 1.0])]},",
             f"            shadowTint: {[float(v) for v in st.get('shadowTint', [0.0, 0.0, 0.0])]},",
-            f"            highlightTint: {[float(v) for v in st.get('highlightTint', [0.0, 0.0, 0.0])]})",
+            f"            highlightTint: {[float(v) for v in st.get('highlightTint', [0.0, 0.0, 0.0])]}"
+            + ("," if st.get("hueTwists") or st.get("dyeSaturation") else ")"),
+        ]
+        if st.get("hueTwists"):      # only stocks that use them: the others stay byte-identical
+            tw = [f"{ind}.init(hue: {float(h)}, width: {float(w)}, rotation: {float(r)}, saturation: {float(sa)}, stops: {float(sp)})"
+                  for h, w, r, sa, sp in st["hueTwists"]]
+            lines.append("            hueTwists: [\n" + ",\n".join(tw) + ",\n            ]"
+                         + ("," if st.get("dyeSaturation") else ")"))
+        if st.get("dyeSaturation"):
+            lines.append(f"            dyeSaturation: {float(st['dyeSaturation'])})")
+        lines += [
             "    }()",
             "",
         ]
@@ -459,7 +469,7 @@ def parity():
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
     worst = 0.0
-    for sid in ("print", "phromagraph", "punch", "pastel", "amber", "neon", "noir"):
+    for sid in ("print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleach", "noir"):
         st, s = stocks[sid], sw[sid]
         neg, negd = F.negative_cube(st, "sceneLinear", 48), F.negative_cube(st, "displayReferred", 48)
         pc, pcc = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48)

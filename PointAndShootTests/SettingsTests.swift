@@ -68,7 +68,7 @@ final class SettingsTests: XCTestCase {
     func testRoundTrip() throws {
         var s = CameraSettings()
         s.rawMode = .proRAW
-        s.captureLook = "desert"
+        s.captureLook = "blockbuster"
         s.flash = .auto
         let data = try JSONEncoder().encode(s)
         XCTAssertEqual(CameraSettings.decodeSaved(data), s)
@@ -78,7 +78,8 @@ final class SettingsTests: XCTestCase {
     /// successor, or to Original.
     func testRetiredLookMovesToItsSuccessorOrOff() throws {
         for (retired, expected) in [("chrome", "slide"), ("mono400", "noir"), ("silver", "noir"),
-                                    ("cine", nil), ("warm400", nil), ("bogus", nil)] as [(String, String?)] {
+                                    ("cine", "blockbuster"), ("portrait", "portrait400"), ("cool", "evergreen"),
+                                    ("warm400", nil), ("desert", nil), ("bogus", nil)] as [(String, String?)] {
             var s = CameraSettings()
             s.captureLook = retired
             let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))

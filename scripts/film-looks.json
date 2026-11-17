@@ -1,319 +1,597 @@
 {
- "about": "The looks: film stocks and movie grades in the Print model, each with its own tone, colour and texture. Built by scripts/filmlooks.py; exported with scripts/print-look.py export-swift. Keys left out inherit from Print. grey = display luminance of 18% grey; slope = log-log contrast below the shoulder; shoulder = how hard highlights turn; white/floor = display white and black; printer/crossover = [red, blue] or [red, green, blue] log-exposure offsets (+ = less of that colour) / [red, blue] gamma splits; interlayer = saturation; channel_mix = 3x3 scene RGB mix (rows normalised to 1); crosstalk = 0..1 of print-dye density coupling; grain = density std at 4032 px; shadow_tint/highlight_tint = split toning, offsets on the encoded print output weighted (1-Y)^2 / Y^2 (made luminance-neutral by filmlooks.py). Looks stay far apart: nearest-neighbour mean ΔE (Oklab) >= 0.06 on the test images, Print included.",
+ "about": "The looks: film stocks and movie grades in the Print model, each with its own tone, colour and texture. Built by scripts/filmlooks.py; exported with scripts/print-look.py export-swift. Keys left out inherit from Print. grey = display luminance of 18% grey; slope = log-log contrast below the shoulder; shoulder = how hard highlights turn; white/floor = display white and black; printer/crossover = [red, blue] or [red, green, blue] log-exposure offsets (+ = less of that colour) / [red, blue] gamma splits; interlayer = saturation; channel_mix = 3x3 scene RGB mix (rows normalised to 1); crosstalk = 0..1 of print-dye density coupling; grain = density std at 4032 px; shadow_tint/highlight_tint = split toning, offsets on the encoded print output weighted (1-Y)^2 / Y^2 (made luminance-neutral by filmlooks.py). Looks stay far apart: nearest-neighbour mean ΔE (Oklab) >= 0.06 on the test images, Print included. hue_twists = film color by hue, [hue deg, width deg, rotate deg, saturation, stops] each (0 red, 60 yellow, 120 green, 180 cyan, 240 blue, 300 magenta; skin ~30, foliage ~80, sky ~225), on scene light in log space so neutrals are untouched; dye_saturation = saturation in print density (saturated colors get darker; < 0 drains them like retained silver); key_black = Technicolor's black key image of the green record (denser reds, blues, magentas).",
  "looks": {
-  "desert": {
-   "name": "Desert",
-   "about": "A desert epic: warm ochre and sand, low saturation, soft lifted blacks and a long, gentle highlight roll-off. No teal.",
-   "grey": 0.15,
-   "slope": 1.6,
+  "portrait400": {
+   "name": "Portrait 400",
+   "about": "Portrait negative: soft contrast into real blacks, warm luminous skin, olive-leaning greens, pale cyan skies and a long, forgiving roll-off.",
+   "grey": 0.25,
+   "slope": 1.2,
    "shoulder": 1.5,
-   "white": 0.95,
-   "floor": 0.012,
-   "printer": [
-    -0.07,
-    0.0,
-    0.16
-   ],
-   "crossover": [
-    0.02,
-    0.05
-   ],
-   "interlayer": -0.2,
-   "crosstalk": 0.8,
-   "halation": [
-    0.1,
-    0.04,
-    0.0
-   ],
-   "grain": 0.007,
-   "grain_chroma": 0.15,
-   "huePreserve": 0.3,
-   "shadow_tint": [
-    0.045,
-    0.015,
-    -0.04
-   ],
-   "highlight_tint": [
-    0.035,
-    0.02,
-    -0.07
-   ]
-  },
-  "pastel": {
-   "name": "Pastel",
-   "about": "A storybook grade: high key and soft, candy pinks, butter yellows and mint, warm cream whites.",
-   "grey": 0.27,
-   "slope": 0.95,
-   "shoulder": 1.7,
    "white": 0.97,
-   "floor": 0.03,
+   "floor": 0.0,
    "printer": [
-    -0.03,
-    0.02,
-    0.05
-   ],
-   "crossover": [
-    0.0,
-    0.0
-   ],
-   "interlayer": 0.35,
-   "crosstalk": 0.4,
-   "channel_mix": [
-    [
-     1,
-     0,
-     0
-    ],
-    [
-     0,
-     0.92,
-     0.08
-    ],
-    [
-     0.12,
-     0.15,
-     0.73
-    ]
-   ],
-   "halation": [
-    0.06,
-    0.03,
-    0.01
-   ],
-   "grain": 0.004,
-   "grain_chroma": 0.1,
-   "huePreserve": 0.6,
-   "shadow_tint": [
-    0.06,
     -0.025,
-    0.03
+    0.01,
+    0.02
    ],
-   "highlight_tint": [
-    0.035,
+   "crossover": [
     0.02,
-    -0.06
-   ]
-  },
-  "amber": {
-   "name": "Amber Haze",
-   "about": "Orange fog over a future city: nearly monochrome amber, smoky lifted highlights, a wide warm glow.",
-   "grey": 0.21,
-   "slope": 1.0,
-   "shoulder": 1.5,
-   "white": 0.86,
-   "floor": 0.045,
-   "printer": [
-    -0.15,
+    -0.02
+   ],
+   "interlayer": 0.15,
+   "crosstalk": 0.6,
+   "dye_saturation": 0.05,
+   "hue_twists": [
+    [
+     5,
+     25,
+     6,
+     0,
+     0
+    ],
+    [
+     30,
+     25,
+     0,
+     0.05,
+     0.2
+    ],
+    [
+     90,
+     45,
+     -14,
+     -0.25,
+     0
+    ],
+    [
+     130,
+     45,
+     -10,
+     -0.2,
+     0
+    ],
+    [
+     190,
+     35,
+     -8,
+     -0.1,
+     0
+    ],
+    [
+     222,
+     40,
+     -6,
+     -0.05,
+     0.1
+    ],
+    [
+     300,
+     45,
+     0,
+     -0.15,
+     0
+    ]
+   ],
+   "halation": [
     0.08,
-    0.3
-   ],
-   "crossover": [
-    0.0,
-    0.0
-   ],
-   "interlayer": -0.8,
-   "crosstalk": 0.8,
-   "halation": [
-    0.35,
-    0.2,
-    0.05
-   ],
-   "grain": 0.008,
-   "grain_chroma": 0.15,
-   "huePreserve": 0.0,
-   "shadow_tint": [
-    0.11,
-    -0.01,
-    -0.1
-   ],
-   "highlight_tint": [
-    0.1,
     0.02,
-    -0.11
-   ],
-   "halation_spread": {
-    "display_threshold": 0.5,
-    "display_boost": 2.0,
-    "threshold": 0.6,
-    "boost": 1.0,
-    "sigmas": [
-     6.0,
-     20.0
-    ],
-    "weights": [
-     0.5,
-     0.5
-    ]
-   }
-  },
-  "sodium": {
-   "name": "Sodium",
-   "about": "Streetlight thriller: a green-yellow sodium cast, muddy desaturated shadows, cold skin, low key.",
-   "grey": 0.12,
-   "slope": 1.4,
-   "shoulder": 2.4,
-   "white": 0.92,
-   "floor": 0.01,
-   "printer": [
-    0.04,
-    -0.05,
-    0.13
-   ],
-   "crossover": [
-    0.0,
-    0.03
-   ],
-   "interlayer": -0.35,
-   "crosstalk": 0.9,
-   "channel_mix": [
-    [
-     0.85,
-     0.15,
-     0
-    ],
-    [
-     0,
-     1,
-     0
-    ],
-    [
-     0,
-     0.1,
-     0.9
-    ]
-   ],
-   "halation": [
-    0.04,
-    0.03,
     0.0
    ],
    "grain": 0.006,
-   "grain_chroma": 0.15,
-   "huePreserve": 0.2,
-   "shadow_tint": [
-    -0.03,
-    0.035,
-    -0.03
-   ],
-   "highlight_tint": [
-    0.0,
-    0.03,
-    -0.06
-   ]
+   "huePreserve": 0.85
   },
-  "neon": {
-   "name": "Neon Night",
-   "about": "Neon-lit romance: saturated reds and greens, crushed blacks, green shadows and a strong red glow around lights.",
-   "grey": 0.085,
-   "slope": 2.0,
-   "shoulder": 2.2,
-   "white": 0.96,
-   "floor": 0.0,
-   "printer": [
-    0.0,
-    -0.08,
-    0.02
-   ],
-   "crossover": [
-    0.06,
-    0.0
-   ],
-   "interlayer": 0.9,
-   "crosstalk": 0.5,
-   "halation": [
-    0.45,
-    0.12,
-    0.02
-   ],
-   "grain": 0.01,
-   "grain_chroma": 0.2,
-   "huePreserve": 0.4,
-   "shadow_tint": [
-    -0.1,
-    0.07,
-    0.0
-   ],
-   "highlight_tint": [
-    0.08,
-    -0.03,
-    -0.01
-   ]
-  },
-  "bleach": {
-   "name": "Bleach Bypass",
-   "about": "Silver left in the print: hard contrast, drained color, bright metallic highlights and gritty grain.",
-   "grey": 0.17,
-   "slope": 2.1,
-   "shoulder": 2.6,
-   "white": 0.98,
-   "floor": 0.0,
-   "printer": [
-    0.02,
-    0.0,
-    -0.01
-   ],
-   "crossover": [
-    0.0,
-    0.0
-   ],
-   "interlayer": -0.35,
-   "crosstalk": 1.0,
-   "halation": [
-    0.05,
-    0.04,
-    0.03
-   ],
-   "grain": 0.012,
-   "grain_chroma": 0.1,
-   "huePreserve": 0.0,
-   "shadow_tint": [
-    -0.03,
-    0.005,
-    0.02
-   ],
-   "highlight_tint": [
-    0.0,
-    0.0,
-    0.0
-   ]
-  },
-  "slide": {
-   "name": "Slide",
-   "about": "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
-   "grey": 0.14,
-   "slope": 2.0,
-   "shoulder": 2.3,
+  "evergreen": {
+   "name": "Evergreen",
+   "about": "Fuji-style negative: cool and crisp, emerald greens, pink-leaning skin, magenta highlights over green shadows (a crossover, not a tint).",
+   "grey": 0.2,
+   "slope": 1.35,
+   "shoulder": 2.1,
    "white": 0.97,
    "floor": 0.0,
    "printer": [
-    -0.02,
-    0.01,
-    0.0
+    0.045,
+    -0.005,
+    -0.035
    ],
    "crossover": [
-    0.03,
-    0.03
+    0.05,
+    0.05
    ],
-   "interlayer": 1.1,
+   "interlayer": 0.25,
+   "crosstalk": 0.6,
+   "dye_saturation": 0.0,
+   "hue_twists": [
+    [
+     5,
+     30,
+     -8,
+     0.1,
+     -0.05
+    ],
+    [
+     30,
+     25,
+     -8,
+     -0.1,
+     0.1
+    ],
+    [
+     60,
+     30,
+     10,
+     -0.05,
+     0
+    ],
+    [
+     95,
+     50,
+     25,
+     0.15,
+     0.0
+    ],
+    [
+     180,
+     40,
+     0,
+     0.15,
+     0
+    ],
+    [
+     220,
+     45,
+     -6,
+     0.1,
+     0
+    ],
+    [
+     310,
+     40,
+     -6,
+     0.2,
+     0
+    ]
+   ],
+   "halation": [
+    0.05,
+    0.015,
+    0.0
+   ],
+   "grain": 0.007,
+   "huePreserve": 0.7
+  },
+  "slide": {
+   "name": "Slide",
+   "about": "Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.",
+   "grey": 0.11,
+   "slope": 2.2,
+   "shoulder": 2.8,
+   "white": 0.96,
+   "floor": 0.0,
+   "printer": [
+    -0.025,
+    0,
+    0.035
+   ],
+   "crossover": [
+    0.04,
+    0.0
+   ],
+   "interlayer": 0.3,
    "crosstalk": 0.9,
+   "dye_saturation": 0.35,
+   "hue_twists": [
+    [
+     2,
+     30,
+     -4,
+     0.3,
+     -0.2
+    ],
+    [
+     30,
+     25,
+     2,
+     0.1,
+     0
+    ],
+    [
+     52,
+     30,
+     -6,
+     0.25,
+     0.05
+    ],
+    [
+     90,
+     45,
+     -14,
+     -0.25,
+     -0.2
+    ],
+    [
+     175,
+     40,
+     0,
+     -0.15,
+     -0.1
+    ],
+    [
+     225,
+     45,
+     -5,
+     -0.05,
+     -0.4
+    ]
+   ],
    "halation": [
     0.03,
     0.008,
     0.0
    ],
    "grain": 0.004,
-   "grain_chroma": 0.1,
-   "huePreserve": 0.8,
+   "huePreserve": 0.7,
    "shadow_tint": [
-    -0.02,
-    0.0,
-    0.05
-   ],
-   "highlight_tint": [
-    0.035,
-    0.0,
-    -0.04
+    -0.01,
+    0,
+    0.02
    ]
+  },
+  "lush": {
+   "name": "Lush",
+   "about": "Vivid landscape slide: lush greens, deep violet-leaning skies, warm hues pushed toward red, a hard white clip.",
+   "grey": 0.215,
+   "slope": 1.85,
+   "shoulder": 3.0,
+   "white": 0.97,
+   "floor": 0.0,
+   "printer": [
+    0.025,
+    0.0,
+    -0.03
+   ],
+   "crossover": [
+    -0.02,
+    0.03
+   ],
+   "interlayer": 0.5,
+   "crosstalk": 0.8,
+   "dye_saturation": 0.3,
+   "hue_twists": [
+    [
+     0,
+     25,
+     0,
+     0.2,
+     -0.1
+    ],
+    [
+     28,
+     20,
+     -6,
+     0.1,
+     0
+    ],
+    [
+     40,
+     25,
+     -10,
+     0.3,
+     -0.05
+    ],
+    [
+     60,
+     25,
+     -8,
+     0.25,
+     0
+    ],
+    [
+     100,
+     50,
+     5,
+     0.5,
+     -0.15
+    ],
+    [
+     225,
+     45,
+     12,
+     0.35,
+     -0.35
+    ],
+    [
+     300,
+     45,
+     0,
+     0.45,
+     -0.1
+    ]
+   ],
+   "halation": [
+    0.02,
+    0.006,
+    0.0
+   ],
+   "grain": 0.003,
+   "huePreserve": 0.6
+  },
+  "threestrip": {
+   "name": "Three-Strip",
+   "about": "Dye-transfer Technicolor: high key, pure dense primaries (a black key under reds, blues and magentas), rosy skin, warm light, solid blacks.",
+   "grey": 0.25,
+   "slope": 1.7,
+   "shoulder": 2.2,
+   "white": 0.96,
+   "floor": 0.0,
+   "printer": [
+    -0.03,
+    0,
+    0.03
+   ],
+   "crossover": [
+    0.1,
+    -0.06
+   ],
+   "interlayer": 0.25,
+   "crosstalk": 0.7,
+   "dye_saturation": 0.55,
+   "hue_twists": [
+    [
+     25,
+     25,
+     -12,
+     0.15,
+     0.1
+    ],
+    [
+     5,
+     20,
+     0,
+     0.3,
+     -0.1
+    ],
+    [
+     80,
+     35,
+     22,
+     0.3,
+     -0.1
+    ],
+    [
+     150,
+     35,
+     -15,
+     0.3,
+     -0.1
+    ],
+    [
+     210,
+     30,
+     18,
+     0.35,
+     -0.2
+    ],
+    [
+     265,
+     30,
+     -15,
+     0.3,
+     0
+    ],
+    [
+     345,
+     30,
+     14,
+     0.3,
+     0
+    ],
+    [
+     55,
+     20,
+     -3,
+     0.3,
+     0.15
+    ]
+   ],
+   "halation": [
+    0.03,
+    0.01,
+    0.0
+   ],
+   "grain": 0.003,
+   "huePreserve": 0.75,
+   "key_black": 0.3
+  },
+  "blockbuster": {
+   "name": "Blockbuster",
+   "about": "Teal and orange the way a colorist does it: skin hue locked and warmed, greens and skies turned teal, purples muted, blacks kept clean.",
+   "grey": 0.155,
+   "slope": 2.03,
+   "shoulder": 2.4,
+   "white": 0.96,
+   "floor": 0.0,
+   "printer": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "crossover": [
+    0.12,
+    -0.22
+   ],
+   "interlayer": 0.2,
+   "crosstalk": 0.9,
+   "dye_saturation": 0.15,
+   "hue_twists": [
+    [
+     0,
+     25,
+     8,
+     0,
+     0
+    ],
+    [
+     15,
+     22,
+     10,
+     0.35,
+     0.05
+    ],
+    [
+     50,
+     22,
+     -12,
+     0.35,
+     0.05
+    ],
+    [
+     100,
+     60,
+     70,
+     0.15,
+     -0.3
+    ],
+    [
+     185,
+     40,
+     0,
+     0.4,
+     -0.1
+    ],
+    [
+     235,
+     45,
+     -35,
+     0.3,
+     -0.2
+    ],
+    [
+     290,
+     45,
+     -35,
+     -0.45,
+     0
+    ]
+   ],
+   "halation": [
+    0.2,
+    0.05,
+    0.005
+   ],
+   "grain": 0.008,
+   "huePreserve": 0.6
+  },
+  "night800": {
+   "name": "Night 800",
+   "about": "Tungsten 800 after dark: cyan shadows under amber light, a red halation glow around lights, pushed contrast and grain.",
+   "grey": 0.085,
+   "slope": 1.8,
+   "shoulder": 2.2,
+   "white": 0.96,
+   "floor": 0.0,
+   "printer": [
+    0.06,
+    0,
+    -0.08
+   ],
+   "crossover": [
+    0.16,
+    -0.24
+   ],
+   "interlayer": 0.2,
+   "crosstalk": 0.9,
+   "dye_saturation": 0.1,
+   "hue_twists": [
+    [
+     5,
+     35,
+     0,
+     0.3,
+     0.15
+    ],
+    [
+     45,
+     35,
+     -5,
+     0.2,
+     0.1
+    ],
+    [
+     110,
+     55,
+     35,
+     -0.15,
+     -0.1
+    ],
+    [
+     220,
+     50,
+     0,
+     0.2,
+     -0.15
+    ]
+   ],
+   "halation": [
+    0.55,
+    0.12,
+    0.01
+   ],
+   "halation_spread": {
+    "display_threshold": 0.6,
+    "display_boost": 4.0,
+    "sigmas": [
+     3.0,
+     12.0
+    ],
+    "weights": [
+     0.5,
+     0.5
+    ]
+   },
+   "grain": 0.012,
+   "huePreserve": 0.3,
+   "shadow_tint": [
+    -0.04,
+    0.005,
+    0.04
+   ]
+  },
+  "bleach": {
+   "name": "Bleach Bypass",
+   "about": "Silver left in the print: dyes drained in density (saturated colors lose the most), hard contrast, inky blacks, grit.",
+   "grey": 0.18,
+   "slope": 2.2,
+   "shoulder": 2.6,
+   "white": 0.98,
+   "floor": 0.0,
+   "printer": [
+    0.01,
+    0.0,
+    -0.01
+   ],
+   "crossover": [
+    0.0,
+    0.0
+   ],
+   "interlayer": 0.0,
+   "crosstalk": 1.0,
+   "dye_saturation": -0.55,
+   "hue_twists": [
+    [
+     30,
+     35,
+     0,
+     0.3,
+     0
+    ]
+   ],
+   "halation": [
+    0.05,
+    0.04,
+    0.03
+   ],
+   "grain": 0.012,
+   "huePreserve": 0.0
   },
   "punch": {
    "name": "Punch",
