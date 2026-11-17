@@ -208,7 +208,7 @@ struct SettingsView: View {
         Section {
             Button("Reset General Settings", role: .destructive) { confirmReset = .general }
         } footer: {
-            Text("Factory settings for RAW storage, auto export and geotagging.")
+            Text("Factory settings for auto export and geotagging. Store New Photos Forever is left as it is.")
         }
     }
 
@@ -404,7 +404,8 @@ struct SettingsView: View {
         camera.update { s in
             switch kind {
             case .general:
-                s.storeForever = fresh.storeForever
+                // Store Forever stays as it is: turning it off can trash photos, and that
+                // has its own confirmation on the toggle.
                 s.autoExport = fresh.autoExport
                 s.saveLocation = fresh.saveLocation
             case .camera:
@@ -540,6 +541,13 @@ private struct SettingsGradeRow: View {
             }
         }
         .accessibilityIdentifier("settings.grade.\(adjustment.id)")
+        // VoiceOver adjusts without a drag, so it commits each step.
+        .accessibilityAdjustableAction { direction in
+            let step = (adjustment.range.upperBound - adjustment.range.lowerBound) / 50
+            let next = min(max(value + (direction == .increment ? step : -step), adjustment.range.lowerBound),
+                           adjustment.range.upperBound)
+            commit(next.rounded())
+        }
     }
 }
 
