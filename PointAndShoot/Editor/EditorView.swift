@@ -1,106 +1,164 @@
 import SwiftUI
 
+/// The editor's tools, Chromagraph-style: each has sub-tabs, each sub-tab one to three
+/// labelled sliders (or toggles) under the photo.
 enum EditorTool: String, CaseIterable, Identifiable {
-    case looks, tune, details, color, crop, raw
+    case looks, tone, color, texture, crop
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .looks: "Filters"
-        case .tune: "Tune"
-        case .details: "Details"
+        case .looks: "Looks"
+        case .tone: "Tone"
         case .color: "Color"
+        case .texture: "Texture"
         case .crop: "Crop"
-        case .raw: "RAW"
         }
     }
     var symbol: String {
         switch self {
         case .looks: "camera.filters"
-        case .tune: "slider.horizontal.3"
-        case .details: "triangle.lefthalf.filled"
+        case .tone: "chart.line.uptrend.xyaxis"
         case .color: "paintpalette"
+        case .texture: "circle.dotted"
         case .crop: "crop.rotate"
-        case .raw: "r.square"
-        }
-    }
-    var adjustments: [Adjustment] {
-        switch self {
-        case .tune: Adjustment.tune
-        case .details: Adjustment.details
-        case .raw: Adjustment.raw
-        default: []
         }
     }
 }
 
-/// Snapseed-style editor: swipe ↕ on the photo to pick a parameter, ↔ to dial it in.
+/// One control in a sub-tab.
+enum EditorControl: Identifiable {
+    case slider(Adjustment)
+    case toggle(id: String, name: String, keyPath: WritableKeyPath<EditRecipe, Bool>)
+    /// The color mixer's band picker.
+    case bands
+
+    var id: String {
+        switch self {
+        case .slider(let a): a.id
+        case .toggle(let id, _, _): id
+        case .bands: "bands"
+        }
+    }
+}
+
+struct EditorSubTab: Identifiable {
+    let id: String
+    let name: String
+    let controls: [EditorControl]
+}
+
+/// Chromagraph-style editor: pick a tool, a sub-tab, then drag its sliders. Pinch and
+/// two-finger pan zoom the photo; double-tap a slider to reset it.
 struct EditorView: View {
     @State private var session: EditSession
     @Environment(\.dismiss) private var dismiss
 
     @State private var tool: EditorTool = .looks
-    @State private var selection: [EditorTool: Int] = [:]
+    @State private var subTab: [EditorTool: String] = [:]
     @State private var showOriginal = false
-    @State private var dragMode: DragMode?
-    @State private var dragStartValue: Double = 0
-    @State private var dragStartIndex = 0
     @State private var cropAspect: CropAspect = .free
     @State private var undoStack: [EditRecipe] = []
     @State private var selectionTick = 0
-    @State private var zeroTick = 0
     @State private var confirmDiscard = false
-    /// Two fingers are zooming/panning the photo.
-    @State private var pinching = false
-    /// A pinch interrupted the current one-finger drag: ignore it until the fingers lift.
-    @State private var dragCancelled = false
-    /// The one-finger drag is in progress (resets itself when SwiftUI ends or cancels it).
-    @GestureState private var dragActive = false
-
-    /// Called with a short message ("Saved to Photos") after a successful save.
-    private let onSaved: (String) -> Void
-
-    private enum DragMode { case choose, adjust }
-
-    init(shot: Shot, store: ShotStore, onSaved: @escaping (String) -> Void = { _ in }) {
-        _session = State(initialValue: EditSession(shot: shot, store: store))
-        self.onSaved = onSaved
-    }
-
     @State private var colorBand: ColorBand = .red
     @State private var showFilterGuide = false
 
-    private var adjustments: [Adjustment] {
-        if tool == .color { return Adjustment.mixer(colorBand) }
-        if tool == .details && session.recipe.film != nil { return Adjustment.filmDetails }
-        return tool.adjustments
+    /// Called with a short message ("Saved") after a successful save.
+    private let onSaved: (String) -> Void
+    /// The grade new shots start with ("Reset This Image" goes back to it).
+    private let defaultGrade: EditRecipe?
+    private let onSetDefault: (EditRecipe) -> Void
+
+    init(shot: Shot, store: ShotStore, defaultGrade: EditRecipe? = nil,
+         onSetDefault: @escaping (EditRecipe) -> Void = { _ in },
+         onSaved: @escaping (String) -> Void = { _ in }) {
+        _session = State(initialValue: EditSession(shot: shot, store: store))
+        self.defaultGrade = defaultGrade
+        self.onSetDefault = onSetDefault
+        self.onSaved = onSaved
     }
-    private var selectedIndex: Int { min(selection[tool] ?? 0, max(adjustments.count - 1, 0)) }
-    private var current: Adjustment? { adjustments.isEmpty ? nil : adjustments[selectedIndex] }
+
+    // MARK: Sub-tabs
+
+    private var isFilm: Bool { session.recipe.film != nil }
+
+    private func adj(_ id: String) -> Adjustment {
+        Adjustment.catalog[id]!
+    }
+
+    private func subTabs(_ tool: EditorTool) -> [EditorSubTab] {
+        switch tool {
+        case .looks, .crop:
+            return []
+        case .tone:
+            var tabs = [
+                EditorSubTab(id: "exposure", name: "Exposure", controls: [.slider(adj("exposure"))]),
+                EditorSubTab(id: "contrast", name: "Contrast", controls: [.slider(adj("contrast")), .slider(adj("fade"))]),
+                EditorSubTab(id: "shadowHighlight", name: "Shadow/Highlight",
+                             controls: [.slider(adj("highlights")), .slider(adj("shadows"))]),
+                EditorSubTab(id: "whitesBlacks", name: "Whites/Blacks",
+                             controls: [.slider(adj("whites")), .slider(adj("blacks"))]),
+            ]
+            if session.hasRAW {
+                tabs.append(EditorSubTab(id: "raw", name: "RAW", controls: [
+                    .toggle(id: "useRAW", name: "Develop from RAW", keyPath: \.useRAW),
+                    .slider(adj("rawLTM")), .slider(adj("rawBoost")),
+                ]))
+            }
+            return tabs
+        case .color:
+            var tabs = [
+                EditorSubTab(id: "balance", name: "Balance", controls: [.slider(adj("warmth")), .slider(adj("tint"))]),
+                EditorSubTab(id: "saturation", name: "Saturation", controls: [
+                    .slider(adj("saturation")), .slider(adj("vibrance")),
+                    .toggle(id: "mono", name: "B&W", keyPath: \.mono),
+                ]),
+            ]
+            if isFilm {
+                tabs.append(EditorSubTab(id: "crossover", name: "Crossover", controls: [.slider(adj("crossover"))]))
+            }
+            tabs.append(EditorSubTab(id: "mixer", name: "Mixer",
+                                     controls: [.bands] + Adjustment.mixer(colorBand).map { .slider($0) }))
+            return tabs
+        case .texture:
+            var tabs = [EditorSubTab(id: "grain", name: "Grain", controls: [.slider(adj("grain"))])]
+            if isFilm {
+                tabs.append(EditorSubTab(id: "halation", name: "Halation", controls: [.slider(adj("halation"))]))
+            }
+            tabs.append(EditorSubTab(id: "detail", name: "Detail", controls: [.slider(adj("structure")), .slider(adj("sharpen"))]))
+            tabs.append(EditorSubTab(id: "vignette", name: "Vignette", controls: [.slider(adj("vignette"))]))
+            if session.hasRAW {
+                tabs.append(EditorSubTab(id: "noise", name: "Noise", controls: [.slider(adj("rawNR"))]))
+            }
+            return tabs
+        }
+    }
+
+    private var currentSubTab: EditorSubTab? {
+        let tabs = subTabs(tool)
+        return tabs.first { $0.id == subTab[tool] } ?? tabs.first
+    }
+
+    // MARK: Body
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            infoRow
             canvas
             toolPanel
-                .frame(height: 132)
+                .frame(height: 170)
             toolTabs
         }
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .statusBarHidden()
         .task { await session.load(maxPixels: 2400) }
-        .onChange(of: dragActive) { _, active in
-            if !active, !pinching {
-                dragCancelled = false
-                if dragMode != nil { withAnimation(.easeOut(duration: 0.2)) { dragMode = nil } }
-            }
-        }
         .sensoryFeedback(.selection, trigger: selectionTick)
-        .sensoryFeedback(.impact(weight: .light), trigger: zeroTick)
         .interactiveDismissDisabled(session.hasChanges)
-        .confirmationDialog("Discard your edits?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+        .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Save") { Task { await saveAndClose() } }
-            Button("Discard Edits", role: .destructive) { dismiss() }
+            Button("Discard Changes", role: .destructive) { dismiss() }
             Button("Keep Editing", role: .cancel) {}
         }
         .alert("Something went wrong", isPresented: Binding(
@@ -116,7 +174,7 @@ struct EditorView: View {
                 .alert("This photo was moved to the Trash", isPresented: Binding(
                     get: { session.assetDeleted },
                     set: { if !$0 { session.assetDeleted = false } })) {
-                    Button("Discard Edits", role: .cancel) { dismiss() }
+                    Button("Discard Changes", role: .cancel) { dismiss() }
                 } message: {
                     Text("Restore it from the Trash in the grid to keep editing.")
                 }
@@ -126,87 +184,112 @@ struct EditorView: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 14) {
             Button {
-                if session.hasChanges { confirmDiscard = true } else { dismiss() }
+                Task { await saveAndClose() }
             } label: {
-                Image(systemName: "xmark").font(.system(size: 17, weight: .semibold))
+                Image(systemName: "checkmark")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 38, height: 38)
+                    .background(Color.tan, in: Circle())
                     .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
             }
+            .buttonStyle(PressScaleStyle(scale: 0.94))
+            .disabled(session.isLoading || session.isSaving)
+            .accessibilityIdentifier("editor.save")
+
             Button(action: undo) {
                 Image(systemName: "arrow.uturn.backward").font(.system(size: 17, weight: .semibold))
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 44)
                     .contentShape(Rectangle())
             }
             .disabled(undoStack.isEmpty)
             .opacity(undoStack.isEmpty ? 0.35 : 1)
+            .accessibilityIdentifier("editor.undo")
 
             Spacer()
 
             Image(systemName: showOriginal ? "square.split.2x1.fill" : "square.split.2x1")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(showOriginal ? Color.yellow : Color.white)
+                .foregroundStyle(showOriginal ? Color.tan : Color.white)
                 .frame(width: 40, height: 44)
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0, maximumDistance: 60, pressing: { pressing in
                     showOriginal = pressing
                 }, perform: {})
+                .accessibilityLabel("Hold to compare")
 
             Menu {
                 Button {
-                    Task {
-                        if await session.saveCopy() { finish("Saved to Photos") }
-                    }
-                } label: { Label("Export to Photos", systemImage: "square.and.arrow.down") }
-
-                Divider()
-                Button {
                     EditClipboard.recipe = session.recipe
-                } label: { Label("Copy Edits", systemImage: "doc.on.doc") }
+                } label: { Label("Copy Grade", systemImage: "doc.on.doc") }
                 Button {
                     guard let copied = EditClipboard.recipe else { return }
                     pushUndo()
                     withAnimation(.snappy) { session.recipe = copied.look(appliedTo: session.recipe) }
-                } label: { Label("Paste Edits", systemImage: "doc.on.clipboard") }
+                } label: { Label("Paste Grade", systemImage: "doc.on.clipboard") }
                 .disabled(EditClipboard.recipe == nil)
-
-                if session.canRevert {
-                    Divider()
-                    Button(role: .destructive) {
-                        Task {
-                            if await session.revertToOriginal() { finish("Reset to original") }
-                        }
-                    } label: { Label("Reset to Original", systemImage: "arrow.counterclockwise") }
-                }
+                Button {
+                    onSetDefault(session.recipe.asDefaultGrade)
+                    Haptics.success()
+                } label: { Label("Set as Default Grade", systemImage: "star") }
+                Divider()
+                Button(role: .destructive) {
+                    pushUndo()
+                    withAnimation(.snappy) { session.resetToGrade(defaultGrade) }
+                } label: { Label("Reset This Image", systemImage: "arrow.counterclockwise") }
+                Button(role: .destructive) {
+                    pushUndo()
+                    withAnimation(.snappy) { session.resetToGrade(nil) }
+                } label: { Label("Reset to Original", systemImage: "arrow.uturn.backward.circle") }
+                Divider()
+                Button(role: .destructive) {
+                    if session.hasChanges { confirmDiscard = true } else { dismiss() }
+                } label: { Label("Discard Changes", systemImage: "xmark") }
             } label: {
-                Image(systemName: "ellipsis.circle").font(.system(size: 19, weight: .semibold))
-                    .frame(width: 40, height: 44)
-                    .contentShape(Rectangle())
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 38, height: 38)
+                    .background(Color.white.opacity(0.12), in: Circle())
+                    .frame(width: 44, height: 44)
             }
             .disabled(session.isLoading || session.isSaving)
+            .accessibilityIdentifier("editor.more")
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .frame(height: 52)
+    }
 
-            Button {
-                Task { await saveAndClose() }
-            } label: {
-                Text("Save")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 16).padding(.vertical, 7)
-                    .background(Color.yellow, in: Capsule())
+    private var infoRow: some View {
+        HStack(spacing: 8) {
+            Text(session.shot.kind == .proRAW ? "PRORAW" : session.shot.isRAW ? "RAW" : "HEIF")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+            if let look = Look.named(session.recipe.look) {
+                Text(look.name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.tan)
             }
-            .buttonStyle(PressScaleStyle(scale: 0.94))
-            .disabled(session.isLoading || session.isSaving || !session.hasChanges)
-            .accessibilityIdentifier("editor.save")
-            .opacity(session.hasChanges ? 1 : 0.45)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(session.shot.captured, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+                    .font(.system(size: 10, weight: .semibold))
+                if !session.shot.exposureLine.isEmpty {
+                    Text(session.shot.exposureLine).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 16)
-        .frame(height: 52)
+        .padding(.bottom, 6)
     }
 
     /// Saves the grade in the app's library (the RAW is untouched; reset any time).
     private func saveAndClose() async {
+        guard session.hasChanges else { dismiss(); return }
         if await session.save() { finish("Saved") }
     }
 
@@ -219,9 +302,8 @@ struct EditorView: View {
     // MARK: Canvas
 
     private var displayImage: CIImage? {
-        if showOriginal { return session.originalPreview }
-        if tool == .crop { return session.uncroppedPreview() }
-        return session.editedPreview()
+        showOriginal ? session.originalPreview
+            : (tool == .crop ? session.uncroppedPreview() : session.editedPreview())
     }
 
     private var canvas: some View {
@@ -230,31 +312,15 @@ struct EditorView: View {
             ZStack {
                 MetalImageView(image: image,
                                zoomable: tool != .crop && !session.isLoading,
-                               oneFingerPan: adjustments.isEmpty,
+                               oneFingerPan: true,
                                pixelSize: session.pixelSize,
-                               onZoom: zoomChanged,
-                               onPinch: pinchChanged)
+                               onZoom: zoomChanged)
 
                 if tool == .crop, !showOriginal, let image {
                     CropOverlay(crop: $session.recipe.crop,
                                 imageRect: aspectFitRect(image.extent.size, in: geo.size),
                                 aspect: cropAspect.ratio(imageAspect: session.orientedAspect),
                                 onBegin: pushUndo)
-                }
-
-                if let current, !adjustments.isEmpty, !showOriginal {
-                    VStack {
-                        ValuePill(name: current.name, value: session.recipe[keyPath: current.keyPath], range: current.range)
-                            .padding(.top, 10)
-                        Spacer()
-                    }
-                    .allowsHitTesting(false)
-                }
-
-                if dragMode == .choose {
-                    ParameterMenu(adjustments: adjustments, selected: selectedIndex, recipe: session.recipe)
-                        .transition(.opacity)
-                        .allowsHitTesting(false)
                 }
 
                 if session.isLoading || session.isSaving {
@@ -265,8 +331,6 @@ struct EditorView: View {
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
-            .contentShape(Rectangle())
-            .gesture(adjustGesture, including: adjustments.isEmpty ? .subviews : .all)
         }
     }
 
@@ -277,63 +341,6 @@ struct EditorView: View {
         if zoomed && !session.detailReady { Task { await session.loadDetail() } }
     }
 
-    /// Two fingers on the photo zoom and pan; the one-finger adjust drag stands down until
-    /// every finger lifts, and an adjustment it had already started is undone.
-    private func pinchChanged(_ active: Bool) {
-        pinching = active
-        guard active else {
-            // No finger left dragging: nothing to ignore any more.
-            if !dragActive { dragCancelled = false }
-            return
-        }
-        if dragMode == .adjust, let adj = current {
-            session.recipe[keyPath: adj.keyPath] = dragStartValue
-            if !undoStack.isEmpty { undoStack.removeLast() }
-        }
-        if dragMode != nil { withAnimation(.easeOut(duration: 0.15)) { dragMode = nil } }
-        dragCancelled = true
-    }
-
-    private var adjustGesture: some Gesture {
-        DragGesture(minimumDistance: 6)
-            .updating($dragActive) { _, active, _ in active = true }
-            .onChanged { v in
-                guard let _ = current, !pinching, !dragCancelled else { return }
-                if dragMode == nil {
-                    let vertical = abs(v.translation.height) > abs(v.translation.width)
-                    withAnimation(.easeOut(duration: 0.15)) { dragMode = vertical ? .choose : .adjust }
-                    dragStartIndex = selectedIndex
-                    if let adj = current { dragStartValue = session.recipe[keyPath: adj.keyPath] }
-                    if !vertical { pushUndo() }
-                }
-                switch dragMode {
-                case .choose:
-                    let idx = min(max(dragStartIndex + Int((v.translation.height / 34).rounded()), 0), adjustments.count - 1)
-                    if idx != selectedIndex {
-                        selection[tool] = idx
-                        selectionTick += 1
-                    }
-                case .adjust:
-                    guard let adj = current else { return }
-                    let span = adj.range.upperBound - adj.range.lowerBound
-                    // Full range across ~2.2 screen widths: fine control, Snapseed feel.
-                    let delta = Double(v.translation.width) / 860 * span
-                    let newValue = min(max((dragStartValue + delta).rounded(), adj.range.lowerBound), adj.range.upperBound)
-                    let old = session.recipe[keyPath: adj.keyPath]
-                    if newValue != old {
-                        if adj.isBipolar && (old < 0 && newValue >= 0 || old > 0 && newValue <= 0) { zeroTick += 1 }
-                        session.recipe[keyPath: adj.keyPath] = newValue
-                    }
-                case .none:
-                    break
-                }
-            }
-            .onEnded { _ in
-                dragCancelled = false
-                withAnimation(.easeOut(duration: 0.2)) { dragMode = nil }
-            }
-    }
-
     // MARK: Panels
 
     @ViewBuilder
@@ -341,10 +348,71 @@ struct EditorView: View {
         switch tool {
         case .looks:
             looksPanel
-        case .tune, .details, .color, .raw:
-            adjustmentPanel
+        case .tone, .color, .texture:
+            gradePanel
         case .crop:
             cropPanel
+        }
+    }
+
+    private var gradePanel: some View {
+        let tabs = subTabs(tool)
+        let current = currentSubTab
+        return VStack(alignment: .leading, spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(tabs) { tab in
+                        let selected = tab.id == current?.id
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) { subTab[tool] = tab.id }
+                            selectionTick += 1
+                        } label: {
+                            Text(tab.name)
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .foregroundStyle(selected ? Color.black : Color.white.opacity(0.8))
+                                .background(selected ? Color.white : Color.white.opacity(0.1), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("editor.sub.\(tab.id)")
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            if let current {
+                VStack(spacing: 10) {
+                    ForEach(current.controls) { control in
+                        controlView(control)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 10)
+    }
+
+    @ViewBuilder
+    private func controlView(_ control: EditorControl) -> some View {
+        switch control {
+        case .slider(let a):
+            let rawOnly = ["rawLTM", "rawBoost", "rawNR"].contains(a.id)
+            GradeSlider(adjustment: a,
+                        value: Binding(get: { session.recipe[keyPath: a.keyPath] },
+                                       set: { session.recipe[keyPath: a.keyPath] = $0 }),
+                        defaultValue: defaultValue(a),
+                        onBegin: pushUndo)
+                .disabled(rawOnly && !session.developsFromRAW)
+                .opacity(rawOnly && !session.developsFromRAW ? 0.35 : 1)
+        case .toggle(let id, let name, let keyPath):
+            Toggle(isOn: Binding(get: { session.recipe[keyPath: keyPath] },
+                                 set: { v in pushUndo(); withAnimation(.snappy) { session.recipe[keyPath: keyPath] = v } })) {
+                Text(name).font(.system(size: 13, weight: .semibold))
+            }
+            .tint(.tan)
+            .accessibilityIdentifier("editor.toggle.\(id)")
+        case .bands:
+            colorBandPicker
         }
     }
 
@@ -368,10 +436,10 @@ struct EditorView: View {
                             .frame(width: 68, height: 68)
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(selected ? Color.yellow : Color.clear, lineWidth: 2))
+                                .stroke(selected ? Color.tan : Color.clear, lineWidth: 2))
                             Text(look.name)
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(selected ? Color.yellow : Color.white.opacity(0.8))
+                                .foregroundStyle(selected ? Color.tan : Color.white.opacity(0.8))
                         }
                     }
                     .buttonStyle(PressScaleStyle(scale: 0.94))
@@ -402,74 +470,6 @@ struct EditorView: View {
         }
     }
 
-    private var adjustmentPanel: some View {
-        VStack(spacing: 10) {
-            if tool == .color {
-                colorBandPicker
-            }
-            if tool == .raw {
-                if session.hasRAW {
-                    Toggle(isOn: Binding(get: { session.recipe.useRAW },
-                                         set: { v in pushUndo(); session.recipe.useRAW = v })) {
-                        Text("Develop from RAW").font(.system(size: 13, weight: .semibold))
-                    }
-                    .tint(.yellow)
-                    .padding(.horizontal, 20)
-                } else {
-                    Text("No RAW data in this photo. Shoot with RAW, ProRAW or Zero to develop from the sensor.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                }
-            }
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(adjustments.enumerated()), id: \.element.id) { i, adj in
-                            let value = session.recipe[keyPath: adj.keyPath]
-                            let selected = i == selectedIndex
-                            Button {
-                                selection[tool] = i
-                                selectionTick += 1
-                            } label: {
-                                VStack(spacing: 3) {
-                                    Text(adj.name)
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Text(format(value, bipolar: adj.isBipolar))
-                                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                                        .monospacedDigit()
-                                        .opacity(isDefault(adj, value) ? 0.4 : 1)
-                                }
-                                .padding(.horizontal, 12).padding(.vertical, 7)
-                                .foregroundStyle(selected ? Color.black : Color.white)
-                                .background(selected ? Color.yellow : Color.white.opacity(0.1),
-                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .id(i)
-                            .simultaneousGesture(TapGesture(count: 2).onEnded {
-                                pushUndo()
-                                session.recipe[keyPath: adj.keyPath] = defaultValue(adj)
-                            })
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .onChange(of: selectedIndex) { _, i in
-                    withAnimation(.snappy) { proxy.scrollTo(i, anchor: .center) }
-                }
-            }
-            .disabled(tool == .raw && !session.developsFromRAW)
-            .opacity(tool == .raw && !session.developsFromRAW ? 0.35 : 1)
-
-            Text("Swipe ↕ to choose · ↔ to adjust · pinch to zoom · double-tap a value to reset")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.white.opacity(0.4))
-        }
-        .padding(.top, 10)
-    }
-
     /// Eight swatches; a dot marks bands you've changed.
     private var colorBandPicker: some View {
         HStack(spacing: 0) {
@@ -487,7 +487,7 @@ struct EditorView: View {
                             .frame(width: selected ? 28 : 22, height: selected ? 28 : 22)
                             .overlay(Circle().stroke(Color.white, lineWidth: selected ? 2.5 : 0))
                         Circle()
-                            .fill(edited ? Color.yellow : Color.clear)
+                            .fill(edited ? Color.tan : Color.clear)
                             .frame(width: 4, height: 4)
                     }
                     .frame(maxWidth: .infinity)
@@ -517,7 +517,7 @@ struct EditorView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 11).padding(.vertical, 6)
                                 .foregroundStyle(cropAspect == a ? Color.black : Color.white)
-                                .background(cropAspect == a ? Color.yellow : Color.white.opacity(0.1), in: Capsule())
+                                .background(cropAspect == a ? Color.white : Color.white.opacity(0.1), in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -572,7 +572,7 @@ struct EditorView: View {
     }
 
     private var toolTabs: some View {
-        HStack {
+        HStack(spacing: 0) {
             ForEach(EditorTool.allCases) { t in
                 Button {
                     withAnimation(.snappy(duration: 0.25)) { tool = t }
@@ -582,14 +582,33 @@ struct EditorView: View {
                         Text(t.label).font(.system(size: 10, weight: .semibold))
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .foregroundStyle(tool == t ? Color.yellow : Color.white.opacity(0.75))
+                    .foregroundStyle(tool == t ? Color.white : Color.white.opacity(0.4))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("editor.tool.\(t.rawValue)")
             }
+            Button {
+                Task { if await session.saveCopy() { finish("Saved to Photos") } }
+            } label: {
+                ZStack {
+                    Circle().fill(Color.tan)
+                    if session.isSaving {
+                        ProgressView().tint(.black)
+                    } else {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.black)
+                    }
+                }
+                .frame(width: 42, height: 42)
+                .padding(.horizontal, 10)
+            }
+            .buttonStyle(PressScaleStyle(scale: 0.94))
+            .disabled(session.isLoading || session.isSaving)
+            .accessibilityIdentifier("editor.export")
         }
-        .padding(.top, 10)
+        .padding(.top, 8)
         .padding(.bottom, 4)
         .background(Color.black)
     }
@@ -609,82 +628,103 @@ struct EditorView: View {
     private func defaultValue(_ adj: Adjustment) -> Double {
         // A film look's grain is part of the look; reset to that, not to none.
         if adj.id == "grain" && session.recipe.film != nil { return FilmRecipe.defaultGrain }
-        return EditRecipe()[keyPath: adj.keyPath]
-    }
-
-    private func isDefault(_ adj: Adjustment, _ value: Double) -> Bool {
         switch adj.id {
-        case "rawNR", "rawLTM", "rawBoost": false
-        default: value == defaultValue(adj)
+        case "rawNR", "rawLTM", "rawBoost": return session.rawDefault(adj.id) ?? EditRecipe()[keyPath: adj.keyPath]
+        default: return EditRecipe()[keyPath: adj.keyPath]
         }
-    }
-
-    private func format(_ v: Double, bipolar: Bool) -> String {
-        let i = Int(v.rounded())
-        return bipolar && i > 0 ? "+\(i)" : "\(i)"
     }
 }
 
-struct ValuePill: View {
-    let name: String
-    let value: Double
-    let range: ClosedRange<Double>
+/// A labelled slider: name and value above the track, a mark at the default, the fill
+/// running from the default to the value. Double-tap resets; a tick when it crosses the
+/// default.
+struct GradeSlider: View {
+    let adjustment: Adjustment
+    @Binding var value: Double
+    let defaultValue: Double
+    var onBegin: () -> Void = {}
+
+    @State private var dragStart: Double?
+    @State private var crossTick = 0
+
+    private var range: ClosedRange<Double> { adjustment.range }
+
+    private var label: String {
+        if adjustment.id == "exposure" {
+            // Exposure is ±2 stops across the slider.
+            return String(format: "%+.1f", value / 50)
+        }
+        let i = Int(value.rounded())
+        return adjustment.isBipolar && i > 0 ? "+\(i)" : "\(i)"
+    }
 
     var body: some View {
-        let bipolar = range.lowerBound < 0
-        let i = Int(value.rounded())
-        VStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(name)
-                Text(bipolar && i > 0 ? "+\(i)" : "\(i)")
+                Text(adjustment.name).font(.system(size: 12, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(Color.yellow)
+                    .foregroundStyle(value == defaultValue ? Color.white.opacity(0.45) : Color.tan)
                     .contentTransition(.numericText())
             }
-            .font(.system(size: 14, weight: .semibold))
             GeometryReader { geo in
                 let w = geo.size.width
                 let span = range.upperBound - range.lowerBound
-                let zeroX = bipolar ? w / 2 : 0
                 let x = CGFloat((value - range.lowerBound) / span) * w
+                let d = CGFloat((defaultValue - range.lowerBound) / span) * w
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.25))
-                    Capsule().fill(Color.yellow)
-                        .frame(width: max(2, abs(x - zeroX)))
-                        .offset(x: min(x, zeroX))
+                    Capsule().fill(Color.white.opacity(0.18)).frame(height: 3)
+                    Capsule().fill(Color.tan)
+                        .frame(width: max(0, abs(x - d)), height: 3)
+                        .offset(x: min(x, d))
+                    Circle().fill(Color.white.opacity(0.6)).frame(width: 5, height: 5)
+                        .offset(x: d - 2.5)
+                    Circle().fill(Color.white)
+                        .frame(width: 24, height: 24)
+                        .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                        .offset(x: x - 12)
                 }
+                .frame(height: 28)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { g in
+                            if dragStart == nil {
+                                dragStart = value
+                                onBegin()
+                            }
+                            // Relative drag (the thumb doesn't jump to the finger), full
+                            // range across the track.
+                            let start = dragStart ?? value
+                            let delta = Double(g.translation.width / max(w, 1)) * span
+                            var v = min(max(start + delta, range.lowerBound), range.upperBound)
+                            // A little detent at the default.
+                            if abs(v - defaultValue) < span * 0.012 { v = defaultValue }
+                            v = v.rounded()
+                            if v != value {
+                                if (value - defaultValue).sign != (v - defaultValue).sign || v == defaultValue { crossTick += 1 }
+                                value = v
+                            }
+                        }
+                        .onEnded { _ in dragStart = nil }
+                )
+                .simultaneousGesture(TapGesture(count: 2).onEnded {
+                    onBegin()
+                    withAnimation(.snappy) { value = defaultValue }
+                })
             }
-            .frame(width: 150, height: 3)
+            .frame(height: 28)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.black.opacity(0.55), in: Capsule())
-    }
-}
-
-struct ParameterMenu: View {
-    let adjustments: [Adjustment]
-    let selected: Int
-    let recipe: EditRecipe
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(adjustments.enumerated()), id: \.element.id) { i, adj in
-                let v = Int(recipe[keyPath: adj.keyPath].rounded())
-                HStack {
-                    Text(adj.name)
-                    Spacer()
-                    Text(adj.isBipolar && v > 0 ? "+\(v)" : "\(v)").monospacedDigit()
-                }
-                .font(.system(size: 15, weight: i == selected ? .bold : .medium))
-                .foregroundStyle(i == selected ? Color.black : Color.white)
-                .padding(.horizontal, 16)
-                .frame(width: 220, height: 34)
-                .background(i == selected ? Color.yellow : Color.clear)
-            }
+        .sensoryFeedback(.impact(weight: .light), trigger: crossTick)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(adjustment.name)
+        .accessibilityValue(label)
+        .accessibilityIdentifier("editor.slider.\(adjustment.id)")
+        .accessibilityAdjustableAction { direction in
+            let step = (range.upperBound - range.lowerBound) / 50
+            onBegin()
+            value = min(max(value + (direction == .increment ? step : -step), range.lowerBound), range.upperBound)
         }
-        .background(.black.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .animation(.snappy(duration: 0.15), value: selected)
     }
 }

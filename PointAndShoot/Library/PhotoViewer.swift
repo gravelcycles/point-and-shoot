@@ -104,7 +104,13 @@ struct PhotoViewer: View {
         .background {
             Color.clear
                 .fullScreenCover(item: $editing) { shot in
-                    EditorView(shot: shot, store: store) { message in
+                    EditorView(shot: shot, store: store, defaultGrade: camera.settings.defaultGrade,
+                               onSetDefault: { grade in
+                                   camera.update {
+                                       $0.defaultGrade = grade
+                                       $0.captureLook = grade.look
+                                   }
+                               }) { message in
                         show(Banner(text: message))
                     }
                 }

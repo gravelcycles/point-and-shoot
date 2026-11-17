@@ -104,21 +104,45 @@ final class LibraryFlowTests: XCTestCase {
         app.buttons["viewer.edit"].tap()
         let canvas = app.descendants(matching: .any).matching(identifier: "editor.canvas").firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 8), "editor didn't open")
-        // A tool whose one-finger swipes adjust a slider.
-        let tune = app.buttons["editor.tool.tune"]
-        XCTAssertTrue(tune.waitForExistence(timeout: 4))
-        tune.tap()
+        let tone = app.buttons["editor.tool.tone"]
+        XCTAssertTrue(tone.waitForExistence(timeout: 4))
+        tone.tap()
         Thread.sleep(forTimeInterval: 2)   // the photo finishes loading; zoom turns on
         canvas.pinch(withScale: 3, velocity: 2)
+        canvas.swipeLeft()                  // one finger pans while zoomed
         canvas.doubleTap()
         canvas.doubleTap()
         canvas.pinch(withScale: 0.6, velocity: -2)
         Thread.sleep(forTimeInterval: 0.6)
         XCTAssertEqual(app.state, .runningForeground)
-        // Zooming is not an edit: Save stays disabled.
-        let save = app.buttons["editor.save"]
-        XCTAssertTrue(save.exists)
-        XCTAssertFalse(save.isEnabled, "pinch-zooming changed the edit")
+        // Zooming is not an edit: nothing to undo.
+        let undo = app.buttons["editor.undo"]
+        XCTAssertTrue(undo.exists)
+        XCTAssertFalse(undo.isEnabled, "pinch-zooming changed the edit")
+    }
+
+    func testEditorSubTabsSlidersAndSave() {
+        openViewer()
+        app.buttons["viewer.edit"].tap()
+        XCTAssertTrue(app.buttons["editor.tool.tone"].waitForExistence(timeout: 8))
+        Thread.sleep(forTimeInterval: 1.5)
+        app.buttons["editor.tool.tone"].tap()
+        let exposure = app.descendants(matching: .any).matching(identifier: "editor.slider.exposure").firstMatch
+        XCTAssertTrue(exposure.waitForExistence(timeout: 3), "Tone shows no Exposure slider")
+        exposure.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+            .press(forDuration: 0.05, thenDragTo: exposure.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.75)))
+        XCTAssertTrue(app.buttons["editor.undo"].isEnabled, "dragging the slider made no edit")
+        // Every tool's sub-tabs exist.
+        app.buttons["editor.tool.color"].tap()
+        XCTAssertTrue(app.buttons["editor.sub.balance"].waitForExistence(timeout: 2))
+        app.buttons["editor.sub.mixer"].tap()
+        app.buttons["editor.tool.texture"].tap()
+        XCTAssertTrue(app.buttons["editor.sub.grain"].waitForExistence(timeout: 2))
+        app.buttons["editor.tool.crop"].tap()
+        app.buttons["editor.tool.looks"].tap()
+        // ✓ saves and closes; the viewer is back.
+        app.buttons["editor.save"].tap()
+        XCTAssertTrue(app.buttons["viewer.edit"].waitForExistence(timeout: 6), "✓ didn't close the editor")
     }
 
     func testGridSelectTrashTwoThenRestoreFromTheTrash() {

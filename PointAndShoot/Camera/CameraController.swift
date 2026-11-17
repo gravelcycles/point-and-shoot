@@ -1167,7 +1167,7 @@ final class CameraController: NSObject {
         haptic(burst ? .soft : .medium)
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
-        let look = Look.named(s.activeLook)?.recipe
+        let look = s.startingGrade
         // What the viewfinder showed, so a film look's RAW develop can match its brightness.
         let viewfinderKey = look?.film != nil ? renderer.currentSceneKey() : nil
         sessionQueue.async {

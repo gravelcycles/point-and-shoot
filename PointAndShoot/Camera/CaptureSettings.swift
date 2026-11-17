@@ -301,6 +301,9 @@ struct CameraSettings: Codable, Equatable {
     var exportMaxSide: Int = 2880
     /// 0…1.
     var exportQuality: Double = 1.0
+    /// The grade new shots start with ("Set as Default Grade" in the editor). Applies while
+    /// its look is the one picked in the camera; picking another look starts from that look.
+    var defaultGrade: EditRecipe?
 
     static let storageKey = "camera.settings.v1"
 
@@ -315,7 +318,18 @@ struct CameraSettings: Codable, Equatable {
     /// Saved settings from any app version: missing options take their defaults, removed
     /// ones (e.g. `proControls`) are ignored.
     static func decodeSaved(_ data: Data) -> CameraSettings? {
-        TolerantJSON.decode(CameraSettings.self, from: data, defaults: CameraSettings())
+        TolerantJSON.decode(CameraSettings.self, from: data, defaults: CameraSettings()) { saved in
+            // The default grade is an EditRecipe: fill keys it lacks (saved by an older
+            // version) the same way saved edits are, or the whole settings blob would fail.
+            var saved = saved
+            if let grade = saved["defaultGrade"] as? [String: Any],
+               let data = try? JSONSerialization.data(withJSONObject: grade),
+               let decoded = EditRecipe.decodeSaved(data),
+               let object = TolerantJSON.object(decoded) {
+                saved["defaultGrade"] = object
+            }
+            return saved
+        }
     }
 
     func save() {
@@ -426,6 +440,13 @@ extension CameraSettings {
         case .print: Self.printLookID
         case .photo: printPlacement == .mode && captureLook == Self.printLookID ? nil : captureLook
         }
+    }
+
+    /// The grade a new shot starts with: the default grade if its look is the active one,
+    /// otherwise the active look as designed.
+    var startingGrade: EditRecipe? {
+        if let g = defaultGrade, g.look == activeLook { return g }
+        return Look.named(activeLook)?.recipe
     }
 
     /// Every photo is a RAW (the app's own library develops it). Bayer RAW is the default;
