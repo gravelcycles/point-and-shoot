@@ -342,7 +342,7 @@ struct PhotoViewer: View {
                 .buttonStyle(PressScaleStyle(scale: 0.94))
                 // Not while its first develop is settling the grade (the editor would start
                 // from, and save, an unsettled one).
-                .disabled(shot == nil || shot.map { store.developing.contains($0.id) } == true)
+                .disabled(shot == nil || shot.map(awaitingFirstSettle) == true)
                 .accessibilityIdentifier("viewer.edit")
                 Spacer()
                 Button { export() } label: {
@@ -373,6 +373,12 @@ struct PhotoViewer: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         )
+    }
+
+    /// A RAW shot whose first develop hasn't settled its grade yet (the editor would start
+    /// from, and save, an unsettled one). Other queued renders don't block editing.
+    private func awaitingFirstSettle(_ shot: Shot) -> Bool {
+        shot.isRAW && store.developing.contains(shot.id) && !store.recipe(for: shot.id).rawInitialized
     }
 
     private func circleButton(_ symbol: String, id: String, tint: Color = .white,
