@@ -320,7 +320,8 @@ final class CameraController: NSObject {
             c.logAssist = s.mode == .video && s.videoColor == .appleLog && s.logViewAssist
             c.mirrored = front
             c.computeHistogram = !hot && s.showHistogram
-            c.look = Look.named(s.activeLook)?.recipe
+            // What new shots start with, so the viewfinder shows the default grade too.
+            c.look = s.startingGrade
         }
     }
 
@@ -1167,7 +1168,7 @@ final class CameraController: NSObject {
         haptic(burst ? .soft : .medium)
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
-        let look = Look.named(s.activeLook)?.recipe
+        let look = s.startingGrade
         // What the viewfinder showed, so a film look's RAW develop can match its brightness.
         let viewfinderKey = look?.film != nil ? renderer.currentSceneKey() : nil
         sessionQueue.async {

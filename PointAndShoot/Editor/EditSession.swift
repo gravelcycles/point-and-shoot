@@ -248,6 +248,38 @@ final class EditSession {
         recipe = r
     }
 
+    /// The camera's own value for a RAW develop slider (what its reset goes back to).
+    func rawDefault(_ id: String) -> Double? {
+        guard hasRAW else { return nil }
+        switch id {
+        case "rawNR": return Double(rawDefaults.noiseReduction * 100)
+        case "rawLTM": return Double(rawDefaults.localTone * 100)
+        case "rawBoost": return Double(rawDefaults.boost * 100)
+        default: return nil
+        }
+    }
+
+    /// "Reset This Image": back to `grade` (the default grade), or with nil to the untouched
+    /// original. The crop and this photo's RAW develop are kept.
+    func resetToGrade(_ grade: EditRecipe?) {
+        var r = Self.blank(recipe)
+        if let grade {
+            let geometry = recipe
+            r = grade
+            r.useRAW = geometry.useRAW
+            r.rawInitialized = geometry.rawInitialized
+            r.rawNoiseReduction = geometry.rawNoiseReduction
+            r.rawLocalTone = geometry.rawLocalTone
+            r.rawBoost = geometry.rawBoost
+            r.rawFilmExposure = geometry.rawFilmExposure
+        }
+        r.crop = recipe.crop
+        r.straighten = recipe.straighten
+        r.quarterTurns = recipe.quarterTurns
+        r.flipped = recipe.flipped
+        recipe = r
+    }
+
     // MARK: Saving
 
     /// Saves the grade to the library (the shot's preview re-renders in the background).
