@@ -31,6 +31,11 @@ struct PhotoViewer: View {
     @State private var dismissing = false
     /// Two fingers pinched since the current drag began.
     @State private var pinchedDuringDrag = false
+    /// When a second finger last touched the photo. Never cleared: a drag ending within
+    /// moments of a pinch is that pinch's fingers lifting, whatever order SwiftUI and UIKit
+    /// deliver the lift in.
+    @State private var lastMultiTouch = Date.distantPast
+    private var recentlyPinched: Bool { Date().timeIntervalSince(lastMultiTouch) < 0.6 }
     /// UI tests: the last zoom report (scale @ whether it was for the selected page).
     @State private var zoomProbe = "none"
 
@@ -203,6 +208,7 @@ struct PhotoViewer: View {
                                   // pinch: when they lift it must never count as a swipe-down.
                                   ViewerEventProbe.shared.add(multiTouch ? "t2" : "t1")
                                   if multiTouch {
+                                      lastMultiTouch = Date()
                                       pinchedDuringDrag = true
                                       if dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
                                   } else {
@@ -226,7 +232,7 @@ struct PhotoViewer: View {
                 .updating($dismissDragActive) { _, active, _ in active = true }
                 .onChanged { v in
                     // Zoomed in (or pinching), a drag pans the photo; it never dismisses.
-                    guard !pageZoomed, !pinchedDuringDrag else { return }
+                    guard !pageZoomed, !pinchedDuringDrag, !recentlyPinched else { return }
                     // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
                         if dragY == 0 { ViewerEventProbe.shared.add("d") }
@@ -235,7 +241,7 @@ struct PhotoViewer: View {
                 }
                 .onEnded { v in
                     ViewerEventProbe.shared.add("e\(pinchedDuringDrag ? 1 : 0)\(pageZoomed ? 1 : 0)y\(Int(dragY))")
-                    if pageZoomed || pinchedDuringDrag {
+                    if pageZoomed || pinchedDuringDrag || recentlyPinched {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
                         return
                     }
