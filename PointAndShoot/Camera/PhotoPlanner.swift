@@ -4,8 +4,8 @@ import AVFoundation
 /// the settings and what the hardware offers, so each combination can be unit-tested
 /// without a camera. AVFoundation throws an uncatchable exception (an instant crash) on an
 /// invalid `AVCapturePhotoSettings` combination, so these rules are load-bearing:
-/// - Every photo is a RAW (Bayer by default, ProRAW when chosen); a processed photo only
-///   where the lens offers no RAW at all.
+/// - Every photo is a RAW (ProRAW by default, Bayer when chosen); a processed photo only
+///   where the lens offers no RAW it can shoot right now.
 /// - Bayer RAW is never requested while zoomed (crashed on device, #18): ProRAW stands in.
 /// - Bayer RAW always uses `.speed` and 12 MP dimensions.
 /// - Bursts never use RAW or flash.
@@ -42,13 +42,16 @@ enum PhotoPlanner {
             d.raw = .proRAW
         } else if caps.bayerRAW && !caps.zoomed {
             d.raw = .bayer
+            if s.shootsProRAW { d.fallbackNote = "No ProRAW on this lens, so this shot is Bayer RAW" }
         } else if caps.proRAW {
             d.raw = .proRAW
             d.fallbackNote = caps.zoomed ? "Zoomed in: Bayer RAW needs 1×, so this shot is ProRAW"
                                          : "No Bayer RAW on this lens, so this shot is ProRAW"
         } else {
             d.raw = .none
-            d.fallbackNote = "No RAW on this lens, so this shot is \(caps.hevc ? "HEIF" : "JPEG")"
+            d.fallbackNote = caps.bayerRAW
+                ? "Zoomed in: this lens's RAW needs 1×, so this shot is \(caps.hevc ? "HEIF" : "JPEG")"
+                : "No RAW on this lens, so this shot is \(caps.hevc ? "HEIF" : "JPEG")"
         }
 
         switch d.raw {

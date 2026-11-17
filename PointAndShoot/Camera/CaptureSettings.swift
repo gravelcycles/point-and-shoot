@@ -449,9 +449,10 @@ extension CameraSettings {
         return Look.named(activeLook)?.recipe
     }
 
-    /// Every photo is a RAW (the app's own library develops it). Bayer RAW is the default;
-    /// ProRAW only when chosen.
-    var shootsProRAW: Bool { rawMode == .proRAW }
+    /// Every photo is a RAW (the app's own library develops it). ProRAW by default (zoom
+    /// works; it's what Chromagraph shoots and Phromagraph was fitted on); Bayer RAW, the
+    /// sensor's single frame, when chosen. `.off` (settings from before RAW-only) = ProRAW.
+    var shootsProRAW: Bool { rawMode != .bayer }
     /// The active look is a film stock (it develops from scene light).
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
     /// We capture Bayer RAW and develop it ourselves.

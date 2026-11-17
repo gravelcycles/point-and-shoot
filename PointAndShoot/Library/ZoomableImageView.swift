@@ -41,11 +41,14 @@ struct ZoomableImageView: UIViewRepresentable {
         var onZoom: (CGFloat) -> Void = { _ in }
         private var lastReported: CGFloat = 1
 
-        func report(_ scale: CGFloat) {
+        /// `immediately` from inside a gesture, so the viewer knows before its own drag
+        /// handlers run; otherwise deferred, because layout and SwiftUI updates (reset to
+        /// fit) also zoom, and state mustn't change during a SwiftUI update.
+        func report(_ scale: CGFloat, immediately: Bool = false) {
             guard abs(scale - lastReported) > 0.01 || (scale <= 1 && lastReported > 1) else { return }
             lastReported = scale
             let f = onZoom
-            DispatchQueue.main.async { f(scale) }
+            if immediately { f(scale) } else { DispatchQueue.main.async { f(scale) } }
         }
     }
 }
@@ -148,14 +151,14 @@ final class ZoomingScrollView: UIScrollView, UIScrollViewDelegate {
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
         // Tell the viewer straight away (even before the scale moves), so its swipe-down
         // doesn't also start on a two-finger pinch.
-        coordinator?.report(max(zoomScale, 1.02))
+        coordinator?.report(max(zoomScale, 1.02), immediately: isZooming)
     }
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centre()
         // While fingers are pinching (even below 1×) or it's bouncing back, it counts as
         // zoomed, so the viewer's swipe-down stays out of the way until it has settled.
-        coordinator?.report(isZooming || isZoomBouncing ? max(zoomScale, 1.02) : zoomScale)
+        coordinator?.report(isZooming || isZoomBouncing ? max(zoomScale, 1.02) : zoomScale, immediately: isZooming)
     }
 
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
