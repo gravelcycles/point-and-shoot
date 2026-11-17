@@ -296,8 +296,8 @@ is the only source of truth for what exists. Everything else reacts to it.
     - Grades: PR #35's first pass, with its ids and tunings untouched (Desert, Pastel, Amber
       Haze, Sodium, Neon Night, and #35's Slide and Bleach Bypass, renamed "Slide 70s" and
       "Bleach Grit" but still ids `slide` / `bleach`). The new Slide and Bleach Bypass are
-      `classicslide` / `bleachbypass`: an id always means one look, or saved choices, default
-      grades and the editor's highlight would point at the wrong one.
+      `classicslide` / `bleachbypass`: an id always means one look, or saved choices, photos'
+      edits and the editor's highlight would point at the wrong one.
     - Adding a look: give it a `set` in both places. `export-swift` refuses a JSON set that
       disagrees with `Look.all` (or a look with no stock), and `SettingsTests` pins the
       Essentials and checks every film look's stock exists.
@@ -393,8 +393,8 @@ is the only source of truth for what exists. Everything else reacts to it.
     Silver; 2026-11-17) are out of `Look.all` and `FilmStock.all` but every photo made
     with one renders exactly as before: pinned tuning, else `FilmStock.Legacy.v2`
     (`resolved(for:)`; `namedOrRetired` fills gaps in an older pinned tuning from that
-    retired stock, not from Print). `Look.retired` keeps their names (`displayName`, the
-    editor's info row) and moves a saved camera choice on: Chrome → Slide (`classicslide`), Skin → Portrait
+    retired stock, not from Print). `Look.retired` keeps their names (`displayName`: the
+    editor's Looks tool shows the photo's retired look as a selected card) and moves a saved camera choice on: Chrome → Slide (`classicslide`), Skin → Portrait
     400, Cool Air → Evergreen, Cine → Blockbuster, Mono 400 / Silver → Noir, the rest →
     Original (`CameraSettings.decodeSaved`). Never reuse a
     retired id for a different look.
@@ -468,7 +468,7 @@ is the only source of truth for what exists. Everything else reacts to it.
     table, ~45 MB each at 19 stocks). Print-cube keys use `FilmControls.canonical`, so
     prewarmed tables serve engine-3 looks. Tables with an edit's exposure baked in have
     their own 4-slot cache, so an Exposure drag can't evict the viewfinder's (unless the
-    viewfinder's own look carries an exposure, as a default grade can).
+    viewfinder's own look carries an exposure).
   - LOOK-strip thumbnails render on their own utility queue and Metal command queue from
     a small copy of the frame (`PreviewRenderer.filterThumbnails`), never on the
     viewfinder's, and stop refreshing while the session is stopped (roll or editor open).

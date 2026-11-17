@@ -18,7 +18,7 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #34 | Phromagraph: a look fitted to Chromagraph's own renders (§5½) | merged |
 | #35 | Filters → **Looks**: seven cinematic grades replace the Instagram-ish filters (§1½) | open, into `claude/raw-import` |
 | #36 | Engine 2: the viewfinder un-render, measured (§5¾) | open, into `main` |
-| – | Looks with structure (hue twists, dye saturation), named look sets, engine 3's subtractive Saturation slider (§1¾) | `claude/beautiful-noether-ccuezc` |
+| – | Looks with structure (hue twists, dye saturation), named look sets, engine 3's subtractive Saturation slider (§1¾) | #38 (this app), #37 (P&S Studio) |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
@@ -165,7 +165,7 @@ CLAUDE.md §4).
 - Grades: §1½'s pass, ids and tunings untouched. Its Slide and Bleach Bypass keep ids
   `slide` / `bleach`, shown as "Slide 70s" / "Bleach Grit"; the new ones are
   `classicslide` / `bleachbypass`. (A first version reused `slide` / `bleach` for the new
-  looks; a review caught that saved choices, default grades and the editor would then
+  looks; a review caught that saved choices, photos' edits and the editor would then
   point at the wrong look.)
 
 `spread` measures each set together with the essentials, and every set clears 0.06

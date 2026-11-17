@@ -323,6 +323,29 @@ struct EditorView: View {
         return looks
     }
 
+    /// A photo made with a retired look (Cine, Warm 400, …) still renders with it, but the
+    /// look isn't offered any more, so no card would be selected: show its name, selected
+    /// and inert, so the editor still says which look the photo has.
+    @ViewBuilder
+    private var retiredLookCard: some View {
+        if let id = session.recipe.look, Look.named(id) == nil, let name = Look.displayName(id) {
+            VStack(spacing: 6) {
+                Image(systemName: "film")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Color.yellow)
+                    .frame(width: 68, height: 68)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.yellow, lineWidth: 2))
+                Text(name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.yellow)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(name), a retired look this photo uses")
+            .accessibilityIdentifier("editor.look.retired")
+        }
+    }
+
     private var lookSetMenu: some View {
         let current = LookSet.named(lookSet)
         return Menu {
@@ -355,6 +378,7 @@ struct EditorView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 lookSetMenu
+                retiredLookCard
                 ForEach(shownLooks) { look in
                     let selected = (session.recipe.look ?? "none") == look.id
                     Button {
