@@ -48,6 +48,30 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.exportMaxSide, 2880)
     }
 
+    func testStartingGrade() {
+        var s = CameraSettings()
+        XCTAssertNil(s.startingGrade, "no look, no default grade: the original")
+        var g = Look.all[0].recipe          // Original
+        g.exposure = 50
+        s.defaultGrade = g
+        XCTAssertEqual(s.startingGrade?.exposure, 50, "an Original default grade applies with no look picked")
+        s.mode = .video
+        XCTAssertNil(s.startingGrade, "video records no grade")
+        s.mode = .photo
+        s.captureLook = "punch"
+        XCTAssertEqual(s.startingGrade?.look, "punch", "picking another look starts from that look")
+        XCTAssertEqual(s.startingGrade?.exposure, 0)
+    }
+
+    func testAnUnreadableDefaultGradeKeepsTheRestOfTheSettings() throws {
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(CameraSettings())) as! [String: Any]
+        object["showGrid"] = false
+        object["defaultGrade"] = ["exposure": "not a number"]
+        let s = try XCTUnwrap(CameraSettings.decodeSaved(JSONSerialization.data(withJSONObject: object)))
+        XCTAssertFalse(s.showGrid)
+        XCTAssertNil(s.defaultGrade)
+    }
+
     func testPrintAsFilterLeavesTheModePicker() {
         var s = CameraSettings()
         s.printPlacement = .filter

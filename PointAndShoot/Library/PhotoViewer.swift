@@ -134,7 +134,10 @@ struct PhotoViewer: View {
                                onSetDefault: { grade in
                                    camera.update {
                                        $0.defaultGrade = grade
-                                       $0.captureLook = grade.look
+                                       // Only a look the camera still offers (not a retired one).
+                                       if grade.look == nil || Look.named(grade.look) != nil {
+                                           $0.captureLook = grade.look
+                                       }
                                    }
                                }) { message in
                         show(Banner(text: message))

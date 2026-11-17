@@ -101,7 +101,6 @@ struct EditorView: View {
             ]
             if session.hasRAW {
                 tabs.append(EditorSubTab(id: "raw", name: "RAW", controls: [
-                    .toggle(id: "useRAW", name: "Develop from RAW", keyPath: \.useRAW),
                     .slider(adj("rawLTM")), .slider(adj("rawBoost")),
                 ]))
             }
@@ -645,6 +644,8 @@ struct GradeSlider: View {
     var onBegin: () -> Void = {}
 
     @State private var dragStart: Double?
+    /// The drag has changed the value (and pushed its undo step).
+    @State private var dragMoved = false
     @State private var crossTick = 0
 
     private var range: ClosedRange<Double> { adjustment.range }
@@ -690,10 +691,7 @@ struct GradeSlider: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { g in
-                            if dragStart == nil {
-                                dragStart = value
-                                onBegin()
-                            }
+                            if dragStart == nil { dragStart = value }
                             // Relative drag (the thumb doesn't jump to the finger), full
                             // range across the track.
                             let start = dragStart ?? value
@@ -703,13 +701,19 @@ struct GradeSlider: View {
                             if abs(v - defaultValue) < span * 0.012 { v = defaultValue }
                             v = v.rounded()
                             if v != value {
+                                // One undo step per drag, and only once it changes something.
+                                if !dragMoved { dragMoved = true; onBegin() }
                                 if (value - defaultValue).sign != (v - defaultValue).sign || v == defaultValue { crossTick += 1 }
                                 value = v
                             }
                         }
-                        .onEnded { _ in dragStart = nil }
+                        .onEnded { _ in
+                            dragStart = nil
+                            dragMoved = false
+                        }
                 )
                 .simultaneousGesture(TapGesture(count: 2).onEnded {
+                    guard value != defaultValue else { return }
                     onBegin()
                     withAnimation(.snappy) { value = defaultValue }
                 })

@@ -320,7 +320,8 @@ final class CameraController: NSObject {
             c.logAssist = s.mode == .video && s.videoColor == .appleLog && s.logViewAssist
             c.mirrored = front
             c.computeHistogram = !hot && s.showHistogram
-            c.look = Look.named(s.activeLook)?.recipe
+            // What new shots start with, so the viewfinder shows the default grade too.
+            c.look = s.startingGrade
         }
     }
 
