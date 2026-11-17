@@ -83,6 +83,12 @@ final class LibraryFlowTests: XCTestCase {
         return probe.exists ? probe.label : "no probe"
     }
 
+    /// The viewer's recent gesture decisions (readable from the camera screen too).
+    private func viewerEvents() -> String {
+        let probe = app.staticTexts.matching(identifier: "viewer.events").firstMatch
+        return probe.exists ? probe.label : "no probe"
+    }
+
     func testPinchZoomInTheViewerPansInsteadOfDismissing() {
         openViewer()
         let photo = app.descendants(matching: .any).matching(identifier: "viewer.photo").firstMatch
@@ -112,7 +118,7 @@ final class LibraryFlowTests: XCTestCase {
         photo.pinch(withScale: 0.5, velocity: -2)
         Thread.sleep(forTimeInterval: 1)
         XCTAssertTrue(photo.exists && !app.buttons["strip.ev"].exists,
-                      "pinching in at fit closed the viewer (before: \(afterFit))")
+                      "pinching in at fit closed the viewer (before: \(afterFit); events: \(viewerEvents()))")
         // Tap brings the controls back, and they work.
         photo.tap()
         let trash = app.buttons["viewer.delete"]
