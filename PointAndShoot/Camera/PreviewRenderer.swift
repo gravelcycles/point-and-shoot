@@ -42,7 +42,7 @@ final class PreviewRenderer {
     private var analyzing = false
     private var frameIndex = 0
     private var lastBase: CIImage?
-    /// Latest frame before any filter, for the filter picker's live thumbnails.
+    /// Latest frame before any look, for the look picker's live thumbnails.
     private var lastClean: CIImage?
     /// Scene key of what the viewfinder shows under a film look (FilmLUT.sceneKey), so a
     /// shot's RAW develop can be matched to it: the viewfinder renders Apple's processed
@@ -209,11 +209,11 @@ final class PreviewRenderer {
             .cropped(to: bounds)
     }
 
-    // MARK: - Filter thumbnails
+    // MARK: - Look thumbnails
 
-    /// Square previews of what the camera sees right now through every filter, like the
+    /// Square previews of what the camera sees right now through every look, like the
     /// filter strip in a social camera. Falls back to a color swatch with no camera frame.
-    func filterThumbnails(side: CGFloat, completion: @escaping ([String: UIImage]) -> Void) {
+    func filterThumbnails(side: CGFloat, looks: [Look] = Look.all, completion: @escaping ([String: UIImage]) -> Void) {
         renderQueue.async {
             let source = self.lastClean ?? Self.sampleSwatch
             let e = source.extent
@@ -225,7 +225,7 @@ final class PreviewRenderer {
                 .transformed(by: CGAffineTransform(scaleX: side / edge, y: side / edge))
             let rect = CGRect(x: 0, y: 0, width: side, height: side)
             var thumbs: [String: UIImage] = [:]
-            for look in Look.all {
+            for look in looks {
                 let img = look.id == "none"
                     ? square
                     : EditPipeline.apply(look.recipe, to: square, developedFromRAW: false, applyCrop: false)
@@ -237,7 +237,7 @@ final class PreviewRenderer {
         }
     }
 
-    /// Sky, skin, foliage, reds, yellows and a grey ramp: enough to see what a filter does.
+    /// Sky, skin, foliage, reds, yellows and a grey ramp: enough to see what a look does.
     static let sampleSwatch: CIImage = {
         let size: CGFloat = 300
         let patches: [(CGFloat, CGFloat, CGFloat)] = [

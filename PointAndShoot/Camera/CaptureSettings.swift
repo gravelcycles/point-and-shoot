@@ -17,11 +17,11 @@ enum CaptureMode: String, Codable, CaseIterable, Identifiable {
     var isStill: Bool { self != .video }
 }
 
-/// Where the Print film look lives: its own mode (PHOTO · PRINT · VIDEO) or a filter.
+/// Where the Print film look lives: its own mode (PHOTO · PRINT · VIDEO) or one of the looks.
 enum PrintPlacement: String, Codable, CaseIterable, Identifiable {
     case mode, filter
     var id: String { rawValue }
-    var label: String { self == .mode ? "Mode" : "Filter" }
+    var label: String { self == .mode ? "Mode" : "Look" }
 }
 
 /// What container the processed (non-RAW) image goes into.
@@ -257,7 +257,9 @@ struct CameraSettings: Codable, Equatable {
     var selfTimer: SelfTimer = .off
     /// Look applied live in the viewfinder and baked onto each shot as an editable edit.
     var captureLook: String?
-    /// Print as its own mode next to Photo and Video, or as one of the filters.
+    /// The named set of looks the LOOK picker shows (`LookSet` id); nil = all looks.
+    var lookSet: String?
+    /// Print as its own mode next to Photo and Video, or as one of the looks.
     var printPlacement: PrintPlacement = .mode
     /// Lens to reopen on next launch.
     var lastLensID: String?
@@ -304,7 +306,16 @@ struct CameraSettings: Codable, Equatable {
     /// Saved settings from any app version: missing options take their defaults, removed
     /// ones (e.g. `proControls`) are ignored.
     static func decodeSaved(_ data: Data) -> CameraSettings? {
-        TolerantJSON.decode(CameraSettings.self, from: data, defaults: CameraSettings())
+        TolerantJSON.decode(CameraSettings.self, from: data, defaults: CameraSettings()) { saved in
+            var saved = saved
+            // A look that's no longer offered moves to its successor, or to Original, so
+            // the camera never applies (or shows) a look the pickers can't select.
+            if let id = saved["captureLook"] as? String, Look.named(id) == nil {
+                if let next = Look.retired[id]?.successor { saved["captureLook"] = next }
+                else { saved.removeValue(forKey: "captureLook") }
+            }
+            return saved
+        }
     }
 
     func save() {
@@ -402,13 +413,17 @@ extension CameraSettings {
     /// The modes the mode picker offers.
     var availableModes: [CaptureMode] { printPlacement == .mode ? [.photo, .print, .video] : [.photo, .video] }
 
-    /// The filters the camera's FILTER picker offers (Print only when it isn't a mode).
+    /// The looks the camera's LOOK picker offers (Print only when it isn't a mode), from
+    /// the chosen set (`lookSet`) or all of them.
     var filterLooks: [Look] {
-        Look.all.filter { $0.id != "none" && (printPlacement == .filter || $0.id != Self.printLookID) }
+        let set = LookSet.named(lookSet)
+        return Look.all.filter {
+            $0.id != "none" && (printPlacement == .filter || $0.id != Self.printLookID) && (set == nil || $0.set == set)
+        }
     }
 
-    /// The filter applied to stills right now: Print in Print mode, otherwise the chosen
-    /// filter (Print counts as a filter only while it isn't a mode).
+    /// The look applied to stills right now: Print in Print mode, otherwise the chosen
+    /// look (Print counts as one of the looks only while it isn't a mode).
     var activeLook: String? {
         switch mode {
         case .video: nil

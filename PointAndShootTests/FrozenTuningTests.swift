@@ -107,6 +107,38 @@ final class FrozenTuningTests: XCTestCase {
         }
     }
 
+    // MARK: Retired looks
+
+    /// The filters replaced by the looks keep rendering exactly as they were made:
+    /// pinned tuning first, else the frozen history, never Print or a current look.
+    func testRetiredLooksStillRenderWithTheirOwnTuning() throws {
+        for (id, entry) in Look.retired {
+            XCTAssertNil(FilmStock.all[id], "\(id) is retired but still offered")
+            let shipped = try XCTUnwrap(FilmStock.Legacy.v2[id], "\(id) missing from the frozen history")
+            var unpinned = EditRecipe()
+            unpinned.look = id
+            unpinned.film = FilmRecipe(stock: id, tuning: nil, engine: nil)
+            XCTAssertEqual(FilmStock.resolved(for: unpinned), shipped, id)
+            XCTAssertEqual(FilmStock.namedOrRetired(id), shipped, id)
+            XCTAssertEqual(Look.displayName(id), entry.name, "the editor should still name \(id)")
+        }
+    }
+
+    func testRetiredPinnedTuningMissingAFieldFillsFromItsOwnStock() throws {
+        var r = EditRecipe()
+        r.look = "cine"
+        r.film = FilmRecipe(stock: "cine", tuning: FilmStock.Legacy.v2["cine"], engine: 1)
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as? [String: Any])
+        var film = try XCTUnwrap(obj["film"] as? [String: Any])
+        var tuning = try XCTUnwrap(film["tuning"] as? [String: Any])
+        tuning.removeValue(forKey: "shadowTint")      // as if pinned before the field existed
+        film["tuning"] = tuning
+        obj["film"] = film
+        let reopened = try XCTUnwrap(EditRecipe.decodeSaved(try JSONSerialization.data(withJSONObject: obj)))
+        XCTAssertEqual(reopened.film?.tuning, FilmStock.Legacy.v2["cine"],
+                       "A retired look's missing field must come from that look, not from Print")
+    }
+
     func testSavingAnOlderEditPinsTheTuningItWasMadeWith() {
         var r = printV1Edit
         r.freezeFilmTuning()
@@ -256,6 +288,58 @@ final class FrozenTuningTests: XCTestCase {
         let reopened = try XCTUnwrap(EditRecipe.decodeSaved(try JSONSerialization.data(withJSONObject: obj)))
         XCTAssertNotNil(reopened.film?.tuning, "An older pinned tuning made the whole edit unreadable")
         XCTAssertEqual(reopened.film?.tuning?.exposure, FilmStock.printLook.exposure)
+    }
+
+    /// Hue twists and dye saturation came after tunings were pinned. A tuning pinned before
+    /// them reopens *without* them (never filled in from today's stock of the same id),
+    /// so the photo renders exactly as it was made.
+    func testPinnedTuningFromBeforeHueTwistsReopensWithoutThem() throws {
+        let r = try XCTUnwrap(Look.named("blockbuster")).recipe
+        XCTAssertNotNil(r.film?.tuning?.hueTwists, "Blockbuster should use hue twists")
+        XCTAssertNotNil(r.film?.tuning?.dyeSaturation, "Blockbuster should use dye saturation")
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as? [String: Any])
+        var film = try XCTUnwrap(obj["film"] as? [String: Any])
+        var tuning = try XCTUnwrap(film["tuning"] as? [String: Any])
+        for key in FilmStock.offWhenMissing { tuning.removeValue(forKey: key) }
+        film["tuning"] = tuning
+        obj["film"] = film
+        let reopened = try XCTUnwrap(EditRecipe.decodeSaved(try JSONSerialization.data(withJSONObject: obj)))
+        XCTAssertNotNil(reopened.film?.tuning, "the older tuning made the edit unreadable")
+        XCTAssertNil(reopened.film?.tuning?.hueTwists, "hue twists were filled in from today's stock")
+        XCTAssertNil(reopened.film?.tuning?.dyeSaturation, "dye saturation was filled in from today's stock")
+        // ...while a tuning that has them keeps them through a save.
+        let saved = try XCTUnwrap(EditRecipe.decodeSaved(try JSONEncoder().encode(r)))
+        XCTAssertEqual(saved.film?.tuning, r.film?.tuning)
+    }
+
+    /// Engine 3 changes only the Saturation slider: with it at 0, an engine-3 edit renders
+    /// exactly like engine 2 (same un-render, same tables), and engine 2's slider keeps
+    /// working as it did. Only edits from engine 3 get the subtractive slider.
+    func testEngineThreeChangesOnlyTheSaturationSlider() {
+        var r = printRecipe
+        XCTAssertEqual(r.film?.engine, FilmRecipe.currentEngine)
+        XCTAssertEqual(FilmRecipe.currentEngine, 3)
+        var engine2 = r
+        engine2.film?.engine = 2
+        XCTAssertLessThan(maxDiff(pixels(engine2), pixels(r)), 1e-4, "engine 3 must render like engine 2 at Saturation 0")
+        r.saturation = 60
+        engine2.saturation = 60
+        XCTAssertGreaterThan(maxDiff(pixels(engine2), pixels(r)), 0.01, "engine 3's Saturation slider should differ")
+        var unversioned = r
+        unversioned.film?.engine = nil
+        var engine1 = r
+        engine1.film?.engine = 1
+        XCTAssertLessThan(maxDiff(pixels(engine1), pixels(unversioned)), 1e-4, "no engine must render as engine 1")
+    }
+
+    /// Re-saving an edit from before versioning pins engine 1 (the math it was made with),
+    /// never the current engine.
+    func testFreezingAnUnversionedEditPinsEngineOne() {
+        var r = printRecipe
+        r.film?.tuning = nil
+        r.film?.engine = nil
+        r.freezeFilmTuning()
+        XCTAssertEqual(r.film?.engine, 1)
     }
 
     func testPickingTheLookAgainMovesToTheNewestTuning() {

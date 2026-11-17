@@ -68,17 +68,23 @@ enum FilmPipeline {
     }
 
     private static let lock = NSLock()
-    /// 13 display-referred viewfinder tables + the RAW looks' tables, plus room for an
-    /// edit's exposure on a processed photo (each exposure is its own table).
-    private static let negativeCubes = TableCache<NegativeKey>(capacity: 20)
-    private static let printCubes = TableCache<PrintKey>(capacity: 18)
+    /// A display-referred viewfinder table for every stock, the RAW looks' tables, plus
+    /// room for an edit's exposures on a processed photo (each exposure is its own table)
+    /// and a few editor slider positions. Sized from the stock count: the LOOK strip's
+    /// "All" previews touch every stock every 2 s on the render queue, so a cache smaller
+    /// than that would evict and rebuild tables there and stall the viewfinder. ~1.8 MB a
+    /// table: ~45 MB each at 19 stocks.
+    static let tableCapacity = FilmStock.all.count + 6
+    private static let negativeCubes = TableCache<NegativeKey>(capacity: tableCapacity)
+    private static let printCubes = TableCache<PrintKey>(capacity: tableCapacity)
 
     static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source, engine: Int = FilmLUT.currentEngine,
                              exposure: Double = 0) -> Data {
         let display = source == .displayReferred
         // Exposure in 1/100 stops: slider steps, and a table per distinct value.
         let ev = display && engine >= 2 ? Int((exposure * 100).rounded()) : 0
-        let key = NegativeKey(stock: cacheKey(stock), source: source, engine: display ? engine : 0, exposure: ev)
+        let key = NegativeKey(stock: cacheKey(stock), source: source,
+                              engine: display ? FilmLUT.unrenderEngine(engine) : 0, exposure: ev)
         lock.lock()
         if let cube = negativeCubes.get(key) { lock.unlock(); return cube }
         lock.unlock()

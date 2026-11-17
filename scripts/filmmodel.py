@@ -98,7 +98,7 @@ def scene_from_display(x):
 LUM2020 = np.array([0.2627, 0.6780, 0.0593])
 
 
-CURRENT_ENGINE = 2   # FilmLUT.currentEngine
+CURRENT_ENGINE = 3   # FilmLUT.currentEngine (3: subtractive Saturation slider; the un-render is engine 2's)
 
 # Engine 2: the inverse of Apple's rendering, measured (FilmLUT.unrender*; docs/film-looks.md §5¾).
 UNRENDER_DISPLAY_Y = np.array([0.0025, 0.004, 0.006, 0.01, 0.016, 0.025, 0.04, 0.06, 0.09, 0.13, 0.2,
@@ -138,8 +138,43 @@ def display_from_scene_rgb(rgb2020):
     return np.clip((1 + (rgb / y[..., None] - 1) * k[..., None]) * d[..., None], 0, 1)
 
 
+TWIST_CHROMA = 0.25      # log10 chroma at which a hue's brightness shift is 63% in
+TWIST_OFFSET = 0.01      # log(x + offset): dark colors fade to neutral instead of exploding
+
+
+def hue_twist(rgb, twists):
+    """A film's own color rendering, per hue (FilmLUT.twist in Swift), on scene light
+    (linear Rec.2020, ...x3) before the film sees it. It works on log exposure, so it's
+    the same at every brightness, and it leaves neutrals alone: each twist
+    [hue°, width°, rotate°, saturation, stops] bends the hues within `width` of `hue`
+    (raised cosine): turns them, scales their chroma (×(1 + saturation)) and makes them
+    brighter or darker. Hue 0 = red, 60 yellow, 120 green, 180 cyan, 240 blue, 300
+    magenta (skin ≈ 35, foliage ≈ 80, sky ≈ 225). This is what separates film stocks by
+    structure rather than by tint: cyan-leaning greens, golden skin, deep blue skies."""
+    if not twists:
+        return rgb
+    L = np.log10(np.maximum(rgb, 0.0) + TWIST_OFFSET)
+    m = L.mean(axis=-1)
+    u = L[..., 0] - 0.5 * (L[..., 1] + L[..., 2])
+    v = (math.sqrt(3) / 2) * (L[..., 1] - L[..., 2])
+    c = np.hypot(u, v)
+    h = np.degrees(np.arctan2(v, u))
+    rot = np.zeros_like(c); sat = np.zeros_like(c); lum = np.zeros_like(c)
+    for hue, width, r, s, stops in twists:
+        d = np.abs((h - hue + 180.0) % 360.0 - 180.0)
+        w = np.where(d < width, 0.5 + 0.5 * np.cos(np.pi * np.minimum(d / width, 1.0)), 0.0)
+        rot += w * r; sat += w * s; lum += w * stops
+    c2 = c * np.maximum(1.0 + sat, 0.0)
+    a = np.radians(h + rot)
+    u2, v2 = c2 * np.cos(a), c2 * np.sin(a)
+    m2 = m + lum * math.log10(2.0) * (1.0 - np.exp(-c / TWIST_CHROMA))
+    L2 = np.stack([m2 + (2 / 3) * u2, m2 - u2 / 3 + v2 / math.sqrt(3), m2 - u2 / 3 - v2 / math.sqrt(3)], -1)
+    return np.maximum(10.0 ** L2 - TWIST_OFFSET, 0.0)
+
+
 def negative_density(rgb2020, stock):
     """Scene light (linear Rec.2020, ...x3) -> negative density per layer."""
+    rgb2020 = hue_twist(rgb2020, stock.get("hueTwists") or [])
     e = rgb2020 @ np.array(stock["sensitivity"]).reshape(3, 3).T
     out = np.empty_like(e)
     for c in range(3):
@@ -204,6 +239,21 @@ def display(dn, stock, controls=None):
     return out
 
 
+def dye_saturate(dm, amount):
+    """The stock's dye saturation (FilmLUT.dyeSaturate). Film color is subtractive: purity
+    costs density, so the most saturated colors are the darkest. > 0 spreads each color's
+    densities away from its least dense channel: the dominant color stays and the others
+    get denser, so colors get richer *and darker*, like a slide film's dyes. (Spreading
+    about the mean, like the Saturation slider, would brighten the dominant channel
+    instead.) < 0 is retained silver (bleach bypass): silver adds density in proportion to
+    the mean density, and with the print re-timed so greys keep their tone, that is
+    exactly a pull toward the mean density. Neutrals are untouched either way."""
+    if amount == 0:
+        return dm
+    pivot = dm.min(axis=-1, keepdims=True) if amount > 0 else dm.mean(axis=-1, keepdims=True)
+    return pivot + (dm - pivot) * (1 + amount)
+
+
 def _display_core(dn, stock, controls):
     curves = print_curves(stock, controls)
     grey = grey_negative_density(stock)
@@ -214,14 +264,23 @@ def _display_core(dn, stock, controls):
     X = np.array(stock["crosstalk"]).reshape(3, 3)
     dm = dp @ X.T
     base = X @ np.array([curves[c]["y"][0] for c in range(3)])
+    # The tone sliders below weigh by the neutral density before the stock's dye
+    # saturation (linear in the print densities, so the Swift cube can tabulate it).
+    neutral = dm.mean(axis=-1, keepdims=True)
+    dm = dye_saturate(dm, stock.get("dyeSaturation") or 0.0)
+    # The user's Saturation slider. From film engine 3 (`subtractive`), more saturation
+    # works like the dyes: about each color's least dense channel, so richer is darker.
+    # Engines 1-2 spread about the mean, which brightens saturated colors; older photos keep
+    # it. Less saturation pulls toward the mean either way.
     sat = controls.get("saturation", 0)
-    if sat != 0:
+    if sat > 0 and controls.get("subtractive", False):
+        dm = dye_saturate(dm, 0.6 * sat)
+    elif sat != 0:
         mean = dm.mean(axis=-1, keepdims=True)
         k = 1 + sat * (0.6 if sat > 0 else 1.0)
         dm = mean + (dm - mean) * k
     h, s = controls.get("highlights", 0), controls.get("shadows", 0)
     if h != 0 or s != 0:
-        neutral = dm.mean(axis=-1, keepdims=True)
         wh = np.exp(-((neutral - 0.25) / 0.45) ** 2)
         t = np.clip((neutral - 0.9) / (2.4 - 0.9), 0, 1)
         ws = t * t * (3 - 2 * t)

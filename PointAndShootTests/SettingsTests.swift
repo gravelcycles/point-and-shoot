@@ -73,9 +73,49 @@ final class SettingsTests: XCTestCase {
     func testRoundTrip() throws {
         var s = CameraSettings()
         s.rawMode = .proRAW
-        s.captureLook = "cine"
+        s.captureLook = "blockbuster"
         s.flash = .auto
         let data = try JSONEncoder().encode(s)
         XCTAssertEqual(CameraSettings.decodeSaved(data), s)
+    }
+
+    /// The LOOK picker shows one named set of looks, or all of them; every look but
+    /// Original is in a set, and the choice survives a save.
+    func testLookSetsFilterThePicker() throws {
+        var s = CameraSettings()
+        XCTAssertNil(s.lookSet)
+        let all = s.filterLooks
+        XCTAssertEqual(all.count, Look.all.count - 2, "all looks but Original and Print (a mode)")
+        for set in LookSet.allCases {
+            XCTAssertFalse(set.looks.isEmpty, "\(set.name) is empty")
+            s.lookSet = set.rawValue
+            XCTAssertFalse(s.filterLooks.isEmpty)
+            XCTAssertTrue(s.filterLooks.allSatisfy { $0.set == set }, set.name)
+        }
+        XCTAssertEqual(LookSet.allCases.map(\.looks.count).reduce(0, +), Look.all.count - 1,
+                       "every look but Original is in exactly one set")
+        s.lookSet = LookSet.movie.rawValue
+        let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
+        XCTAssertEqual(decoded.lookSet, LookSet.movie.rawValue)
+        s.lookSet = "a-set-from-a-newer-app"
+        XCTAssertEqual(s.filterLooks.count, all.count, "an unknown set shows every look")
+    }
+
+    /// A look that's no longer offered never stays the camera's choice: it moves to its
+    /// successor, or to Original.
+    func testRetiredLookMovesToItsSuccessorOrOff() throws {
+        for (retired, expected) in [("chrome", "slide"), ("mono400", "noir"), ("silver", "noir"),
+                                    ("cine", "blockbuster"), ("portrait", "portrait400"), ("cool", "evergreen"),
+                                    ("warm400", nil), ("bogus", nil)] as [(String, String?)] {
+            var s = CameraSettings()
+            s.captureLook = retired
+            let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
+            XCTAssertEqual(decoded.captureLook, expected, retired)
+            if let id = decoded.captureLook { XCTAssertNotNil(Look.named(id), "\(retired) → \(id) isn't offered") }
+        }
+        for (id, entry) in Look.retired {
+            XCTAssertNil(Look.named(id), "\(id) is offered again: take it out of Look.retired")
+            if let next = entry.successor { XCTAssertNotNil(Look.named(next), "\(id)'s successor \(next) isn't offered") }
+        }
     }
 }

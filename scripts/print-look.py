@@ -4,7 +4,7 @@
   print-look.py export-swift
       Regenerate PointAndShoot/Editor/FilmStock+Stocks.swift from scripts/print-stock.json
       (Print), scripts/phromagraph-stock.json (Phromagraph, from scripts/phromagraph.py) and
-      scripts/film-looks.json (the photo filters, built by filmlooks.py).
+      scripts/film-looks.json (the other looks, built by filmlooks.py).
 
   print-look.py preview IMG.dng [...] [--ev 0.0] [--out DIR]
       Render DNGs through the reference model (scene-linear develop, like the app).
@@ -22,14 +22,21 @@
       balance, or with --same-raw one shared exposure offset); writes a new stock JSON.
       Then run export-swift.
 
-  print-look.py spread IMG [...] [--side 300] [--cssgram] [--sheet OUT.jpg]
-      Render every photo filter on DNGs (developed scene-linear) and JPEG/HEIC/PNG
-      (display-referred, like processed photos) and print how far apart the filters are:
-      brightness, contrast, chroma, shadow and highlight tint, and each filter's nearest
-      neighbour in mean ΔE (Oklab). Keep every nearest-neighbour ΔE >= 0.06 when tuning
+  print-look.py spread IMG [...] [--side 300] [--cssgram] [--sheet OUT.jpg] [--looks JSON]
+      Render every look (Print included) on DNGs (developed scene-linear) and JPEG/HEIC/PNG
+      (display-referred, like processed photos) and print how far apart the looks are:
+      brightness, contrast, chroma, shadow and highlight tint, and each look's nearest
+      neighbour in mean ΔE (Oklab), one table per named set (`set`; each with the essentials).
+      Keep every nearest-neighbour ΔE >= 0.06 within a set when tuning
       (film only: the recipe's vignette and structure come on top). --cssgram adds the
       same table for the 26 Instagram-style CSSgram filters (scripts/cssgram.py) as a
       yardstick; --sheet writes a contact sheet to look at.
+
+  print-look.py scope OUT.jpg [--looks JSON] [--ids a,b,...]
+      Vectorscope of every look (or --ids): how each moves the 24 ColorChecker patches
+      in Oklab a/b. A tint shows as every arrow pointing the same way, or colours
+      collapsing to one blob; film shows greys staying put and each hue moving its own
+      way. The quickest check that a look is film and not a filter (docs/film-looks.md §4).
 
 Needs: numpy scipy pillow rawpy opencv-python-headless (pillow-heif for .heic).
 """
@@ -59,7 +66,7 @@ def _arr(v, per_line=8, indent="            "):
 
 
 def export_swift(stock_path=STOCK, out=SWIFT):
-    """Writes every film stock (Print + the photo filters in film-looks.json) to Swift."""
+    """Writes every film stock (Print + the looks in film-looks.json) to Swift."""
     import filmlooks
     stocks = filmlooks.all_stocks(F.load_stock(stock_path))
     ind = "                "
@@ -82,12 +89,13 @@ def export_swift(stock_path=STOCK, out=SWIFT):
         "// the JSON and regenerate.",
         "",
         "extension FilmStock {",
-        "    /// Every stock by id: Print, Phromagraph and the photo filters.",
+        "    /// Every stock offered as a look, by id (retired stocks live in FilmStock.Legacy).",
         "    static let all: [String: FilmStock] = Dictionary(uniqueKeysWithValues: [",
         "        " + ", ".join(ident(k) for k in stocks) + ",",
         "    ].map { ($0.id, $0) })",
         "",
-        "    /// The stock for a recipe's id (nil = Print, which predates stock ids).",
+        "    /// The stock for a recipe's id (nil = Print, which predates stock ids). A retired id",
+        "    /// gives Print here: render recipes through `FilmStock.resolved(for:)`, which knows them.",
         "    static func named(_ id: String?) -> FilmStock { all[id ?? \"print\"] ?? printLook }",
         "",
     ]
@@ -126,7 +134,17 @@ def export_swift(stock_path=STOCK, out=SWIFT):
             f"            huePreserve: {float(st.get('huePreserve', 0.0))},",
             f"            monoTone: {[float(v) for v in st.get('monoTone', [1.0, 1.0, 1.0])]},",
             f"            shadowTint: {[float(v) for v in st.get('shadowTint', [0.0, 0.0, 0.0])]},",
-            f"            highlightTint: {[float(v) for v in st.get('highlightTint', [0.0, 0.0, 0.0])]})",
+            f"            highlightTint: {[float(v) for v in st.get('highlightTint', [0.0, 0.0, 0.0])]}"
+            + ("," if st.get("hueTwists") or st.get("dyeSaturation") else ")"),
+        ]
+        if st.get("hueTwists"):      # only stocks that use them: the others stay byte-identical
+            tw = [f"{ind}.init(hue: {float(h)}, width: {float(w)}, rotation: {float(r)}, saturation: {float(sa)}, stops: {float(sp)})"
+                  for h, w, r, sa, sp in st["hueTwists"]]
+            lines.append("            hueTwists: [\n" + ",\n".join(tw) + ",\n            ]"
+                         + ("," if st.get("dyeSaturation") else ")"))
+        if st.get("dyeSaturation"):
+            lines.append(f"            dyeSaturation: {float(st['dyeSaturation'])})")
+        lines += [
             "    }()",
             "",
         ]
@@ -363,7 +381,7 @@ def _spread_table(title, labs):
     ids = list(labs)
     D = np.array([[np.mean([np.linalg.norm(x - y, axis=-1).mean() for x, y in zip(labs[a], labs[b])])
                    for b in ids] for a in ids])
-    print(f"\n{title}: {'filter':10s} {'L':>6s} {'L sd':>6s} {'chroma':>7s} {'shadow a,b':>15s} {'hilite a,b':>15s}  nearest")
+    print(f"\n{title}: {'look':10s} {'L':>6s} {'L sd':>6s} {'chroma':>7s} {'shadow a,b':>15s} {'hilite a,b':>15s}  nearest")
     nn = []
     for i, sid in enumerate(ids):
         px = np.concatenate([x.reshape(-1, 3) for x in labs[sid]])
@@ -379,10 +397,11 @@ def _spread_table(title, labs):
     print(f"{'':{len(title) + 2}s}nearest-neighbour ΔE: min {min(nn):.3f}, median {np.median(nn):.3f}")
 
 
-def spread(paths, side=300, cssgram=False, sheet=None):
+def spread(paths, side=300, cssgram=False, sheet=None, looks_path=None):
     import filmlooks
-    stocks = filmlooks.all_stocks(F.load_stock(STOCK))
-    specs = filmlooks.load_looks()["looks"]
+    looks_path = looks_path or filmlooks.LOOKS
+    stocks = filmlooks.all_stocks(F.load_stock(STOCK), looks_path)
+    specs = filmlooks.load_looks(looks_path)["looks"]
     inputs = []   # (source, image for the film, display-referred sRGB for Original / CSSgram)
     for p in paths:
         if p.lower().endswith(".dng"):
@@ -394,22 +413,31 @@ def spread(paths, side=300, cssgram=False, sheet=None):
         else:
             disp = np.clip(load_reference(p, side) @ P3_TO_SRGB.T, 0, 1)
             inputs.append(("displayReferred", disp, disp))
-    groups = {"color": [k for k in specs if "mono_tone" not in specs[k]],
-              "black and white": [k for k in specs if "mono_tone" in specs[k]]}
+    # Every look in one table, Print included, black and white rendered as the app does
+    # (colour stock → mono mix → mono tone): a B&W look must be as distinct as any other.
     renders = {}   # id -> [linear P3 per input]
-    for title, ids in groups.items():
-        labs = {}
-        for sid in ids:
-            st = stocks[sid]
-            outs = []
-            for src, img, _ in inputs:
-                out = F.render(img, st, grain_amount=0, source=src)
-                if title != "color":
-                    out = (out @ MONO_MIX)[..., None] * np.array(st["monoTone"])
-                outs.append(np.clip(out, 0, 1))
-            renders[sid] = outs
-            labs[sid] = [oklab_p3(o) for o in outs]
-        _spread_table(title, labs)
+    labs = {}
+    for sid, st in stocks.items():
+        mono = "mono_tone" in specs.get(sid, {})
+        outs = []
+        for src, img, _ in inputs:
+            out = F.render(img, st, grain_amount=0, source=src)
+            if mono:
+                out = (out @ MONO_MIX)[..., None] * np.array(st["monoTone"])
+            outs.append(np.clip(out, 0, 1))
+        renders[sid] = outs
+        labs[sid] = [oklab_p3(o) for o in outs]
+    # Looks come in named sets (`set` in film-looks.json, Look.set in the app) and the
+    # pickers show one set at a time, so the rule applies within a set: each set is
+    # measured with the essentials (Print, Phromagraph and every look without a set).
+    sets = {}
+    for sid in labs:
+        sets.setdefault(specs.get(sid, {}).get("set", "essentials"), []).append(sid)
+    essentials = sets.pop("essentials", [])
+    if not sets:
+        _spread_table("looks", labs)
+    for name, ids in sets.items():
+        _spread_table(f"{name} + essentials", {k: labs[k] for k in essentials + ids})
     if cssgram:
         import cssgram as CG
         srgb_to_p3 = np.linalg.inv(P3_TO_SRGB)
@@ -455,16 +483,17 @@ def parity():
     stocks = filmlooks.all_stocks(F.load_stock(STOCK))
     stops = np.arange(-6, 6.01, 0.5)
     ctl = dict(contrast=0.4, saturation=0.5, crossover=-0.5, highlights=0.3, shadows=-0.4)
+    ctl2 = dict(ctl, subtractive=True)    # engine 2's Saturation slider
     i_neg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
     worst = 0.0
-    for sid in ("print", "phromagraph", "chrome", "warm400", "cine", "noir"):
+    for sid in ("print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleach", "noir"):
         st, s = stocks[sid], sw[sid]
         neg, negd = F.negative_cube(st, "sceneLinear", 48), F.negative_cube(st, "displayReferred", 48)
         negd1 = F.negative_cube(st, "displayReferred", 48, engine=1)
         negde = F.negative_cube(st, "displayReferred", 48, exposure=0.7)
-        pc, pcc = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48)
+        pc, pcc, pcc2 = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48), F.print_cube(st, ctl2, 48)
         checks = {
             "neutral": (s["neutral"], F.neutral_response(stops, st)),
             "neutral_ctl": (s["neutral_ctl"], F.neutral_response(stops, st, ctl)),
@@ -475,6 +504,8 @@ def parity():
             "negD_ev": (s["negD_ev"], [negde[b, g, r] for r, g, b in i_neg]),
             "print": (s["print"], [pc[b, g, r] for r, g, b in i_pr]),
             "print_ctl": (s["print_ctl"], [pcc[b, g, r] for r, g, b in i_pr]),
+            "print_ctl2": (s["print_ctl2"], [pcc2[b, g, r] for r, g, b in i_pr]),
+            "colors_ctl2": (s["colors_ctl2"], F.display(F.negative_density(colors, st), st, ctl2)),
         }
         for k, (a, b) in checks.items():
             d = float(np.abs(np.array(a) - np.array(b)).max())
@@ -483,6 +514,54 @@ def parity():
     if worst > 1e-5:
         sys.exit("Swift and Python disagree")
     print("parity OK")
+
+
+# --- scope (vectorscope of the ColorChecker) --------------------------------------------
+
+COLORCHECKER = [(115, 82, 68), (194, 150, 130), (98, 122, 157), (87, 108, 67), (133, 128, 177), (103, 189, 170),
+                (214, 126, 44), (80, 91, 166), (193, 90, 99), (94, 60, 108), (157, 188, 64), (224, 163, 46),
+                (56, 61, 150), (70, 148, 73), (175, 54, 60), (231, 199, 31), (187, 86, 149), (8, 133, 161),
+                (243, 243, 242), (200, 200, 200), (160, 160, 160), (122, 122, 121), (85, 85, 85), (52, 52, 52)]
+
+
+def scope(out_path, looks_path=None, ids=None):
+    """Small multiples, one per look: each ColorChecker patch (sRGB, through the
+    display-referred path like a processed photo) from where it starts to where the look
+    puts it, in Oklab a/b. Greys are ringed in white."""
+    import math
+    import filmlooks
+    from PIL import Image, ImageDraw
+    looks_path = looks_path or filmlooks.LOOKS
+    stocks = filmlooks.all_stocks(F.load_stock(STOCK), looks_path)
+    specs = filmlooks.load_looks(looks_path)["looks"]
+    ids = ids or [k for k in stocks if "mono_tone" not in specs.get(k, {})]
+    src = F.decode_srgb(np.array(COLORCHECKER, dtype=np.float64)[None] / 255.0)
+    srgb_to_p3 = np.linalg.inv(P3_TO_SRGB)
+    orig = oklab_p3(src @ srgb_to_p3.T)[0]
+    S, cols = 300, 4
+    rows = math.ceil(len(ids) / cols)
+    img = Image.new("RGB", (cols * S, rows * (S + 26)), (18, 18, 18))
+    d = ImageDraw.Draw(img)
+    scale = S / 2 / 0.22
+    for n, sid in enumerate(ids):
+        st = stocks[sid]
+        lab = oklab_p3(np.clip(F.render(src, st, grain_amount=0, halation_amount=0, source="displayReferred"), 0, 1))[0]
+        ox, oy = (n % cols) * S, (n // cols) * (S + 26) + 26
+        cx, cy, R = ox + S / 2, oy + S / 2, S * 0.45
+        d.text((ox + 8, oy - 20), st["name"], fill=(235, 235, 235))
+        d.ellipse([cx - R, cy - R, cx + R, cy + R], outline=(60, 60, 60))
+        d.line([cx - R, cy, cx + R, cy], fill=(45, 45, 45))
+        d.line([cx, cy - R, cx, cy + R], fill=(45, 45, 45))
+        for i, c in enumerate(COLORCHECKER):
+            p0 = (cx + orig[i, 1] * scale, cy - orig[i, 2] * scale)
+            p1 = (cx + lab[i, 1] * scale, cy - lab[i, 2] * scale)
+            d.line([p0, p1], fill=(150, 150, 150))
+            d.ellipse([p0[0] - 2, p0[1] - 2, p0[0] + 2, p0[1] + 2], outline=(110, 110, 110))
+            r = 5 if i < 18 else 4
+            d.ellipse([p1[0] - r, p1[1] - r, p1[0] + r, p1[1] + r], fill=c,
+                      outline=(255, 255, 255) if i >= 18 else None)
+    img.save(out_path, quality=92)
+    print("wrote", out_path)
 
 
 def main():
@@ -498,7 +577,12 @@ def main():
     sp.add_argument("images", nargs="+")
     sp.add_argument("--side", type=int, default=300)
     sp.add_argument("--cssgram", action="store_true", help="also print CSSgram's spread on the same images")
-    sp.add_argument("--sheet", help="write a contact sheet (filters x images) to this JPEG")
+    sp.add_argument("--sheet", help="write a contact sheet (looks x images) to this JPEG")
+    sp.add_argument("--looks", help="another looks JSON (default scripts/film-looks.json), e.g. an older one to compare")
+    sc = sub.add_parser("scope")
+    sc.add_argument("out")
+    sc.add_argument("--looks", help="another looks JSON (default scripts/film-looks.json)")
+    sc.add_argument("--ids", help="comma-separated look ids (default: every color look)")
     ft = sub.add_parser("fit")
     ft.add_argument("pairs_dir")
     ft.add_argument("--out", default=STOCK)
@@ -512,7 +596,9 @@ def main():
     elif a.cmd == "parity":
         parity()
     elif a.cmd == "spread":
-        spread(a.images, a.side, a.cssgram, a.sheet)
+        spread(a.images, a.side, a.cssgram, a.sheet, a.looks)
+    elif a.cmd == "scope":
+        scope(a.out, a.looks, a.ids.split(",") if a.ids else None)
     elif a.cmd == "fit":
         fit(a.pairs_dir, a.out, same_raw=a.same_raw)
 
