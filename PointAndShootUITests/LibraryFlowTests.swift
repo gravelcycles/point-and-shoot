@@ -117,8 +117,11 @@ final class LibraryFlowTests: XCTestCase {
         // a pinch, not a swipe-down: the viewer stays open.
         photo.pinch(withScale: 0.5, velocity: -2)
         Thread.sleep(forTimeInterval: 1)
-        XCTAssertTrue(photo.exists && !app.buttons["strip.ev"].exists,
-                      "pinching in at fit closed the viewer (before: \(afterFit); events: \(viewerEvents()))")
+        // The viewer's own probe exists only while the viewer is up (the camera screen can
+        // stay in the accessibility tree underneath a full-screen cover).
+        let viewerOpen = app.staticTexts.matching(identifier: "viewer.zoomProbe").firstMatch.exists
+        XCTAssertTrue(viewerOpen, "pinching in at fit closed the viewer (before: \(afterFit); events: \(viewerEvents()))")
+        XCTAssertTrue(photo.exists, "the photo vanished after pinching in at fit (\(zoomProbe()); events: \(viewerEvents()))")
         // Tap brings the controls back, and they work.
         photo.tap()
         let trash = app.buttons["viewer.delete"]
