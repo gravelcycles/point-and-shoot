@@ -327,6 +327,9 @@ struct CameraSettings: Codable, Equatable {
                let decoded = EditRecipe.decodeSaved(data),
                let object = TolerantJSON.object(decoded) {
                 saved["defaultGrade"] = object
+            } else if saved["defaultGrade"] != nil {
+                // Unreadable: drop just the grade, never the whole setup.
+                saved.removeValue(forKey: "defaultGrade")
             }
             // A look that's no longer offered moves to its successor, or to Original, so
             // the camera never applies (or shows) a look the pickers can't select.
@@ -451,7 +454,10 @@ extension CameraSettings {
     /// The grade a new shot starts with: the default grade if its look is the active one,
     /// otherwise the active look as designed.
     var startingGrade: EditRecipe? {
-        if let g = defaultGrade, g.look == activeLook { return g }
+        guard mode.isStill else { return nil }   // video records no grade
+        // "none" and nil both mean no look.
+        func norm(_ id: String?) -> String? { id == "none" ? nil : id }
+        if let g = defaultGrade, norm(g.look) == norm(activeLook) { return g }
         return Look.named(activeLook)?.recipe
     }
 
