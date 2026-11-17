@@ -282,7 +282,7 @@ final class CameraController: NSObject {
             || old.videoColor != s.videoColor || old.recordAudio != s.recordAudio || old.stabilization != s.stabilization
         // A film look shoots Bayer RAW per shot; the session itself only changes when that
         // has to switch ProRAW off (or back on).
-        let photoPipelineChanged = old.rawMode != s.rawMode || old.processing != s.processing
+        let photoPipelineChanged = old.shootsProRAW != s.shootsProRAW
             || Self.proRAWActive(old) != Self.proRAWActive(s)
         // Photo ↔ Print share the photo pipeline: switch instantly, no session rebuild.
         let stillSwap = old.mode.isStill && s.mode.isStill
@@ -741,7 +741,7 @@ final class CameraController: NSObject {
 
     /// ProRAW is switched on in the photo output only while it's what we'll capture.
     static func proRAWActive(_ s: CameraSettings) -> Bool {
-        s.rawMode == .proRAW
+        s.shootsProRAW
     }
 
     /// The look new shots start with. Every shot keeps its RAW, so the look stays editable.
@@ -1208,8 +1208,10 @@ final class CameraController: NSObject {
                                 }
                             }
                         } else {
-                            // Nothing was saved: don't keep showing a thumbnail of it.
+                            // Nothing was saved: don't keep showing a thumbnail of it, and
+                            // let a viewer waiting on "Saving…" stop waiting.
                             self.lastThumbnail = nil
+                            self.lastSavedShotID = nil
                         }
                         self.captureFinished()
                         if let message { self.toast = message }

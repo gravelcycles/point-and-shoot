@@ -32,7 +32,11 @@ enum LockedCaptureImporter {
                     try? FileManager.default.removeItem(at: file)
                     continue
                 }
-                guard let data = try? Data(contentsOf: file) else { continue }
+                guard let data = try? Data(contentsOf: file) else {
+                    // Keep the folder: invalidating it would destroy this shot.
+                    everythingImported = false
+                    continue
+                }
                 do {
                     let date = (try? file.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
                     try await ShotStore.shared.add(original: data, fileExtension: ext == "jpeg" ? "jpg" : ext,
