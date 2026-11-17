@@ -100,14 +100,25 @@ final class LibraryFlowTests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.8)
         let afterFit = zoomProbe()
         XCTAssertTrue(afterFit.hasPrefix("zoomed=0"), "double-tap didn't go back to fit: \(afterFit)")
-        // Pinching in below fit bounces back. Its fingers move down the screen, but it's a
-        // pinch, not a swipe-down: the viewer stays open with its controls.
+        // Hide the controls with a tap first: XCUITest starts a pinch-in at the corners of
+        // the element, which would land on the close button in the top bar.
+        photo.tap()
+        let close = app.buttons["viewer.close"]
+        var deadline = Date().addingTimeInterval(3)
+        while close.exists && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
+        XCTAssertFalse(close.exists, "a single tap didn't hide the controls (\(zoomProbe()))")
+        // Pinching in below fit bounces back. The top finger moves down the screen, but it's
+        // a pinch, not a swipe-down: the viewer stays open.
         photo.pinch(withScale: 0.5, velocity: -2)
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(photo.exists && !app.buttons["strip.ev"].exists,
+                      "pinching in at fit closed the viewer (before: \(afterFit))")
+        // Tap brings the controls back, and they work.
+        photo.tap()
         let trash = app.buttons["viewer.delete"]
-        let deadline = Date().addingTimeInterval(3)
+        deadline = Date().addingTimeInterval(3)
         while !(trash.exists && trash.isHittable) && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
-        XCTAssertTrue(trash.exists && trash.isHittable,
-                      "controls gone after pinching in at fit (viewer open: \(photo.exists), back on the camera: \(app.buttons["strip.ev"].exists), before: \(afterFit), now: \(zoomProbe()))")
+        XCTAssertTrue(trash.exists && trash.isHittable, "controls didn't come back (\(zoomProbe()))")
     }
 
     func testPinchZoomInTheEditorDoesNotAdjustAnything() {
