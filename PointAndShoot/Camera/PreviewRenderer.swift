@@ -44,6 +44,11 @@ final class PreviewRenderer {
     private var lastBase: CIImage?
     /// Latest frame before any look, for the look picker's live thumbnails.
     private var lastClean: CIImage?
+    /// Look thumbnails render here, off the viewfinder's queue (`filterThumbnails`).
+    private let thumbnailQueue = DispatchQueue(label: "preview.thumbnails", qos: .utility)
+    /// A thumbnail refresh is running, and the one asked for meanwhile (renderQueue only).
+    private var thumbnailsBusy = false
+    private var pendingThumbnails: (() -> Void)?
     /// Scene key of what the viewfinder shows under a film look (FilmLUT.sceneKey), so a
     /// shot's RAW develop can be matched to it: the viewfinder renders Apple's processed
     /// video, the saved photo the linear RAW, and they don't land at the same brightness.
@@ -213,8 +218,18 @@ final class PreviewRenderer {
 
     /// Square previews of what the camera sees right now through every look, like the
     /// filter strip in a social camera. Falls back to a color swatch with no camera frame.
+    ///
+    /// Only a small copy of the frame is taken on the render queue (one cheap render, and
+    /// the camera's buffer is let go at once); the looks render on their own utility queue.
+    /// ~20 looks a refresh would otherwise hold the viewfinder's queue, and frames are
+    /// dropped while it's busy. One refresh at a time: a request that arrives meanwhile
+    /// runs right after (the latest one wins).
     func filterThumbnails(side: CGFloat, looks: [Look] = Look.all, completion: @escaping ([String: UIImage]) -> Void) {
         renderQueue.async {
+            guard !self.thumbnailsBusy else {
+                self.pendingThumbnails = { self.filterThumbnails(side: side, looks: looks, completion: completion) }
+                return
+            }
             let source = self.lastClean ?? Self.sampleSwatch
             let e = source.extent
             let edge = min(e.width, e.height)
@@ -224,16 +239,31 @@ final class PreviewRenderer {
                 .transformed(by: CGAffineTransform(translationX: -(e.midX - edge / 2), y: -(e.midY - edge / 2)))
                 .transformed(by: CGAffineTransform(scaleX: side / edge, y: side / edge))
             let rect = CGRect(x: 0, y: 0, width: side, height: side)
-            var thumbs: [String: UIImage] = [:]
-            for look in looks {
-                let img = look.id == "none"
-                    ? square
-                    : EditPipeline.apply(look.recipe, to: square, developedFromRAW: false, applyCrop: false)
-                if let cg = self.context.createCGImage(img, from: rect, format: .RGBA8, colorSpace: self.displayColorSpace) {
-                    thumbs[look.id] = UIImage(cgImage: cg)
+            guard let frame = self.context.createCGImage(square, from: rect, format: .RGBA8,
+                                                         colorSpace: self.displayColorSpace) else { return }
+            self.thumbnailsBusy = true
+            self.thumbnailQueue.async {
+                let small = CIImage(cgImage: frame)
+                var thumbs: [String: UIImage] = [:]
+                for look in looks {
+                    if look.id == "none" {
+                        thumbs[look.id] = UIImage(cgImage: frame)
+                        continue
+                    }
+                    let img = EditPipeline.apply(look.recipe, to: small, developedFromRAW: false, applyCrop: false)
+                    if let cg = self.context.createCGImage(img, from: rect, format: .RGBA8, colorSpace: self.displayColorSpace) {
+                        thumbs[look.id] = UIImage(cgImage: cg)
+                    }
+                }
+                DispatchQueue.main.async { completion(thumbs) }
+                self.renderQueue.async {
+                    self.thumbnailsBusy = false
+                    if let next = self.pendingThumbnails {
+                        self.pendingThumbnails = nil
+                        next()
+                    }
                 }
             }
-            DispatchQueue.main.async { completion(thumbs) }
         }
     }
 

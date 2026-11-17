@@ -161,7 +161,7 @@
    "grain": 0.007,
    "huePreserve": 0.7
   },
-  "slide": {
+  "classicslide": {
    "name": "Slide",
    "set": "stocks",
    "about": "Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.",
@@ -270,22 +270,22 @@
     ],
     [
      28,
-     20,
-     -6,
+     30,
+     -5,
      0.1,
      0
     ],
     [
      40,
-     25,
-     -10,
+     35,
+     -9,
      0.3,
      -0.05
     ],
     [
      60,
-     25,
-     -8,
+     35,
+     -7,
      0.25,
      0
     ],
@@ -323,8 +323,8 @@
    "name": "Three-Strip",
    "set": "movie",
    "about": "Dye-transfer Technicolor: high key, pure dense primaries (a black key under reds, blues and magentas), rosy skin, warm light, solid blacks.",
-   "grey": 0.25,
-   "slope": 1.7,
+   "grey": 0.26,
+   "slope": 1.54,
    "shoulder": 2.2,
    "white": 0.96,
    "floor": 0.0,
@@ -334,17 +334,17 @@
     0.03
    ],
    "crossover": [
-    0.1,
-    -0.06
+    0.12,
+    -0.07
    ],
    "interlayer": 0.25,
    "crosstalk": 0.7,
-   "dye_saturation": 0.55,
+   "dye_saturation": 0.6,
    "hue_twists": [
     [
      25,
-     25,
-     -12,
+     40,
+     -10,
      0.15,
      0.1
     ],
@@ -357,36 +357,36 @@
     ],
     [
      80,
-     35,
-     22,
+     55,
+     16,
      0.3,
      -0.1
     ],
     [
      150,
-     35,
-     -15,
+     55,
+     -14,
      0.3,
      -0.1
     ],
     [
-     210,
-     30,
-     18,
+     205,
+     60,
+     14,
      0.35,
      -0.2
     ],
     [
-     265,
-     30,
-     -15,
+     270,
+     60,
+     -13,
      0.3,
      0
     ],
     [
      345,
-     30,
-     14,
+     40,
+     10,
      0.3,
      0
     ],
@@ -404,8 +404,8 @@
     0.0
    ],
    "grain": 0.003,
-   "huePreserve": 0.75,
-   "key_black": 0.3
+   "huePreserve": 0.35,
+   "key_black": 0.4
   },
   "blockbuster": {
    "name": "Blockbuster",
@@ -431,29 +431,29 @@
    "hue_twists": [
     [
      0,
-     25,
-     8,
+     30,
+     6,
      0,
      0
     ],
     [
      15,
-     22,
-     10,
+     30,
+     8,
      0.35,
      0.05
     ],
     [
      50,
-     22,
-     -12,
+     35,
+     -10,
      0.35,
      0.05
     ],
     [
-     100,
-     60,
-     70,
+     105,
+     90,
+     40,
      0.15,
      -0.3
     ],
@@ -465,15 +465,15 @@
      -0.1
     ],
     [
-     235,
-     45,
-     -35,
+     240,
+     70,
+     -30,
      0.3,
      -0.2
     ],
     [
      290,
-     45,
+     70,
      -35,
      -0.45,
      0
@@ -497,13 +497,13 @@
    "white": 0.96,
    "floor": 0.0,
    "printer": [
-    0.06,
+    0.07,
     0,
-    -0.08
+    -0.09
    ],
    "crossover": [
-    0.16,
-    -0.24
+    0.18,
+    -0.28
    ],
    "interlayer": 0.2,
    "crosstalk": 0.9,
@@ -525,7 +525,7 @@
     ],
     [
      110,
-     55,
+     75,
      35,
      -0.15,
      -0.1
@@ -558,16 +558,16 @@
    "grain": 0.012,
    "huePreserve": 0.3,
    "shadow_tint": [
-    -0.04,
-    0.005,
-    0.04
+    -0.02,
+    0.0,
+    0.02
    ]
   },
-  "bleach": {
+  "bleachbypass": {
    "name": "Bleach Bypass",
    "set": "movie",
    "about": "Silver left in the print: dyes drained in density (saturated colors lose the most), hard contrast, inky blacks, grit.",
-   "grey": 0.18,
+   "grey": 0.19,
    "slope": 2.2,
    "shoulder": 2.6,
    "white": 0.98,
@@ -583,7 +583,7 @@
    ],
    "interlayer": 0.0,
    "crosstalk": 1.0,
-   "dye_saturation": -0.55,
+   "dye_saturation": -0.6,
    "hue_twists": [
     [
      30,
@@ -904,7 +904,7 @@
     -0.01
    ]
   },
-  "slide70s": {
+  "slide": {
    "name": "Slide 70s",
    "set": "grades",
    "about": "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
@@ -943,7 +943,7 @@
     -0.04
    ]
   },
-  "bleachgrit": {
+  "bleach": {
    "name": "Bleach Grit",
    "set": "grades",
    "about": "Silver left in the print: hard contrast, drained color, bright metallic highlights and gritty grain.",

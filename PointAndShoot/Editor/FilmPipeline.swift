@@ -77,6 +77,10 @@ enum FilmPipeline {
     static let tableCapacity = FilmStock.all.count + 6
     private static let negativeCubes = TableCache<NegativeKey>(capacity: tableCapacity)
     private static let printCubes = TableCache<PrintKey>(capacity: tableCapacity)
+    /// Tables with an edit's exposure baked in (processed photos, engine 2+): one per
+    /// 1/100 stop, so dragging Exposure makes many. They get their own small cache, so a
+    /// drag can never evict the viewfinder's and the LOOK strip's tables.
+    private static let exposureCubes = TableCache<NegativeKey>(capacity: 4)
 
     static func negativeCube(_ stock: FilmStock, _ source: FilmLUT.Source, engine: Int = FilmLUT.currentEngine,
                              exposure: Double = 0) -> Data {
@@ -85,18 +89,20 @@ enum FilmPipeline {
         let ev = display && engine >= 2 ? Int((exposure * 100).rounded()) : 0
         let key = NegativeKey(stock: cacheKey(stock), source: source,
                               engine: display ? FilmLUT.unrenderEngine(engine) : 0, exposure: ev)
+        let cache = ev == 0 ? negativeCubes : exposureCubes
         lock.lock()
-        if let cube = negativeCubes.get(key) { lock.unlock(); return cube }
+        if let cube = cache.get(key) { lock.unlock(); return cube }
         lock.unlock()
         let cube = FilmLUT.negativeCube(stock: stock, source: source, engine: key.engine, exposure: Double(ev) / 100)
             .withUnsafeBufferPointer { Data(buffer: $0) }
         lock.lock()
-        negativeCubes.set(key, cube)
+        cache.set(key, cube)
         lock.unlock()
         return cube
     }
 
     static func printCube(_ stock: FilmStock, _ controls: FilmControls) -> Data {
+        let controls = controls.canonical      // one key per distinct table
         let key = PrintKey(stock: cacheKey(stock), controls: controls)
         lock.lock()
         if let cube = printCubes.get(key) { lock.unlock(); return cube }
@@ -108,7 +114,8 @@ enum FilmPipeline {
         return cube
     }
 
-    /// Builds every stock's viewfinder tables off the main thread (~200 ms of CPU once),
+    /// Builds every stock's viewfinder tables off the main thread (~0.5 s of CPU once for
+    /// 19 stocks, ~35 ms each with hue twists),
     /// so neither the first frame with a filter nor the filter strip's live previews ever
     /// wait for them. The RAW tables too for the looks that shoot RAW (Print, Phromagraph).
     static func prewarm() {

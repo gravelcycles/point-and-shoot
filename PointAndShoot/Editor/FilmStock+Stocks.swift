@@ -5,7 +5,7 @@
 extension FilmStock {
     /// Every stock offered as a look, by id (retired stocks live in FilmStock.Legacy).
     static let all: [String: FilmStock] = Dictionary(uniqueKeysWithValues: [
-        printLook, phromagraphStock, portrait400Stock, evergreenStock, slideStock, lushStock, threestripStock, blockbusterStock, night800Stock, bleachStock, punchStock, noirStock, desertStock, pastelStock, amberStock, sodiumStock, neonStock, slide70sStock, bleachgritStock,
+        printLook, phromagraphStock, portrait400Stock, evergreenStock, classicslideStock, lushStock, threestripStock, blockbusterStock, night800Stock, bleachbypassStock, punchStock, noirStock, desertStock, pastelStock, amberStock, sodiumStock, neonStock, slideStock, bleachStock,
     ].map { ($0.id, $0) })
 
     /// The stock for a recipe's id (nil = Print, which predates stock ids). A retired id
@@ -279,7 +279,7 @@ extension FilmStock {
     }()
 
     /// Slide: Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.
-    static let slideStock: FilmStock = {
+    static let classicslideStock: FilmStock = {
         let printCurve = FilmCurve(
             x: [
                 -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
@@ -302,7 +302,7 @@ extension FilmStock {
                 4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
             ])
         return FilmStock(
-            id: "slide",
+            id: "classicslide",
             exposure: 0.0,
             sensitivity: [
                 1.22119, -0.2034, -0.01779,
@@ -405,9 +405,9 @@ extension FilmStock {
             highlightTint: [0.0, 0.0, 0.0],
             hueTwists: [
                 .init(hue: 0.0, width: 25.0, rotation: 0.0, saturation: 0.2, stops: -0.1),
-                .init(hue: 28.0, width: 20.0, rotation: -6.0, saturation: 0.1, stops: 0.0),
-                .init(hue: 40.0, width: 25.0, rotation: -10.0, saturation: 0.3, stops: -0.05),
-                .init(hue: 60.0, width: 25.0, rotation: -8.0, saturation: 0.25, stops: 0.0),
+                .init(hue: 28.0, width: 30.0, rotation: -5.0, saturation: 0.1, stops: 0.0),
+                .init(hue: 40.0, width: 35.0, rotation: -9.0, saturation: 0.3, stops: -0.05),
+                .init(hue: 60.0, width: 35.0, rotation: -7.0, saturation: 0.25, stops: 0.0),
                 .init(hue: 100.0, width: 50.0, rotation: 5.0, saturation: 0.5, stops: -0.15),
                 .init(hue: 225.0, width: 45.0, rotation: 12.0, saturation: 0.35, stops: -0.35),
                 .init(hue: 300.0, width: 45.0, rotation: 0.0, saturation: 0.45, stops: -0.1),
@@ -429,14 +429,14 @@ extension FilmStock {
                 0.8, 0.80961, 0.81687, 0.8232, 0.83,
             ],
             y: [
-                0.06001, 0.06001, 0.06002, 0.06003, 0.06004, 0.06006, 0.06008, 0.06012,
-                0.06018, 0.06025, 0.06037, 0.06054, 0.06078, 0.06114, 0.06166, 0.06243,
-                0.06354, 0.06516, 0.06753, 0.07095, 0.07591, 0.08304, 0.09321, 0.10756,
-                0.12753, 0.15477, 0.19105, 0.23796, 0.29661, 0.36739, 0.4498, 0.54267,
-                0.64436, 0.75312, 0.86729, 0.98549, 1.10661, 1.22981, 1.35448, 1.48016,
-                1.60655, 1.73343, 1.86064, 1.98808, 2.11568, 2.24338, 2.37116, 2.49899,
-                2.62686, 2.75475, 2.88265, 3.01057, 3.13849, 3.26642, 3.39435, 3.52228,
-                3.65022, 3.77815, 3.90609, 4.03403, 4.08006,
+                0.06001, 0.06001, 0.06002, 0.06003, 0.06004, 0.06006, 0.06009, 0.06013,
+                0.06018, 0.06027, 0.06039, 0.06056, 0.06082, 0.0612, 0.06175, 0.06255,
+                0.06372, 0.06542, 0.0679, 0.07149, 0.07668, 0.08411, 0.09467, 0.1095,
+                0.12998, 0.15768, 0.19417, 0.24075, 0.29819, 0.36653, 0.44506, 0.53251,
+                0.62733, 0.72794, 0.83293, 0.94115, 1.05169, 1.16388, 1.27721, 1.39134,
+                1.50603, 1.6211, 1.73643, 1.85194, 1.96757, 2.08329, 2.19906, 2.31487,
+                2.43071, 2.54657, 2.66244, 2.77832, 2.8942, 3.01009, 3.12599, 3.24188,
+                3.35777, 3.47367, 3.58957, 3.70546, 4.08006,
             ])
         return FilmStock(
             id: "threestrip",
@@ -449,11 +449,11 @@ extension FilmStock {
             negative: [sharedNegative, sharedNegative, sharedNegative],
             print: [printCurve, printCurve, printCurve],
             printer: [-0.03, 0.0, 0.03],
-            crossover: [0.1, 0.0, -0.06],
+            crossover: [0.12, 0.0, -0.07],
             crosstalk: [
-                0.69099, 0.32742, -0.01841,
-                0.08348, 0.87895, 0.03757,
-                0.03757, 0.31425, 0.64818,
+                0.64164, 0.37546, -0.01709,
+                0.07752, 0.88759, 0.03489,
+                0.03489, 0.36324, 0.60188,
             ],
             display: [
                 0.96, 0, 0,
@@ -468,21 +468,21 @@ extension FilmStock {
             grainDensity: 0.003,
             grainChroma: 0.15,
             grainSize: 0.13,
-            huePreserve: 0.75,
+            huePreserve: 0.35,
             monoTone: [1.0, 1.0, 1.0],
             shadowTint: [0.0, 0.0, 0.0],
             highlightTint: [0.0, 0.0, 0.0],
             hueTwists: [
-                .init(hue: 25.0, width: 25.0, rotation: -12.0, saturation: 0.15, stops: 0.1),
+                .init(hue: 25.0, width: 40.0, rotation: -10.0, saturation: 0.15, stops: 0.1),
                 .init(hue: 5.0, width: 20.0, rotation: 0.0, saturation: 0.3, stops: -0.1),
-                .init(hue: 80.0, width: 35.0, rotation: 22.0, saturation: 0.3, stops: -0.1),
-                .init(hue: 150.0, width: 35.0, rotation: -15.0, saturation: 0.3, stops: -0.1),
-                .init(hue: 210.0, width: 30.0, rotation: 18.0, saturation: 0.35, stops: -0.2),
-                .init(hue: 265.0, width: 30.0, rotation: -15.0, saturation: 0.3, stops: 0.0),
-                .init(hue: 345.0, width: 30.0, rotation: 14.0, saturation: 0.3, stops: 0.0),
+                .init(hue: 80.0, width: 55.0, rotation: 16.0, saturation: 0.3, stops: -0.1),
+                .init(hue: 150.0, width: 55.0, rotation: -14.0, saturation: 0.3, stops: -0.1),
+                .init(hue: 205.0, width: 60.0, rotation: 14.0, saturation: 0.35, stops: -0.2),
+                .init(hue: 270.0, width: 60.0, rotation: -13.0, saturation: 0.3, stops: 0.0),
+                .init(hue: 345.0, width: 40.0, rotation: 10.0, saturation: 0.3, stops: 0.0),
                 .init(hue: 55.0, width: 20.0, rotation: -3.0, saturation: 0.3, stops: 0.15),
             ],
-            dyeSaturation: 0.55)
+            dyeSaturation: 0.6)
     }()
 
     /// Blockbuster: Teal and orange the way a colorist does it: skin hue locked and warmed, greens and skies turned teal, purples muted, blacks kept clean.
@@ -543,13 +543,13 @@ extension FilmStock {
             shadowTint: [0.0, 0.0, 0.0],
             highlightTint: [0.0, 0.0, 0.0],
             hueTwists: [
-                .init(hue: 0.0, width: 25.0, rotation: 8.0, saturation: 0.0, stops: 0.0),
-                .init(hue: 15.0, width: 22.0, rotation: 10.0, saturation: 0.35, stops: 0.05),
-                .init(hue: 50.0, width: 22.0, rotation: -12.0, saturation: 0.35, stops: 0.05),
-                .init(hue: 100.0, width: 60.0, rotation: 70.0, saturation: 0.15, stops: -0.3),
+                .init(hue: 0.0, width: 30.0, rotation: 6.0, saturation: 0.0, stops: 0.0),
+                .init(hue: 15.0, width: 30.0, rotation: 8.0, saturation: 0.35, stops: 0.05),
+                .init(hue: 50.0, width: 35.0, rotation: -10.0, saturation: 0.35, stops: 0.05),
+                .init(hue: 105.0, width: 90.0, rotation: 40.0, saturation: 0.15, stops: -0.3),
                 .init(hue: 185.0, width: 40.0, rotation: 0.0, saturation: 0.4, stops: -0.1),
-                .init(hue: 235.0, width: 45.0, rotation: -35.0, saturation: 0.3, stops: -0.2),
-                .init(hue: 290.0, width: 45.0, rotation: -35.0, saturation: -0.45, stops: 0.0),
+                .init(hue: 240.0, width: 70.0, rotation: -30.0, saturation: 0.3, stops: -0.2),
+                .init(hue: 290.0, width: 70.0, rotation: -35.0, saturation: -0.45, stops: 0.0),
             ],
             dyeSaturation: 0.15)
     }()
@@ -587,8 +587,8 @@ extension FilmStock {
             ],
             negative: [sharedNegative, sharedNegative, sharedNegative],
             print: [printCurve, printCurve, printCurve],
-            printer: [0.06, 0.0, -0.08],
-            crossover: [0.16, 0.0, -0.24],
+            printer: [0.07, 0.0, -0.09],
+            crossover: [0.18, 0.0, -0.28],
             crosstalk: [
                 0.86923, 0.16154, -0.03077,
                 0.13954, 0.79767, 0.06279,
@@ -609,19 +609,19 @@ extension FilmStock {
             grainSize: 0.13,
             huePreserve: 0.3,
             monoTone: [1.0, 1.0, 1.0],
-            shadowTint: [-0.03747, 0.00753, 0.04253],
+            shadowTint: [-0.01701, 0.00299, 0.02299],
             highlightTint: [0.0, 0.0, 0.0],
             hueTwists: [
                 .init(hue: 5.0, width: 35.0, rotation: 0.0, saturation: 0.3, stops: 0.15),
                 .init(hue: 45.0, width: 35.0, rotation: -5.0, saturation: 0.2, stops: 0.1),
-                .init(hue: 110.0, width: 55.0, rotation: 35.0, saturation: -0.15, stops: -0.1),
+                .init(hue: 110.0, width: 75.0, rotation: 35.0, saturation: -0.15, stops: -0.1),
                 .init(hue: 220.0, width: 50.0, rotation: 0.0, saturation: 0.2, stops: -0.15),
             ],
             dyeSaturation: 0.1)
     }()
 
     /// Bleach Bypass: Silver left in the print: dyes drained in density (saturated colors lose the most), hard contrast, inky blacks, grit.
-    static let bleachStock: FilmStock = {
+    static let bleachbypassStock: FilmStock = {
         let printCurve = FilmCurve(
             x: [
                 -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
@@ -634,17 +634,17 @@ extension FilmStock {
                 0.8, 0.80961, 0.81687, 0.8232, 0.83,
             ],
             y: [
-                0.06, 0.06, 0.06001, 0.06001, 0.06001, 0.06002, 0.06003, 0.06004,
-                0.06006, 0.06008, 0.06013, 0.06019, 0.0603, 0.06046, 0.06072, 0.06112,
-                0.06175, 0.06274, 0.06429, 0.06669, 0.07044, 0.07624, 0.08516, 0.09874,
-                0.11909, 0.1489, 0.19129, 0.24929, 0.32509, 0.41937, 0.53104, 0.65762,
-                0.79599, 0.94311, 1.09642, 1.25395, 1.41431, 1.57652, 1.73993, 1.90412,
-                2.0688, 2.2338, 2.39901, 2.56435, 2.72977, 2.89525, 3.06075, 3.22628,
-                3.39183, 3.55738, 3.72294, 3.8885, 4.05406, 4.08005, 4.08005, 4.08005,
+                0.06, 0.06, 0.06, 0.06001, 0.06001, 0.06002, 0.06002, 0.06004,
+                0.06005, 0.06008, 0.06012, 0.06018, 0.06028, 0.06043, 0.06067, 0.06104,
+                0.06163, 0.06255, 0.06398, 0.06622, 0.0697, 0.0751, 0.08342, 0.0961,
+                0.11516, 0.1432, 0.1833, 0.23855, 0.31132, 0.40259, 0.51154, 0.63586,
+                0.7725, 0.91838, 1.07082, 1.22777, 1.38774, 1.54969, 1.71294, 1.87702,
+                2.04164, 2.2066, 2.37178, 2.5371, 2.70251, 2.86797, 3.03348, 3.199,
+                3.36455, 3.5301, 3.69565, 3.86121, 4.02678, 4.08005, 4.08005, 4.08005,
                 4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
             ])
         return FilmStock(
-            id: "bleach",
+            id: "bleachbypass",
             exposure: 0.0,
             sensitivity: [
                 1, 0, 0,
@@ -680,7 +680,7 @@ extension FilmStock {
             hueTwists: [
                 .init(hue: 30.0, width: 35.0, rotation: 0.0, saturation: 0.3, stops: 0.0),
             ],
-            dyeSaturation: -0.55)
+            dyeSaturation: -0.6)
     }()
 
     /// Punch: Vivid negative pushed hard: maximum color, bold contrast, bright and clean.
@@ -1097,7 +1097,7 @@ extension FilmStock {
     }()
 
     /// Slide 70s: Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.
-    static let slide70sStock: FilmStock = {
+    static let slideStock: FilmStock = {
         let printCurve = FilmCurve(
             x: [
                 -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
@@ -1120,7 +1120,7 @@ extension FilmStock {
                 4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
             ])
         return FilmStock(
-            id: "slide70s",
+            id: "slide",
             exposure: 0.0,
             sensitivity: [
                 1.81103, -0.7458, -0.06523,
@@ -1156,7 +1156,7 @@ extension FilmStock {
     }()
 
     /// Bleach Grit: Silver left in the print: hard contrast, drained color, bright metallic highlights and gritty grain.
-    static let bleachgritStock: FilmStock = {
+    static let bleachStock: FilmStock = {
         let printCurve = FilmCurve(
             x: [
                 -1.15, -1.12798, -1.10626, -1.08391, -1.06, -1.03461, -1.00812, -0.98007,
@@ -1179,7 +1179,7 @@ extension FilmStock {
                 4.08006, 4.08006, 4.08006, 4.08006, 4.08006,
             ])
         return FilmStock(
-            id: "bleachgrit",
+            id: "bleach",
             exposure: 0.0,
             sensitivity: [
                 0.74194, 0.2373, 0.02075,

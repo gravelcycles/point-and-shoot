@@ -163,7 +163,7 @@ struct DialPanel: View {
         .onChange(of: camera.settings.lookSet) { refreshThumbnails() }
         .sheet(isPresented: $showGuide) {
             FilterGuide(thumbnails: thumbnails, selectedID: camera.settings.activeLook,
-                        looks: [Look.all[0]] + camera.settings.filterLooks) { id in
+                        looks: [Look.all[0]] + camera.settings.stripLooks) { id in
                 camera.setCaptureLook(id)
             }
             .presentationDetents([.medium, .large])
@@ -171,7 +171,7 @@ struct DialPanel: View {
     }
 
     private func refreshThumbnails() {
-        camera.renderer.filterThumbnails(side: 120, looks: [Look.all[0]] + camera.settings.filterLooks) {
+        camera.renderer.filterThumbnails(side: 120, looks: [Look.all[0]] + camera.settings.stripLooks) {
             thumbnails.merge($0) { _, new in new }
         }
     }
@@ -181,14 +181,14 @@ struct DialPanel: View {
         let current = LookSet.named(camera.settings.lookSet)
         return Menu {
             Picker("Look set", selection: Binding(
-                get: { camera.settings.lookSet ?? "all" },
+                get: { LookSet.named(camera.settings.lookSet)?.rawValue ?? "all" },   // unknown id = all
                 set: { id in
                     camera.haptic(.light)
                     camera.update { $0.lookSet = id == "all" ? nil : id }
                 })) {
                 Text("All looks").tag("all")
                 ForEach(LookSet.allCases) { set in
-                    Text("\(set.name) (\(set.looks.count))").tag(set.rawValue)
+                    Text("\(set.name) (\(camera.settings.stripCount(of: set)))").tag(set.rawValue)
                 }
             }
         } label: {
@@ -215,7 +215,7 @@ struct DialPanel: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(camera.settings.filterLooks) { look in
+                    ForEach(camera.settings.stripLooks) { look in
                         let selected = camera.settings.activeLook == look.id
                         Button {
                             camera.haptic(.light)

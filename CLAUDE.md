@@ -293,11 +293,14 @@ is the only source of truth for what exists. Everything else reacts to it.
     - Essentials: Original, Print, Phromagraph, Punch, Noir.
     - Film Stocks: Portrait 400, Evergreen, Slide, Lush.
     - Movie: Three-Strip, Blockbuster, Night 800, Bleach Bypass.
-    - Grades: PR #35's first pass, with its tunings untouched (Desert, Pastel, Amber Haze,
-      Sodium, Neon Night, plus Slide 70s and Bleach Grit, which are #35's Slide and Bleach
-      Bypass under new ids).
-    - Adding a look: give it a `set` in both places. `SettingsTests` checks every look but
-      Original is in exactly one set.
+    - Grades: PR #35's first pass, with its ids and tunings untouched (Desert, Pastel, Amber
+      Haze, Sodium, Neon Night, and #35's Slide and Bleach Bypass, renamed "Slide 70s" and
+      "Bleach Grit" but still ids `slide` / `bleach`). The new Slide and Bleach Bypass are
+      `classicslide` / `bleachbypass`: an id always means one look, or saved choices, default
+      grades and the editor's highlight would point at the wrong one.
+    - Adding a look: give it a `set` in both places. `export-swift` refuses a JSON set that
+      disagrees with `Look.all` (or a look with no stock), and `SettingsTests` pins the
+      Essentials and checks every film look's stock exists.
   - **What makes them film and not filters is structure, not tint** (the owner: nothing
     "super faded / just turned up the tint"; research and sources in
     `docs/film-looks-research.md`): dense blacks (`floor` 0), colour that depends on hue
@@ -311,6 +314,10 @@ is the only source of truth for what exists. Everything else reacts to it.
     - Each twist is `[hue°, width°, rotate°, saturation, stops]`, applied on scene light in
       log(x + 0.01) before the sensitivity matrix, so it's the same at every brightness
       and neutrals are untouched.
+    - `filmlooks.py` refuses twists that fold or squeeze the hue order: d(hue out)/d(hue in)
+      must stay ≥ 0.2 all round (a twist's steepest slope is rotation·π/(2·width), and
+      overlapping twists add). Blockbuster's first greens twist (+70° over ±60°) reversed
+      the hue order of foliage; `PipelineTests` checks the shipped stocks too.
     - Examples: Evergreen's emerald greens, Blockbuster's skin lock with teal greens and
       skies, Three-Strip's pull to pure primaries.
     - Built only into the negative cube (~35 ms per stock vs ~14), so nothing changes per
@@ -324,6 +331,10 @@ is the only source of truth for what exists. Everything else reacts to it.
       colours.
     - Stocks that use it take a per-cell path in `printCube` (~5–9 ms), since the pivot
       isn't a product of per-axis terms.
+    - A grey with three equal densities is untouched, but printer lights and crossover give
+      a stock's greys a cast, which dye saturation scales by 1 + amount (Slide's grey
+      lands ~0.08 stop darker than its `grey` target). The looks were tuned on the real
+      output, so `grey` is approximate for dye-saturated stocks.
   - interlayer saturation, an optional scene channel mix (`channel_mix`, folded into the
     sensitivity matrix), dye crosstalk, and Technicolor's key black (`key_black`, folded
     into crosstalk; Three-Strip). None of these three needs app code.
@@ -369,10 +380,11 @@ is the only source of truth for what exists. Everything else reacts to it.
     - **Rule:** within each set (measured together with the essentials), every look's
       nearest neighbour is ≥ 0.06 mean ΔE (Oklab) in
       `scripts/print-look.py spread IMG… [--cssgram] [--sheet out.jpg] [--looks OLD.json]`,
-      which measures every look in one table (Print, Phromagraph and B&W included),
-      flags offenders, and can add CSSgram's table and a contact sheet. The tuning loop
-      and pitfalls are in `docs/film-looks.md`.
-    - Today the nearest within-set pairs are 0.061–0.086. The exception is
+      which prints one table per set (each with the essentials; one table if the JSON
+      has no sets), flags offenders, and can add CSSgram's table and a contact sheet. The
+      tuning loop and pitfalls are in `docs/film-looks.md`.
+    - Today (engine 2's un-render for the JPEGs) the nearest within-set pairs are
+      0.060–0.079 (Three-Strip–Punch 0.060 is the closest). The exception is
       Print–Phromagraph (0.023): the same rendering by design, never retuned from each
       other. CSSgram's 26 Instagram-style filters have a nearest-neighbour median of
       0.050 and a minimum of 0.021.
@@ -381,7 +393,7 @@ is the only source of truth for what exists. Everything else reacts to it.
     with one renders exactly as before: pinned tuning, else `FilmStock.Legacy.v2`
     (`resolved(for:)`; `namedOrRetired` fills gaps in an older pinned tuning from that
     retired stock, not from Print). `Look.retired` keeps their names (`displayName`, the
-    editor's info row) and moves a saved camera choice on: Chrome → Slide, Skin → Portrait
+    editor's info row) and moves a saved camera choice on: Chrome → Slide (`classicslide`), Skin → Portrait
     400, Cool Air → Evergreen, Cine → Blockbuster, Mono 400 / Silver → Noir, the rest →
     Original (`CameraSettings.decodeSaved`). Never reuse a
     retired id for a different look.
@@ -447,10 +459,16 @@ is the only source of truth for what exists. Everything else reacts to it.
   - Grain (mostly monochrome, ~0.5 px) and halation: matched by eye/measurement to the
     same samples.
 - **Tables** (per stock):
-  - The negative cube (48³, 1.8 MB) is fixed per stock and source, built once (~15 ms).
-    At launch every stock's viewfinder cube is prewarmed in the background (~200 ms of
-    CPU), so the LOOK strip's live previews never stall the viewfinder.
-  - Both caches are small LRUs (16 negative, 18 print; 1.8 MB each).
+  - The negative cube (48³, 1.8 MB) is fixed per stock and source, built once (~15 ms,
+    ~35 ms with hue twists). At launch every stock's viewfinder cube is prewarmed in the
+    background (~0.5 s of CPU for 19 stocks), so the LOOK strip's live previews never
+    stall the viewfinder.
+  - Both caches are LRUs sized `FilmPipeline.tableCapacity` = stock count + 6 (1.8 MB a
+    table, ~45 MB each at 19 stocks). Print-cube keys use `FilmControls.canonical`, so
+    prewarmed tables serve engine-3 looks. Tables with an edit's exposure baked in have
+    their own 4-slot cache, so an Exposure drag can't evict the viewfinder's.
+  - LOOK-strip thumbnails render on their own utility queue from a small copy of the
+    frame (`PreviewRenderer.filterThumbnails`), never on the viewfinder's render queue.
   - The print cube (48³) depends on `FilmControls` (contrast, saturation, crossover,
     highlights, shadows) and is cached. It rebuilds in ~2 ms (Print) to ~7 ms (hue
     protection + split toning), only when a film slider moves, so editor sliders don't hitch. `printCube` factors the math into per-axis terms (crosstalk and saturation
@@ -466,7 +484,7 @@ is the only source of truth for what exists. Everything else reacts to it.
     negative cube, **on luminance** (`FilmLUT.sceneFromDisplay(rgb:engine:)`). Inverting
     per channel read saturated display reds as stops over: they turned orange and faces
     yellow.
-    - **Engine 2 (current):** Apple's rendering, *measured* on the owner's ProRAWs
+    - **Engine 2 (and 3, which shares it):** Apple's rendering, *measured* on the owner's ProRAWs
       (`FilmLUT.unrender*` tables; `docs/film-looks.md` §5¾).
       - The curve is the median scene light behind each display level (anchored
         display 0.20 = scene 0.18).
@@ -534,15 +552,18 @@ is the only source of truth for what exists. Everything else reacts to it.
       `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
-  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 2;
+  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 3;
     `renderEngine` treats nil as 1, and `freezeFilmTuning` pins nil as 1). Pinning
     freezes a stock's numbers, not the code: a change to the math that would alter older
-    photos must keep the old behaviour for older engines (engine 2 did: see "Sources").
+    photos must keep the old behaviour for older engines (engines 2 and 3 did: see
+    "Sources" and "Film engines").
   - Table caches key pinned tunings by id + value hash (`FilmPipeline.cacheKey`), so they
     never share LUTs with the current stock.
   - A pinned tuning missing fields that stocks gained later decodes with those fields taken
-    from the current stock (`EditRecipe.decodeSaved`). Give new `FilmStock` fields values
-    that keep older photos looking the same where possible.
+    from the current stock (`EditRecipe.decodeSaved`), except `FilmStock.offWhenMissing`
+    (hueTwists, dyeSaturation), which stay nil = off. Give new `FilmStock` fields values
+    that keep older photos looking the same where possible, or make them optional and add
+    them to `offWhenMissing`.
 - **Recipe:** `EditRecipe.film` (optional, so old edits decode).
   - Tune's exposure, contrast, highlights, shadows and saturation act inside the film
     model; grain is the film grain.
@@ -618,7 +639,7 @@ is the only source of truth for what exists. Everything else reacts to it.
   - Share sends the original file. Favorite and Delete are there too.
   - An Info sheet shows EXIF and a map.
 - **Editor:**
-  - Tools: Looks (12), Tune (10 sliders), Details (5), Color (8-band HSL), Crop (aspect,
+  - Tools: Looks (19 plus Original, in named sets), Tune (10 sliders), Details (5), Color (8-band HSL), Crop (aspect,
     straighten, rotate, flip) and RAW (develop from DNG with WB, exposure, NR, local tone
     and boost).
   - Undo, hold-to-compare, copy/paste edits.

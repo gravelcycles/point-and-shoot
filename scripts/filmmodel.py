@@ -247,7 +247,8 @@ def dye_saturate(dm, amount):
     about the mean, like the Saturation slider, would brighten the dominant channel
     instead.) < 0 is retained silver (bleach bypass): silver adds density in proportion to
     the mean density, and with the print re-timed so greys keep their tone, that is
-    exactly a pull toward the mean density. Neutrals are untouched either way."""
+    exactly a pull toward the mean density. A grey with three equal densities is untouched;
+    a stock's printer lights or crossover give greys a cast, which this scales by 1 + amount."""
     if amount == 0:
         return dm
     pivot = dm.min(axis=-1, keepdims=True) if amount > 0 else dm.mean(axis=-1, keepdims=True)
@@ -388,7 +389,8 @@ def grain_field(shape, stock, strength, seed=7):
 def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0, grain_amount=1.0,
            source="sceneLinear", engine=CURRENT_ENGINE):
     """Scene-linear (or display-referred) sRGB-primaries image -> Display P3 linear image."""
-    controls = controls or {}
+    controls = dict(controls or {})
+    controls.setdefault("subtractive", engine >= 3)      # engine 3's Saturation slider, like the app
     ev = exposure_ev + stock.get("exposure", 0.0)
     after = source != "sceneLinear" and engine >= 2      # engine 2: expose after un-rendering
     x = lin_srgb * (1.0 if after else 2.0 ** ev)
