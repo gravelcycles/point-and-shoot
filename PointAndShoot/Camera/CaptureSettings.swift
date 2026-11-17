@@ -431,7 +431,7 @@ extension CameraSettings {
     var zoomLockReason: String {
         if mode == .print { return "Print" }
         if processing == .zero { return "Zero" }
-        if captureLookNeedsRAW { return "this filter" }
+        if captureLookNeedsRAW { return Look.named(activeLook)?.name ?? "this filter" }
         return "Bayer RAW"
     }
 }
