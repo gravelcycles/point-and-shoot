@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Every filter with a preview and a plain description. Tap one to use it.
-/// Shared by the camera's FILTER picker and the editor's Filters tab.
+/// Every look with a preview and a plain description. Tap one to use it.
+/// Shared by the camera's LOOK picker and the editor's Looks tool.
 struct FilterGuide: View {
     let thumbnails: [String: UIImage]
     let selectedID: String?
-    /// The filters to list (the camera leaves Print out while it's a mode).
+    /// The looks to list (the camera leaves Print out while it's a mode).
     var looks: [Look] = Look.all
     let onPick: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -43,7 +43,7 @@ struct FilterGuide: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("Filters")
+            .navigationTitle("Looks")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -54,7 +54,7 @@ struct FilterGuide: View {
     }
 }
 
-/// Square filter preview with a yellow ring when selected.
+/// Square look preview with a yellow ring when selected.
 struct FilterSwatch: View {
     let image: UIImage?
     let selected: Bool

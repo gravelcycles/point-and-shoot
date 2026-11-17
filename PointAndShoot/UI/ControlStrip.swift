@@ -25,7 +25,7 @@ struct ControlStrip: View {
                  value: camera.exposureMode == .manual ? Stops.evLabel(camera.meterOffset) : Stops.evLabel(camera.exposureBias),
                  manual: camera.exposureBias != 0, enabled: camera.exposureMode != .manual)
             if camera.settings.mode == .photo {
-                item(.look, title: "FILTER", value: Look.named(camera.settings.activeLook)?.name ?? "Off",
+                item(.look, title: "LOOK", value: Look.named(camera.settings.activeLook)?.name ?? "Off",
                      manual: camera.settings.activeLook != nil, enabled: true)
             }
         }
@@ -79,7 +79,7 @@ struct ControlStrip: View {
             camera.resetToAuto(kind)
             withAnimation(.snappy(duration: 0.2)) { active = nil }
             camera.haptic(.medium)
-            camera.toast = kind == .look ? "Filter off" : "\(title.capitalized) → Auto"
+            camera.toast = kind == .look ? "Look off" : "\(title.capitalized) → Auto"
         })
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.35)
@@ -130,8 +130,8 @@ struct DialPanel: View {
         camera.resetToAuto(kind)
     }
 
-    /// Square live previews of each filter, like a social camera's filter strip, plus a
-    /// guide that explains every filter.
+    /// Square live previews of each look, like a social camera's filter strip, plus a
+    /// guide that explains every look.
     private var filterStrip: some View {
         HStack(spacing: 6) {
             filterCards
@@ -149,7 +149,7 @@ struct DialPanel: View {
             }
             .buttonStyle(PressScaleStyle(scale: 0.94))
             .accessibilityIdentifier("filter.info")
-            .accessibilityLabel("About filters")
+            .accessibilityLabel("About looks")
         }
         // Refresh the previews from the live camera every couple of seconds while open.
         .task {

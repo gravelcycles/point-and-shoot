@@ -268,8 +268,8 @@ struct EditorView: View {
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
-            if let look = Look.named(session.recipe.look) {
-                Text(look.name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.tan)
+            if let name = Look.displayName(session.recipe.look) {   // retired looks keep their name
+                Text(name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.tan)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 1) {
@@ -455,7 +455,7 @@ struct EditorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressScaleStyle(scale: 0.94))
-                .accessibilityLabel("About filters")
+                .accessibilityLabel("About looks")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
