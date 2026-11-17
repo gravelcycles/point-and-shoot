@@ -153,7 +153,9 @@ final class ZoomingScrollView: UIScrollView, UIScrollViewDelegate {
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centre()
-        coordinator?.report(zoomScale)
+        // While fingers are pinching (even below 1×) or it's bouncing back, it counts as
+        // zoomed, so the viewer's swipe-down stays out of the way until it has settled.
+        coordinator?.report(isZooming || isZoomBouncing ? max(zoomScale, 1.02) : zoomScale)
     }
 
     func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {

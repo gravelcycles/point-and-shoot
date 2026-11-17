@@ -128,9 +128,14 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["viewer.close"].exists, "a drag while zoomed dismissed the viewer")
         // Double-tap back to fit; the viewer still works.
         photo.doubleTap()
+        // Pinching out below fit bounces back, and leaves the viewer as it was (a cancelled
+        // swipe-down once left the page pulled down with the controls hidden).
         photo.pinch(withScale: 0.5, velocity: -2)
-        Thread.sleep(forTimeInterval: 0.6)
-        XCTAssertTrue(app.buttons["viewer.delete"].isHittable)
+        let trash = app.buttons["viewer.delete"]
+        let deadline = Date().addingTimeInterval(3)
+        while !(trash.exists && trash.isHittable) && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
+        XCTAssertTrue(trash.exists && trash.isHittable,
+                      "controls gone after zooming back out (close button exists: \(app.buttons["viewer.close"].exists))")
     }
 
     func testPinchZoomInTheEditorDoesNotAdjustAnything() {

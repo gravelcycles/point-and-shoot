@@ -25,6 +25,10 @@ struct PhotoViewer: View {
     @State private var lastIndex = 0
     /// The photo on screen is zoomed in: drags pan it instead of dismissing the viewer.
     @State private var pageZoomed = false
+    /// The swipe-down is in progress; SwiftUI resets it even when the drag is cancelled
+    /// (a pinch taking over), which `onEnded` never hears about.
+    @GestureState private var dismissDragActive = false
+    @State private var dismissing = false
 
     private static let pendingID = ViewerSelection.pendingID
 
@@ -91,6 +95,16 @@ struct PhotoViewer: View {
         }
         .onChange(of: camera.capturesInFlight) { _, _ in reconcileSelection() }
         .onChange(of: camera.lastSavedAssetID) { _, _ in reconcileSelection() }
+        // A pinch that starts while the swipe-down has begun moving the page, or a drag that
+        // was cancelled: never leave the page pulled down with the controls hidden.
+        .onChange(of: pageZoomed) { _, zoomed in
+            if zoomed, dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
+        }
+        .onChange(of: dismissDragActive) { _, active in
+            if !active, !dismissing, dragY != 0 {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
+            }
+        }
         .onChange(of: selectedID) { _, id in
             // The page left behind snaps back to fit (ZoomableImageView.isCurrent).
             pageZoomed = false
@@ -174,8 +188,9 @@ struct PhotoViewer: View {
             // Global space: the pager itself moves with the finger, so local translation
             // would shrink as you drag (jitter, and twice the travel to dismiss).
             DragGesture(minimumDistance: 24, coordinateSpace: .global)
+                .updating($dismissDragActive) { _, active, _ in active = true }
                 .onChanged { v in
-                    // Zoomed in, a drag pans the photo; it never dismisses.
+                    // Zoomed in (or pinching), a drag pans the photo; it never dismisses.
                     guard !pageZoomed else { return }
                     // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
@@ -190,6 +205,7 @@ struct PhotoViewer: View {
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { dragY = 0 }
                             showGrid = true
                         } else {
+                            dismissing = true
                             dismiss()
                         }
                     } else {
