@@ -7,6 +7,8 @@ import UIKit
 struct PreviewView: UIViewRepresentable {
     let renderer: PreviewRenderer
     var onTap: (CGPoint, CGSize) -> Void
+    /// Double-tap anywhere on the viewfinder (opens Settings, like Chromagraph).
+    var onDoubleTap: () -> Void = {}
     var onLongPress: (CGPoint, CGSize) -> Void
     var onPinch: (CGFloat, UIGestureRecognizer.State) -> Void
     /// One-finger drag: translation, velocity, state. The caller decides the axis
@@ -26,6 +28,10 @@ struct PreviewView: UIViewRepresentable {
 
         let c = context.coordinator
         let tap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.tap(_:)))
+        let doubleTap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.doubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        // A single tap (focus) waits to be sure it isn't the first of a double-tap.
+        tap.require(toFail: doubleTap)
         let long = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.longPress(_:)))
         long.minimumPressDuration = 0.55
         let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.pinch(_:)))
@@ -35,7 +41,7 @@ struct PreviewView: UIViewRepresentable {
         pan.delegate = c
         pinch.delegate = c
         c.panRecognizer = pan
-        for g in [tap, long, pinch, pan] as [UIGestureRecognizer] { view.addGestureRecognizer(g) }
+        for g in [tap, doubleTap, long, pinch, pan] as [UIGestureRecognizer] { view.addGestureRecognizer(g) }
         return view
     }
 
@@ -59,6 +65,10 @@ struct PreviewView: UIViewRepresentable {
 
         var parent: PreviewView
         init(_ parent: PreviewView) { self.parent = parent }
+
+        @objc func doubleTap(_ g: UITapGestureRecognizer) {
+            parent.onDoubleTap()
+        }
 
         @objc func tap(_ g: UITapGestureRecognizer) {
             guard let v = g.view else { return }

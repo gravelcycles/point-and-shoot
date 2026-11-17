@@ -69,7 +69,7 @@ struct TopBar: View {
             // viewer's full-screen cover on one view kept Settings from ever appearing.
             .sheet(isPresented: $showSettings) {
                 SettingsView(camera: camera)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
         }

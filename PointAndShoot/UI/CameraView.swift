@@ -126,6 +126,11 @@ struct CameraView: View {
             PreviewView(
                 renderer: camera.renderer,
                 onTap: { p, size in handleTap(p, size: size, lock: false) },
+                onDoubleTap: {
+                    guard !camera.isRecording else { return }
+                    camera.haptic(.light)
+                    showSettings = true
+                },
                 onLongPress: { p, size in handleTap(p, size: size, lock: true) },
                 onPinch: { scale, state in
                     if camera.settings.zoomLocked {
