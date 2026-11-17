@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Preferences, Chromagraph-style: General · Camera · Processing, each option explained in
 /// a line or two (including what it doesn't affect). Opens from the gear or a double-tap on
@@ -9,6 +10,10 @@ struct SettingsView: View {
     @State private var tab: Tab = .general
     @AppStorage("hints.v1.seen") private var hintsSeen = false
     @State private var showLockScreenHelp = false
+    @State private var showRAWPicker = false
+    @State private var showArchivePicker = false
+    @State private var importing = false
+    @State private var importMessage: String?
     @State private var confirmReset: ResetKind?
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -54,7 +59,42 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }.fontWeight(.semibold)
                 }
             }
-            .sheet(isPresented: $showLockScreenHelp) { LockScreenHelp() }
+            .background {
+                Color.clear.sheet(isPresented: $showLockScreenHelp) { LockScreenHelp() }
+                Color.clear.sheet(isPresented: $showRAWPicker) {
+                    RAWPicker { results in
+                        showRAWPicker = false
+                        guard !results.isEmpty else { return }
+                        importing = true
+                        Task {
+                            let grade = camera.settings.defaultGrade ?? EditRecipe()
+                            let r = await ShotArchive.importPicked(results, store: ShotStore.shared, grade: grade)
+                            importing = false
+                            importMessage = r.summary
+                        }
+                    }
+                    .ignoresSafeArea()
+                }
+                Color.clear.fileImporter(isPresented: $showArchivePicker, allowedContentTypes: [.zip]) { result in
+                    guard case .success(let url) = result else { return }
+                    importing = true
+                    Task {
+                        do {
+                            let r = try await ShotArchive.importZip(at: url, store: ShotStore.shared)
+                            importMessage = r.summary
+                        } catch {
+                            importMessage = error.localizedDescription
+                        }
+                        importing = false
+                    }
+                }
+                Color.clear.alert("Import", isPresented: Binding(get: { importMessage != nil },
+                                                                 set: { if !$0 { importMessage = nil } })) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(importMessage ?? "")
+                }
+            }
             .confirmationDialog(resetTitle, isPresented: Binding(get: { confirmReset != nil },
                                                                   set: { if !$0 { confirmReset = nil } }),
                                 titleVisibility: .visible) {
@@ -91,6 +131,40 @@ struct SettingsView: View {
             Text("Location")
         } footer: {
             Text("Records where a photo was taken into its RAW file and carries it through to anything you export or share. Uses the GPS chip and compass, so it works in airplane mode; the first fix can take a minute without signal.")
+        }
+        Section {
+            Button {
+                showRAWPicker = true
+            } label: {
+                HStack {
+                    Text("Import RAW Photos…")
+                    Spacer()
+                    if importing { ProgressView() } else { Image(systemName: "square.and.arrow.down") }
+                }
+            }
+            .disabled(importing)
+            .accessibilityIdentifier("settings.importRAW")
+        } header: {
+            Text("Import from Photos")
+        } footer: {
+            Text("Choose RAW files from your Photo Library to copy into Point & Shoot's library, with your default grade. The originals stay where they are.")
+        }
+        Section {
+            Button {
+                showArchivePicker = true
+            } label: {
+                HStack {
+                    Text("Import Archive…")
+                    Spacer()
+                    Image(systemName: "archivebox")
+                }
+            }
+            .disabled(importing)
+            .accessibilityIdentifier("settings.importArchive")
+        } header: {
+            Text("Import Archive")
+        } footer: {
+            Text("Brings back a zip made with Archive RAW… in the grid, with each photo's grade. Photos already in your library are skipped.")
         }
         Section {
             Button("Lock Screen Camera Setup…") { showLockScreenHelp = true }

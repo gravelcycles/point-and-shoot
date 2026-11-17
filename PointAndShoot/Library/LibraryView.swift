@@ -15,6 +15,7 @@ struct RollGrid: View {
     @State private var working = false
     @State private var message: String?
     @State private var showTrash = false
+    @State private var confirmArchive = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
 
@@ -75,10 +76,20 @@ struct RollGrid: View {
                 // Trashed elsewhere (or by the 30-day sweep): drop it from the selection.
                 selected.formIntersection(ids)
             }
-            .sheet(item: $share) { item in
-                ActivityView(items: item.urls).presentationDetents([.medium, .large]).ignoresSafeArea()
+            // One presentation per anchor view.
+            .background {
+                Color.clear.sheet(item: $share) { item in
+                    ActivityView(items: item.urls).presentationDetents([.medium, .large]).ignoresSafeArea()
+                }
+                Color.clear.sheet(isPresented: $showTrash) { TrashView(store: store) }
             }
-            .sheet(isPresented: $showTrash) { TrashView(store: store) }
+            .confirmationDialog(selected.count == 1 ? "Archive 1 RAW Photo" : "Archive \(selected.count) RAW Photos",
+                                isPresented: $confirmArchive, titleVisibility: .visible) {
+                Button("Save to Photo Library") { archiveToPhotos() }
+                Button("Save or Share Zip…") { archiveZip() }
+            } message: {
+                Text("Saves the original RAW files. A zip also includes each photo's grade, and Import Archive in Preferences brings it back.")
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -160,6 +171,9 @@ struct RollGrid: View {
                 Button { store.setKeep(true, for: Array(selected)) } label: { Label("Keep", systemImage: "bookmark") }
                 Button { store.setKeep(false, for: Array(selected)) } label: { Label("Don't Keep", systemImage: "bookmark.slash") }
                 Divider()
+                Button { confirmArchive = true } label: { Label("Archive RAW…", systemImage: "archivebox") }
+                    .accessibilityIdentifier("grid.archive")
+                Divider()
                 Button {
                     if let first = selectedShots.first { EditClipboard.recipe = store.recipe(for: first.id) }
                 } label: { Label("Copy Grade", systemImage: "doc.on.doc") }
@@ -229,6 +243,34 @@ struct RollGrid: View {
                 selected = []
             } catch {
                 flash("Couldn't save to Photos: \(error.localizedDescription)")
+            }
+            working = false
+        }
+    }
+
+    private func archiveToPhotos() {
+        let shots = selectedShots
+        working = true
+        Task {
+            do {
+                let n = try await ShotArchive.archiveToPhotos(shots, store: store)
+                flash(n == 1 ? "1 RAW photo added to Photos" : "\(n) RAW photos added to Photos")
+            } catch {
+                flash("Couldn't archive: \(error.localizedDescription)")
+            }
+            working = false
+        }
+    }
+
+    private func archiveZip() {
+        let shots = selectedShots
+        working = true
+        Task {
+            do {
+                let url = try await ShotArchive.makeZip(shots, store: store)
+                share = ShareItem(url: url)
+            } catch {
+                flash("Couldn't make the zip: \(error.localizedDescription)")
             }
             working = false
         }
