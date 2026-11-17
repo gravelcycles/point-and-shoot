@@ -167,6 +167,9 @@ scripts/print-look.py             film-look tools: preview on DNGs, fit to refer
 scripts/filmmodel.py              reference (numpy) implementation of FilmModel/FilmPipeline
 scripts/print-stock.json          the Print look's parameters (source of truth)
 scripts/film-looks.json           the photo filters as compact film-stock specs (source of truth)
+scripts/phromagraph-stock.json    Phromagraph (fitted to Chromagraph's own renders; source of truth)
+scripts/phromagraph.py            fits Phromagraph to Chromagraph DNG+HEIC pairs; measures exposure/grain
+scripts/raw-develop.swift         macOS CIRAWFilter develop exactly as the app does (for the Python tools)
 scripts/filmlooks.py              builds full stocks from film-looks.json (tone curve derivation)
 scripts/cssgram.py                the 26 Instagram-style CSSgram filters, browser-exact: the yardstick
                                   for how far apart our filters are (`print-look.py spread --cssgram`)
@@ -307,8 +310,19 @@ is the only source of truth for what exists. Everything else reacts to it.
     - The first pass sat at 0.014–0.03 and the second at 0.032–0.055. Both read as "they
       all look the same".
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
-- **Only Print captures RAW** (`Look.capturesRAW`). The others apply to whatever Photo
-  mode's processing produced, and develop from RAW when the shot has a DNG.
+- **Only Print and Phromagraph capture RAW** (`Look.capturesRAW`). The others apply to
+  whatever Photo mode's processing produced, and develop from RAW when the shot has a DNG.
+- **Phromagraph** (`phromagraph`, a FILTER, never a mode) is a separate stock *fitted* to
+  Chromagraph Camera's own exports of its own ProRAWs, where Print was calibrated from
+  public samples. Keep the two separate: don't retune Print from Phromagraph's data or
+  vice versa. Details, numbers and caveats: `docs/film-looks.md` §5½.
+  - Mean ΔE (Oklab) to Chromagraph 0.0070 on 12 pairs (Print: 0.019).
+  - Its stock `exposure` is 0 on purpose: the viewfinder match (`rawFilmExposure`)
+    supplies Chromagraph's +1.8 EV develop exposure. A non-zero stock exposure also scales
+    the viewfinder's display-referred input and would clip it.
+  - Grain starts at 0 (`Look` sets `grain = 0`, Chromagraph's default); slider 50 =
+    Chromagraph grain 1.25 (`grainDensity` 0.017, size 0.17).
+  - Halation is a third of Print's: Chromagraph shows no measurable red glow.
 - **Signal path:** scene-linear light → exposure → halation → shaper → negative cube →
   + grain → print cube → Display P3. See the header of `FilmModel.swift`.
   - Halation and grain are spatial, so they sit outside the two 3D LUTs.
@@ -329,10 +343,18 @@ is the only source of truth for what exists. Everything else reacts to it.
   - Print keeps 0 to stay faithful to Chromagraph. The color filters use 0.4–0.9.
 - **Source of truth:**
   - `scripts/print-stock.json` holds Print (fitted).
+  - `scripts/phromagraph-stock.json` holds Phromagraph, written by
+    `scripts/phromagraph.py fit` (a full stock, not a compact spec).
   - `scripts/film-looks.json` holds the filters: compact specs, with anything left out
     inherited from Print. `scripts/filmlooks.py` derives each stock's print curve from
     its tone target.
-  - `FilmStock+Stocks.swift` is generated from both: `scripts/print-look.py export-swift`.
+  - `FilmStock+Stocks.swift` is generated from all three: `scripts/print-look.py export-swift`.
+  - ⚠️ `export-swift` is **not reproducible across numpy versions**: `derive_print_curve`
+    deduplicates exactly tied knots after an unstable `np.argsort`, so a different numpy
+    picks a different last knot for the film-looks.json filters (Natural's print cube
+    moves by up to 23/255; Warm 400 and Chrome then fail `parity`). Until that's fixed,
+    don't regenerate the filters on a new machine without comparing; the Phromagraph PR
+    inserted only its own block.
   - `scripts/filmmodel.py` mirrors the Swift math exactly.
   - After touching either side, run `scripts/print-look.py parity`. It compiles
     FilmModel.swift with `swiftc`, works on Linux too, and fails on any difference
@@ -505,7 +527,7 @@ is the only source of truth for what exists. Everything else reacts to it.
   - Share sends the original file. Favorite and Delete are there too.
   - An Info sheet shows EXIF and a map.
 - **Editor:**
-  - Tools: Looks (11), Tune (10 sliders), Details (5), Color (8-band HSL), Crop (aspect,
+  - Tools: Looks (12), Tune (10 sliders), Details (5), Color (8-band HSL), Crop (aspect,
     straighten, rotate, flip) and RAW (develop from DNG with WB, exposure, NR, local tone
     and boost).
   - Undo, hold-to-compare, copy/paste edits.
