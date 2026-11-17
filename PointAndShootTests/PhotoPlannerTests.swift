@@ -62,8 +62,6 @@ final class PhotoPlannerTests: XCTestCase {
                         XCTAssertTrue(caps.bayerRAW, "Bayer RAW requested but unavailable: \(ctx)")
                         XCTAssertEqual(d.prioritization, .speed, "Bayer RAW must use .speed: \(ctx)")
                         XCTAssertTrue(d.standardDimensions, "Bayer RAW must be 12 MP: \(ctx)")
-                        // The UI must have locked zoom for any mode that ends up shooting Bayer.
-                        XCTAssertTrue(s.zoomLocked, "Shoots Bayer RAW but zoom isn't locked: \(ctx)")
                     }
                     if d.raw == .proRAW {
                         XCTAssertTrue(caps.proRAW, "ProRAW requested but unavailable: \(ctx)")
@@ -76,7 +74,8 @@ final class PhotoPlannerTests: XCTestCase {
                     }
                     if !burst {
                         // RAW only: a processed photo only when the lens has no RAW at all.
-                        if caps.bayerRAW || caps.proRAW {
+                        // RAW it can shoot right now: ProRAW, or Bayer at 1×.
+                        if caps.proRAW || (caps.bayerRAW && !caps.zoomed) {
                             XCTAssertNotEqual(d.raw, .none, "Every photo is a RAW: \(ctx)")
                         } else {
                             XCTAssertEqual(d.raw, .none, ctx)
@@ -92,23 +91,42 @@ final class PhotoPlannerTests: XCTestCase {
         XCTAssertGreaterThan(checked, 1000)
     }
 
-    func testDefaultShootsBayerRAW() {
-        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init())
-        XCTAssertEqual(d.raw, .bayer)
-        XCTAssertEqual(d.prioritization, .speed)
-        XCTAssertTrue(d.standardDimensions)
+    func testDefaultShootsProRAW() {
+        let s = CameraSettings()
+        XCTAssertTrue(s.shootsProRAW)
+        XCTAssertFalse(s.zoomLocked, "ProRAW zooms")
+        let d = PhotoPlanner.decide(s, burst: false, caps: .init())
+        XCTAssertEqual(d.raw, .proRAW)
         XCTAssertNil(d.fallbackNote)
     }
 
-    func testPrintModeShootsBayerRAW() {
+    func testBayerWhenChosen() {
         var s = CameraSettings()
-        s.mode = .print
-        XCTAssertEqual(PhotoPlanner.decide(s, burst: false, caps: .init()).raw, .bayer)
+        s.rawMode = .bayer
+        XCTAssertTrue(s.zoomLocked, "Bayer RAW can't be zoomed")
+        let d = PhotoPlanner.decide(s, burst: false, caps: .init())
+        XCTAssertEqual(d.raw, .bayer)
+        XCTAssertEqual(d.prioritization, .speed)
+        XCTAssertTrue(d.standardDimensions)
+    }
+
+    func testNoProRAWOnThisLensFallsBackToBayerWithANote() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(proRAW: false))
+        XCTAssertEqual(d.raw, .bayer)
+        XCTAssertNotNil(d.fallbackNote)
     }
 
     func testZoomedBayerFallsBackToProRAWWithANote() {
-        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(zoomed: true))
+        var s = CameraSettings()
+        s.rawMode = .bayer
+        let d = PhotoPlanner.decide(s, burst: false, caps: .init(zoomed: true))
         XCTAssertEqual(d.raw, .proRAW)
+        XCTAssertNotNil(d.fallbackNote)
+    }
+
+    func testZoomedWithOnlyBayerFallsBackToProcessed() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(proRAW: false, zoomed: true))
+        XCTAssertEqual(d.raw, .none, "Bayer RAW while zoomed crashes")
         XCTAssertNotNil(d.fallbackNote)
     }
 
@@ -118,13 +136,11 @@ final class PhotoPlannerTests: XCTestCase {
         XCTAssertNotNil(d.fallbackNote)
     }
 
-    func testProRAWWhenChosen() {
+    func testProRAWResolution() {
         var s = CameraSettings()
-        s.rawMode = .proRAW
         s.resolution = .max
-        let d = PhotoPlanner.decide(s, burst: false, caps: .init())
-        XCTAssertEqual(d.raw, .proRAW)
-        XCTAssertFalse(d.standardDimensions)
-        XCTAssertFalse(s.zoomLocked, "ProRAW zooms")
+        XCTAssertFalse(PhotoPlanner.decide(s, burst: false, caps: .init()).standardDimensions)
+        s.resolution = .standard
+        XCTAssertTrue(PhotoPlanner.decide(s, burst: false, caps: .init()).standardDimensions)
     }
 }

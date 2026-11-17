@@ -96,7 +96,7 @@ final class LibraryFlowTests: XCTestCase {
         let deadline = Date().addingTimeInterval(3)
         while !(trash.exists && trash.isHittable) && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
         XCTAssertTrue(trash.exists && trash.isHittable,
-                      "controls gone after zooming back out (close button exists: \(app.buttons["viewer.close"].exists))")
+                      "controls gone after zooming back out (viewer open: \(photo.exists), back on the camera: \(app.buttons["strip.ev"].exists))")
     }
 
     func testPinchZoomInTheEditorDoesNotAdjustAnything() {

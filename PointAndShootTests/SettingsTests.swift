@@ -15,19 +15,14 @@ final class SettingsTests: XCTestCase {
 
     func testZoomLockFollowsBayerRAW() {
         var s = CameraSettings()
+        XCTAssertFalse(s.zoomLocked, "ProRAW (the default) zooms")
         s.mode = .print
-        XCTAssertTrue(s.zoomLocked, "Print shoots Bayer RAW")
+        XCTAssertFalse(s.zoomLocked, "Print on ProRAW zooms")
+        s.rawMode = .bayer
+        XCTAssertTrue(s.zoomLocked, "Bayer RAW can't be zoomed")
         s.mode = .photo
-        s.processing = .zero
-        XCTAssertTrue(s.zoomLocked, "Zero shoots Bayer RAW")
-        s.processing = .natural
-        s.rawMode = .bayer
-        XCTAssertTrue(s.zoomLocked, "RAW (Bayer) can't be zoomed")
-        s.rawMode = .proRAW
-        XCTAssertFalse(s.zoomLocked, "ProRAW zooms normally")
+        XCTAssertTrue(s.zoomLocked)
         s.mode = .video
-        s.processing = .zero
-        s.rawMode = .bayer
         XCTAssertFalse(s.zoomLocked, "Video always zooms")
     }
 
