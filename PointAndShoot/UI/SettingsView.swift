@@ -539,15 +539,15 @@ private struct SettingsGradeRow: View {
                     draft = nil
                 }
             }
+            // On the slider itself: VoiceOver adjusts without a drag, so commit each step.
+            .accessibilityAdjustableAction { direction in
+                let step = (adjustment.range.upperBound - adjustment.range.lowerBound) / 50
+                let next = min(max(value + (direction == .increment ? step : -step), adjustment.range.lowerBound),
+                               adjustment.range.upperBound)
+                commit(next.rounded())
+            }
         }
         .accessibilityIdentifier("settings.grade.\(adjustment.id)")
-        // VoiceOver adjusts without a drag, so it commits each step.
-        .accessibilityAdjustableAction { direction in
-            let step = (adjustment.range.upperBound - adjustment.range.lowerBound) / 50
-            let next = min(max(value + (direction == .increment ? step : -step), adjustment.range.lowerBound),
-                           adjustment.range.upperBound)
-            commit(next.rounded())
-        }
     }
 }
 
