@@ -22,7 +22,9 @@ final class ShotStoreTests: XCTestCase {
     }
 
     private func jpeg(_ color: UIColor = .orange, size: CGSize = CGSize(width: 600, height: 400)) -> Data {
-        UIGraphicsImageRenderer(size: size).image { ctx in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
             color.setFill()
             ctx.fill(CGRect(origin: .zero, size: size))
         }.jpegData(compressionQuality: 0.9)!
