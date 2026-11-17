@@ -44,6 +44,12 @@ enum ShotArchive {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd-HHmm"
+        // Earlier archives in tmp can be gigabytes: clear them out first.
+        let tmp = FileManager.default.temporaryDirectory
+        for old in (try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil)) ?? []
+        where old.lastPathComponent.hasPrefix("Point & Shoot RAW") && old.pathExtension == "zip" {
+            try? FileManager.default.removeItem(at: old)
+        }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("Point & Shoot RAW \(formatter.string(from: Date())) (\(shots.count)).zip")
         try? FileManager.default.removeItem(at: url)
@@ -78,44 +84,73 @@ enum ShotArchive {
     static func importZip(at url: URL, store: ShotStore) async throws -> ImportResult {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        let entries = try ZipArchive.entries(of: data)
-        var byShot: [String: [String: ZipArchive.Entry]] = [:]
-        for e in entries {
-            let parts = e.path.split(separator: "/").map(String.init)
-            guard parts.count >= 2, !parts.last!.hasPrefix(".") else { continue }
-            byShot[parts[parts.count - 2], default: [:]][parts.last!] = e
-        }
+        // Parsing, inflating and checking DNGs is heavy: all of it off the main thread. The
+        // archive is read (mapped) once.
+        let (archive, groups) = try await Task.detached(priority: .userInitiated) { () -> (ArchiveData, [ArchivedFolder]) in
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            let groups = try Self.folders(in: data).map { ArchivedFolder(name: $0.key, files: $0.value) }
+                .sorted { $0.name < $1.name }
+            return (ArchiveData(data: data), groups)
+        }.value
         var result = ImportResult()
-        for (folder, files) in byShot.sorted(by: { $0.key < $1.key }) {
+        for group in groups {
             do {
-                guard let recordEntry = files["shot.json"],
-                      let record = try? JSONDecoder().decode(Shot.self, from: ZipArchive.extract(recordEntry, from: data)),
-                      let originalEntry = files[record.original] else {
-                    Diag.error(.importer, "archive folder \(folder.prefix(8)) has no shot record or original")
+                let files = group.files
+                // The small record first: shots already here are skipped without inflating
+                // their DNGs.
+                let record = await Task.detached(priority: .userInitiated) { () -> Shot? in
+                    guard let entry = files["shot.json"],
+                          let data = try? ZipArchive.extract(entry, from: archive.data) else { return nil }
+                    return try? JSONDecoder().decode(Shot.self, from: data)
+                }.value
+                guard let record, files[record.original] != nil else {
+                    Diag.error(.importer, "archive folder \(group.name.prefix(8)) has no shot record or original")
                     result.failed += 1
                     continue
                 }
-                if store.shot(record.id) != nil {
+                if store.shots.contains(where: { $0.id == record.id }) {
                     result.skipped += 1
                     continue
                 }
-                let original = try ZipArchive.extract(originalEntry, from: data)
-                let recipe = try files["recipe.json"].flatMap { EditRecipe.decodeSaved(try ZipArchive.extract($0, from: data)) }
-                let preview = try files["capture.jpg"].map { try ZipArchive.extract($0, from: data) }
+                if store.trash.contains(where: { $0.id == record.id }) {
+                    // In the Trash here: restoring the backup means putting it back.
+                    store.restore([record.id])
+                    result.imported += 1
+                    continue
+                }
+                let parsed = try await Task.detached(priority: .userInitiated) { () -> ParsedShot in
+                    let data = archive.data
+                    let original = try ZipArchive.extract(files[record.original]!, from: data)
+                    let recipe = try files["recipe.json"].flatMap { EditRecipe.decodeSaved(try ZipArchive.extract($0, from: data)) }
+                    let preview = try files["capture.jpg"].map { try ZipArchive.extract($0, from: data) }
+                    return ParsedShot(record: record, original: original, recipe: recipe, preview: preview)
+                }.value
                 let ext = (record.original as NSString).pathExtension
-                let shot = try await store.add(original: original, fileExtension: ext.isEmpty ? "dng" : ext,
-                                               kind: record.kind, capturePreview: preview,
-                                               recipe: recipe ?? EditRecipe(), captured: record.captured, id: record.id)
+                let shot = try await store.add(original: parsed.original, fileExtension: ext.isEmpty ? "dng" : ext,
+                                               kind: record.kind, capturePreview: parsed.preview,
+                                               recipe: parsed.recipe ?? EditRecipe(), captured: record.captured, id: record.id)
                 if record.keep { store.setKeep(true, for: [shot.id]) }
                 result.imported += 1
             } catch {
-                Diag.error(.importer, "couldn't import archive folder \(folder.prefix(8))", error)
+                Diag.error(.importer, "couldn't import archive folder \(group.name.prefix(8))", error)
                 result.failed += 1
             }
         }
         Diag.log(.importer, "archive import: \(result.summary)")
         return result
+    }
+
+    /// The archive's entries grouped by shot folder. Directory entries and the
+    /// `__MACOSX` resource forks Finder adds when re-zipping are skipped.
+    nonisolated static func folders(in data: Data) throws -> [String: [String: ZipArchive.Entry]] {
+        var byShot: [String: [String: ZipArchive.Entry]] = [:]
+        for e in try ZipArchive.entries(of: data) {
+            if e.path.hasSuffix("/") || e.path.hasPrefix("__MACOSX/") || e.path.contains("/__MACOSX/") { continue }
+            let parts = e.path.split(separator: "/").map(String.init)
+            guard parts.count >= 2, !parts.last!.hasPrefix(".") else { continue }
+            byShot[parts[parts.count - 2], default: [:]][parts.last!] = e
+        }
+        return byShot
     }
 
     /// RAWs picked in the system photo picker, copied into the library with the default
@@ -170,6 +205,23 @@ enum ShotArchive {
         f.dateFormat = "yyyy:MM:dd HH:mm:ss"
         return f.date(from: text)
     }
+}
+
+/// The archive's bytes (memory-mapped), shared read-only between the import's steps.
+private struct ArchiveData: @unchecked Sendable {
+    let data: Data
+}
+
+private struct ArchivedFolder: Sendable {
+    let name: String
+    let files: [String: ZipArchive.Entry]
+}
+
+private struct ParsedShot: @unchecked Sendable {
+    let record: Shot
+    let original: Data
+    let recipe: EditRecipe?
+    let preview: Data?
 }
 
 /// The system photo picker, limited to images (no Photos permission needed).

@@ -163,6 +163,16 @@ final class LockedCamera: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             let settings = bayer.map { AVCapturePhotoSettings(rawPixelFormatType: $0) }
                 ?? AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
             settings.photoQualityPrioritization = bayer != nil ? .speed : .balanced
+            // A Bayer DNG carries no preview of its own unless asked: embed one, for this
+            // screen's thumbnail and for the app's library (its first image and the film
+            // looks' brightness reference).
+            if bayer != nil, settings.availableRawEmbeddedThumbnailPhotoCodecTypes.contains(.jpeg) {
+                settings.rawEmbeddedThumbnailPhotoFormat = [
+                    AVVideoCodecKey: AVVideoCodecType.jpeg,
+                    AVVideoWidthKey: 1440,
+                    AVVideoHeightKey: 1440,
+                ]
+            }
             // Silent, like the app's default (where iOS allows muting the shutter).
             if #available(iOS 18.0, *), self.output.isShutterSoundSuppressionSupported {
                 settings.isShutterSoundSuppressionEnabled = true
@@ -195,7 +205,9 @@ final class LockedCamera: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             // without a parking folder does it go straight to Photos.
             guard let spillover else { _ = await Self.saveToPhotos(data); return }
             let file = spillover.appendingPathComponent("\(Int(Date().timeIntervalSince1970 * 1000)).\(ext)")
-            try? data.write(to: file)
+            // Atomic: the app may import while this is still being written, and must never
+            // read half a DNG (the temporary name has no extension the importer takes).
+            try? data.write(to: file, options: .atomic)
         }
     }
 

@@ -103,7 +103,6 @@ struct EditorView: View {
             ]
             if session.hasRAW {
                 tabs.append(EditorSubTab(id: "raw", name: "RAW", controls: [
-                    .toggle(id: "useRAW", name: "Develop from RAW", keyPath: \.useRAW),
                     .slider(adj("rawLTM")), .slider(adj("rawBoost")),
                 ]))
             }
@@ -236,6 +235,8 @@ struct EditorView: View {
                     onSetDefault(session.recipe.asDefaultGrade)
                     Haptics.success()
                 } label: { Label("Set as Default Grade", systemImage: "star") }
+                // A retired look can't start new shots: pick a current one first.
+                .disabled(session.recipe.look != nil && Look.named(session.recipe.look) == nil)
                 Divider()
                 Button(role: .destructive) {
                     pushUndo()
@@ -687,6 +688,11 @@ struct GradeSlider: View {
     var onBegin: () -> Void = {}
 
     @State private var dragStart: Double?
+    /// True while a drag is in progress; SwiftUI resets it even when the drag is cancelled
+    /// (which `onEnded` never hears about), so a stale start never leaks into the next drag.
+    @GestureState private var dragging = false
+    /// The drag has changed the value (and pushed its undo step).
+    @State private var dragMoved = false
     @State private var crossTick = 0
 
     private var range: ClosedRange<Double> { adjustment.range }
@@ -731,11 +737,9 @@ struct GradeSlider: View {
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)
+                        .updating($dragging) { _, state, _ in state = true }
                         .onChanged { g in
-                            if dragStart == nil {
-                                dragStart = value
-                                onBegin()
-                            }
+                            if dragStart == nil { dragStart = value }
                             // Relative drag (the thumb doesn't jump to the finger), full
                             // range across the track.
                             let start = dragStart ?? value
@@ -745,18 +749,30 @@ struct GradeSlider: View {
                             if abs(v - defaultValue) < span * 0.012 { v = defaultValue }
                             v = v.rounded()
                             if v != value {
+                                // One undo step per drag, and only once it changes something.
+                                if !dragMoved { dragMoved = true; onBegin() }
                                 if (value - defaultValue).sign != (v - defaultValue).sign || v == defaultValue { crossTick += 1 }
                                 value = v
                             }
                         }
-                        .onEnded { _ in dragStart = nil }
+                        .onEnded { _ in
+                            dragStart = nil
+                            dragMoved = false
+                        }
                 )
                 .simultaneousGesture(TapGesture(count: 2).onEnded {
+                    guard value != defaultValue else { return }
                     onBegin()
                     withAnimation(.snappy) { value = defaultValue }
                 })
             }
             .frame(height: 28)
+        }
+        .onChange(of: dragging) { _, active in
+            if !active {
+                dragStart = nil
+                dragMoved = false
+            }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: crossTick)
         .accessibilityElement(children: .ignore)

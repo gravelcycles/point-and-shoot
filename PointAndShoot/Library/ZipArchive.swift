@@ -118,7 +118,7 @@ enum ZipArchive {
 
     // MARK: Reading
 
-    struct Entry {
+    struct Entry: Sendable {
         let path: String
         let method: UInt16
         let crc: UInt32
@@ -183,6 +183,7 @@ enum ZipArchive {
 
     private static func inflate(_ data: Data, size: Int) throws -> Data {
         if size == 0 { return Data() }
+        guard !data.isEmpty else { throw ZipError.corrupt("deflate") }
         var out = Data(count: size)
         let written = out.withUnsafeMutableBytes { (dst: UnsafeMutableRawBufferPointer) -> Int in
             data.withUnsafeBytes { (src: UnsafeRawBufferPointer) -> Int in

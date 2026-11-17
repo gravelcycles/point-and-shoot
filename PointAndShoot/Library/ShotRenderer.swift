@@ -1,6 +1,7 @@
 import CoreImage
 import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 
 /// Renders a shot's original with its grade: the viewer's preview, the grid thumbnail, the
 /// editor's source, and exports. Everything goes through `EditPipeline`, the same graph the
@@ -26,15 +27,19 @@ enum ShotRenderer {
     /// A RAW filter for the shot's DNG, or nil when it has none or it can't be decoded
     /// (the simulator decodes no RAW: an empty extent).
     static func rawFilter(_ shot: Shot, in dir: URL) -> CIRAWFilter? {
+        let ext = (shot.original as NSString).pathExtension
+        let hint = UTType(filenameExtension: ext)?.identifier ?? "com.adobe.raw-image"
         guard shot.isRAW, let data = originalData(shot, in: dir),
-              let raw = CIRAWFilter(imageData: data, identifierHint: "com.adobe.raw-image") else { return nil }
+              let raw = CIRAWFilter(imageData: data, identifierHint: hint) else { return nil }
         let native = raw.nativeSize
         guard native.width > 1, native.height > 1 else { return nil }
         return raw
     }
 
     static func source(_ shot: Shot, in dir: URL, recipe: EditRecipe, maxSide: CGFloat?) -> Source? {
-        if recipe.useRAW, let raw = rawFilter(shot, in: dir) {
+        // A RAW shot always develops from its RAW when it decodes: the only processed image
+        // it has is the camera's 1440 px preview.
+        if let raw = rawFilter(shot, in: dir) {
             let defaults = EditPipeline.readDefaults(raw)
             let native = raw.nativeSize
             if let maxSide { raw.scaleFactor = Float(min(1, maxSide / max(native.width, native.height))) }
@@ -68,7 +73,10 @@ enum ShotRenderer {
     /// Settles the RAW develop a fresh shot starts from, as the editor would: the camera's
     /// own noise reduction (floored for film looks, which add grain and have no
     /// sharpening), and a film look's exposure matched to what the viewfinder showed.
-    static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL, viewfinderKey: Double?) -> EditRecipe {
+    /// `matchExposure` false: only the RAW develop (an editor save must keep exactly the
+    /// brightness the editor showed).
+    static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL, viewfinderKey: Double?,
+                        matchExposure: Bool = true) -> EditRecipe {
         var r = recipe
         r.freezeFilmTuning()
         guard shot.isRAW, let raw = rawFilter(shot, in: dir) else {
@@ -83,7 +91,7 @@ enum ShotRenderer {
             r.rawBoost = Double(defaults.boost * 100)
             r.rawInitialized = true
         }
-        if r.film != nil, r.rawFilmExposure == nil {
+        if matchExposure, r.film != nil, r.rawFilmExposure == nil {
             let reference = CIImage(contentsOf: dir.appendingPathComponent("capture.jpg"),
                                     options: [.applyOrientationProperty: true])
             let target = viewfinderKey ?? reference.flatMap {
@@ -100,7 +108,10 @@ enum ShotRenderer {
     private static func matchedExposure(_ raw: CIRAWFilter, recipe: EditRecipe, defaults: RAWDefaults,
                                         target: Double) -> Double? {
         var r = recipe
+        // Measure the base develop: the user's own Exposure goes on top of the match, as in
+        // the viewfinder (which measures before the look's exposure).
         r.rawFilmExposure = 0
+        r.exposure = 0
         EditPipeline.configure(raw, recipe: r, defaults: defaults)
         let native = raw.nativeSize
         raw.scaleFactor = Float(min(1, 256 / max(native.width, native.height, 1)))
@@ -144,6 +155,19 @@ enum ShotRenderer {
         case .jpeg:
             return ctx.jpegRepresentation(of: image, colorSpace: EditPipeline.displayColorSpace, options: [q: quality])
         }
+    }
+
+    /// The preview JPEG embedded in a RAW file (upright), for RAWs that arrive without the
+    /// camera's quick preview.
+    static func embeddedPreview(of data: Data, maxSide: Int = 1440) -> Data? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                  // From the image itself: a DNG's own thumbnail can be ~160 px.
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxSide,
+              ] as CFDictionary) else { return nil }
+        return jpegData(of: cg, orientation: .up)
     }
 
     /// JPEG of the camera's quick preview, upright via its orientation tag.

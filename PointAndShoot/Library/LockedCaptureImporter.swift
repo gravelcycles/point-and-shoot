@@ -32,13 +32,17 @@ enum LockedCaptureImporter {
                     try? FileManager.default.removeItem(at: file)
                     continue
                 }
-                guard let data = try? Data(contentsOf: file) else { continue }
+                guard let data = try? Data(contentsOf: file) else {
+                    // Keep the folder: invalidating it would destroy this shot.
+                    everythingImported = false
+                    continue
+                }
                 do {
                     let date = (try? file.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
                     try await ShotStore.shared.add(original: data, fileExtension: ext == "jpeg" ? "jpg" : ext,
                                                    kind: ext == "dng" ? .bayerRAW : .processed,
                                                    capturePreview: nil,
-                                                   recipe: Look.named(CameraSettings.load().captureLook)?.recipe ?? EditRecipe(),
+                                                   recipe: Self.startingGrade(),
                                                    captured: date)
                     imported.insert(key)
                     UserDefaults.standard.set(Array(imported.suffix(500)), forKey: importedKey)
@@ -53,5 +57,13 @@ enum LockedCaptureImporter {
                 try? await manager.invalidateSessionContent(at: folder)
             }
         }
+    }
+
+    /// What an in-app photo would start with now (the default grade or the picked look),
+    /// as a still: the camera may have been left in video.
+    private static func startingGrade() -> EditRecipe {
+        var s = CameraSettings.load()
+        if !s.mode.isStill { s.mode = .photo }
+        return s.startingGrade ?? EditRecipe()
     }
 }

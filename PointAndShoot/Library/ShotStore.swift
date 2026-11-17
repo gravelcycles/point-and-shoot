@@ -20,6 +20,8 @@ final class ShotStore {
     private(set) var isLoaded = false
 
     @ObservationIgnored private var recipes: [UUID: EditRecipe] = [:]
+    /// Renders queued per shot: "developing" lasts until the last one finishes.
+    @ObservationIgnored private var pendingRenders: [UUID: Int] = [:]
     @ObservationIgnored private let images = NSCache<NSString, UIImage>()
 
     init(root: URL? = nil) {
@@ -50,12 +52,50 @@ final class ShotStore {
                 return try? JSONDecoder().decode(Shot.self, from: data)
             }
         }.value
-        shots = loaded.filter { $0.trashedAt == nil }.sorted { $0.captured > $1.captured }
-        trash = loaded.filter { $0.trashedAt != nil }.sorted { $0.trashedAt! > $1.trashedAt! }
+        // Merge, don't replace: a shot added (a capture, a Lock Screen import) while the
+        // folder was being read is newer than what's on disk, and must neither vanish nor
+        // appear twice.
+        var byID: [UUID: Shot] = [:]
+        for shot in loaded { byID[shot.id] = shot }
+        for shot in shots + trash { byID[shot.id] = shot }
+        let all = Array(byID.values)
+        shots = all.filter { $0.trashedAt == nil }.sorted { $0.captured > $1.captured }
+        trash = all.filter { $0.trashedAt != nil }.sorted { $0.trashedAt! > $1.trashedAt! }
         isLoaded = true
         Diag.log(.roll, "library: \(shots.count) photos, \(trash.count) in trash")
+        let known = Set(all.map(\.id))
+        Task.detached(priority: .utility) { Self.sweepOrphans(in: root, keeping: known) }
         for shot in shots where !FileManager.default.fileExists(atPath: dir(shot.id).appendingPathComponent("preview.jpg").path) {
             develop(shot.id, viewfinderKey: nil)
+        }
+    }
+
+    /// Back in the foreground: shots whose graded preview never got rendered (the app was
+    /// backgrounded mid-render, where the GPU isn't available) are developed again.
+    func redevelopMissing() {
+        guard isLoaded else { return }
+        for shot in shots where !developing.contains(shot.id)
+            && !FileManager.default.fileExists(atPath: dir(shot.id).appendingPathComponent("preview.jpg").path) {
+            develop(shot.id, viewfinderKey: nil)
+        }
+    }
+
+    /// Folders with no readable record that are over an hour old: a capture that failed
+    /// mid-write. Removed so their DNGs don't fill the phone unseen.
+    private nonisolated static func sweepOrphans(in root: URL, keeping ids: Set<UUID>) {
+        let fm = FileManager.default
+        let dirs = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for dir in dirs {
+            guard let id = UUID(uuidString: dir.lastPathComponent), !ids.contains(id) else { continue }
+            // Only folders that never got a record. One whose record exists but didn't
+            // decode (a future format, a read error) is left alone: never delete a real shot.
+            if fm.fileExists(atPath: dir.appendingPathComponent("shot.json").path)
+                || fm.fileExists(atPath: dir.appendingPathComponent("recipe.json").path) { continue }
+            let modified = (try? dir.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            if Date().timeIntervalSince(modified) > 3600 {
+                try? fm.removeItem(at: dir)
+                Diag.error(.roll, "removed an incomplete shot folder \(id.uuidString.prefix(8))")
+            }
         }
     }
 
@@ -68,17 +108,32 @@ final class ShotStore {
              recipe: EditRecipe, viewfinderKey: Double? = nil, captured: Date = Date(),
              id: UUID = UUID()) async throws -> Shot {
         var shot = Shot(id: id, captured: captured, kind: kind, original: "original.\(fileExtension)")
+        shot.added = Date()
         shot.readMetadata(from: original)
         let dir = self.dir(id)
         let record = shot
         try await Task.detached(priority: .userInitiated) {
+            do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try original.write(to: dir.appendingPathComponent(record.original))
-            if let capturePreview { try capturePreview.write(to: dir.appendingPathComponent("capture.jpg")) }
+            // The camera's quick preview; for a RAW without one (Lock Screen, imports) the
+            // DNG's own embedded preview, so there's always an image and a brightness
+            // reference for film looks.
+            if let preview = capturePreview ?? (record.isRAW ? ShotRenderer.embeddedPreview(of: original) : nil) {
+                try preview.write(to: dir.appendingPathComponent("capture.jpg"))
+            }
             try JSONEncoder().encode(recipe).write(to: dir.appendingPathComponent("recipe.json"))
-            try JSONEncoder().encode(record).write(to: dir.appendingPathComponent("shot.json"))
+            // Last and atomic: a folder is only a shot once its record is complete.
+            try JSONEncoder().encode(record).write(to: dir.appendingPathComponent("shot.json"), options: .atomic)
+            } catch {
+                // Disk full, say: don't leave a half-written folder (and a 25 MB DNG) behind.
+                try? FileManager.default.removeItem(at: dir)
+                throw error
+            }
         }.value
         recipes[id] = recipe
+        shots.removeAll { $0.id == id }
+        trash.removeAll { $0.id == id }
         shots.insert(shot, at: 0)
         shots.sort { $0.captured > $1.captured }
         Diag.log(.save, "stored \(id.uuidString.prefix(8)) \(kind.rawValue) \(original.count / 1024) KB")
@@ -96,44 +151,66 @@ final class ShotStore {
         return r
     }
 
-    /// Saves a new grade and re-renders the shot's preview and thumbnail.
-    func setRecipe(_ recipe: EditRecipe, for id: UUID) {
+    /// Saves a new grade and re-renders the shot's preview and thumbnail. False if it
+    /// couldn't be written (the editor says so instead of "Saved").
+    @discardableResult
+    func setRecipe(_ recipe: EditRecipe, for id: UUID) -> Bool {
         var r = recipe
         r.freezeFilmTuning()
-        recipes[id] = r
         let url = dir(id).appendingPathComponent("recipe.json")
         do { try JSONEncoder().encode(r).write(to: url, options: .atomic) } catch {
             Diag.error(.editor, "couldn't save the grade of \(id.uuidString.prefix(8))", error)
+            return false
         }
-        develop(id, viewfinderKey: nil, settle: false)
+        recipes[id] = r
+        // Settle the RAW develop too (a shot edited before its first develop finished needs
+        // its noise reduction), but never change the brightness the editor showed.
+        develop(id, viewfinderKey: nil, settle: .rawOnly)
+        return true
     }
 
     /// Renders the graded preview and thumbnail, one shot at a time. A fresh shot's grade is
     /// settled first (RAW noise reduction, a film look's matched exposure).
-    private func develop(_ id: UUID, viewfinderKey: Double?, settle: Bool = true) {
+    enum Settle: Sendable { case none, rawOnly, full }
+
+    private func develop(_ id: UUID, viewfinderKey: Double?, settle: Settle = .full) {
         guard let shot = shot(id) else { return }
+        pendingRenders[id, default: 0] += 1
         developing.insert(id)
         let dir = self.dir(id)
         let recipe = recipe(for: id)
         Task {
             let result = await Self.renderPreviews(shot: shot, dir: dir, recipe: recipe, settle: settle,
                                                    viewfinderKey: viewfinderKey)
-            if let settled = result, settled != recipe { recipes[id] = settled }
+            // Only if the grade hasn't changed meanwhile: an edit saved while this shot was
+            // still developing must never be overwritten by the capture's own settle.
+            if let settled = result, settled != recipe, recipes[id] == recipe {
+                recipes[id] = settled
+                let url = dir.appendingPathComponent("recipe.json")
+                do { try JSONEncoder().encode(settled).write(to: url, options: .atomic) } catch {
+                    Diag.error(.editor, "couldn't save the settled grade of \(id.uuidString.prefix(8))", error)
+                }
+            }
             bumpRevision(id)
-            developing.remove(id)
+            let left = (pendingRenders[id] ?? 1) - 1
+            pendingRenders[id] = left > 0 ? left : nil
+            if left <= 0 { developing.remove(id) }
         }
     }
 
-    private nonisolated static func renderPreviews(shot: Shot, dir: URL, recipe: EditRecipe, settle: Bool,
+    private nonisolated static func renderPreviews(shot: Shot, dir: URL, recipe: EditRecipe, settle: Settle,
                                                    viewfinderKey: Double?) async -> EditRecipe? {
         let box = RecipeBox()
         await BakeQueue.shared.run {
             let start = Date()
             var r = recipe
-            if settle {
-                r = ShotRenderer.prepare(recipe, shot: shot, in: dir, viewfinderKey: viewfinderKey)
-                if r != recipe { try? JSONEncoder().encode(r).write(to: dir.appendingPathComponent("recipe.json"), options: .atomic) }
+            if settle != .none {
+                r = ShotRenderer.prepare(recipe, shot: shot, in: dir, viewfinderKey: viewfinderKey,
+                                         matchExposure: settle == .full)
             }
+            // Kept even if the render below fails (backgrounded): the match to the viewfinder
+            // can't be redone later.
+            box.value = r
             guard let preview = ShotRenderer.render(shot, in: dir, recipe: r, maxSide: ShotRenderer.previewSide) else {
                 Diag.error(.bake, "couldn't render \(shot.id.uuidString.prefix(8))")
                 return
@@ -146,7 +223,6 @@ final class ShotStore {
             } catch {
                 Diag.error(.bake, "couldn't write the preview of \(shot.id.uuidString.prefix(8))", error)
             }
-            box.value = r
         }
         return box.value
     }
@@ -192,12 +268,20 @@ final class ShotStore {
         Diag.log(.delete, "trashed \(moved.count)")
     }
 
-    func restore(_ ids: [UUID]) {
+    func restore(_ ids: [UUID], now: Date = Date()) {
         let set = Set(ids)
         var back = trash.filter { set.contains($0.id) }
         guard !back.isEmpty else { return }
         trash.removeAll { set.contains($0.id) }
-        for i in back.indices { back[i].trashedAt = nil; persist(back[i]) }
+        for i in back.indices {
+            back[i].trashedAt = nil
+            // Only a shot already past its 30 days gets a fresh 30 from now (or the next
+            // sweep would trash it again); an Undo keeps the days it had.
+            if !ShotRetention.dueForTrash([back[i]], now: now, storeForever: false).isEmpty {
+                back[i].restoredAt = now
+            }
+            persist(back[i])
+        }
         shots.append(contentsOf: back)
         shots.sort { $0.captured > $1.captured }
         Diag.log(.delete, "restored \(back.count)")

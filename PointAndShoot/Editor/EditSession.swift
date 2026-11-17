@@ -58,7 +58,9 @@ final class EditSession {
     }
 
     private var dir: URL { store.dir(shot.id) }
-    var developsFromRAW: Bool { hasRAW && recipe.useRAW }
+    /// A RAW shot always develops from its RAW (its only processed image is the camera's
+    /// small preview).
+    var developsFromRAW: Bool { hasRAW }
     var hasChanges: Bool { !isLoading && recipe != savedRecipe }
     /// Something to reset: the grade isn't the untouched original.
     var canRevert: Bool { savedRecipe.look != nil || savedRecipe.film != nil || savedRecipe != Self.blank(savedRecipe) }
@@ -71,6 +73,9 @@ final class EditSession {
         b.rawNoiseReduction = r.rawNoiseReduction
         b.rawLocalTone = r.rawLocalTone
         b.rawBoost = r.rawBoost
+        // Matched to the viewfinder at capture and never recomputed: keep it, or a film look
+        // picked again later would come out darker than the viewfinder showed.
+        b.rawFilmExposure = r.rawFilmExposure
         return b
     }
 
@@ -90,10 +95,17 @@ final class EditSession {
         }.value
         previewBase = base
 
-        if let raw = ShotRenderer.rawFilter(shot, in: dir) {
-            rawDefaults = EditPipeline.readDefaults(raw)
+        // Parsing a 25–75 MB DNG is too slow for the main thread.
+        let opened = await Task.detached(priority: .userInitiated) { () -> RAWBox? in
+            guard let raw = ShotRenderer.rawFilter(shot, in: dir) else { return nil }
             let native = raw.nativeSize
             raw.scaleFactor = Float(min(1, maxPixels / max(native.width, native.height, 1)))
+            return RAWBox(raw: raw, defaults: EditPipeline.readDefaults(raw),
+                          size: raw.outputImage?.extent.size ?? .zero)
+        }.value
+        if let opened {
+            let raw = opened.raw
+            rawDefaults = opened.defaults
             previewRAW = raw
             hasRAW = true
             if !loaded.rawInitialized {
@@ -105,7 +117,7 @@ final class EditSession {
         } else {
             loaded.useRAW = false
         }
-        sourceSize = previewRAW?.outputImage?.extent.size ?? previewBase?.extent.size ?? .zero
+        sourceSize = opened?.size ?? previewBase?.extent.size ?? .zero
         guard previewRAW != nil || previewBase != nil else {
             errorMessage = EditError.couldNotLoad.localizedDescription
             Diag.error(.editor, "couldn't load \(shot.id.uuidString.prefix(8)) for editing")
@@ -145,11 +157,14 @@ final class EditSession {
         defer { detailLoading = false }
         let started = Date()
         let maxPixels = Self.detailMaxPixels
-        if let raw = ShotRenderer.rawFilter(shot, in: dir) {
+        let shot = self.shot
+        let dir = self.dir
+        detailRAW = await Task.detached(priority: .userInitiated) { () -> RAWBox? in
+            guard let raw = ShotRenderer.rawFilter(shot, in: dir) else { return nil }
             let native = raw.nativeSize
             raw.scaleFactor = Float(min(1, maxPixels / max(native.width, native.height, 1)))
-            detailRAW = raw
-        }
+            return RAWBox(raw: raw, defaults: RAWDefaults(), size: .zero)
+        }.value?.raw
         if !shot.isRAW || detailRAW == nil {
             let url = dir.appendingPathComponent(shot.isRAW ? "capture.jpg" : shot.original)
             detailBase = await Task.detached(priority: .userInitiated) {
@@ -270,11 +285,14 @@ final class EditSession {
     /// Saves the grade to the library (the shot's preview re-renders in the background).
     @discardableResult
     func save() async -> Bool {
-        guard store.shot(shot.id) != nil else {
+        guard store.shots.contains(where: { $0.id == shot.id }) else {
             assetDeleted = true
             return false
         }
-        store.setRecipe(recipe, for: shot.id)
+        guard store.setRecipe(recipe, for: shot.id) else {
+            errorMessage = "Couldn't save the edit. Is the phone's storage full?"
+            return false
+        }
         recipe = store.recipe(for: shot.id)
         savedRecipe = recipe
         return true
@@ -285,7 +303,10 @@ final class EditSession {
     func saveCopy(options: ShotExporter.Options = ShotExporter.Options(CameraSettings.load())) async -> Bool {
         isSaving = true
         defer { isSaving = false }
-        if store.shot(shot.id) != nil { store.setRecipe(recipe, for: shot.id) }
+        if store.shot(shot.id) != nil, !store.setRecipe(recipe, for: shot.id) {
+            errorMessage = "Couldn't save the edit. Is the phone's storage full?"
+            return false
+        }
         savedRecipe = recipe
         guard let current = store.shot(shot.id) else { return false }
         do {
@@ -304,4 +325,11 @@ final class EditSession {
         recipe = Self.blank(recipe)
         return await save()
     }
+}
+
+/// A RAW filter opened off the main thread, handed back once (never shared after).
+private struct RAWBox: @unchecked Sendable {
+    let raw: CIRAWFilter
+    let defaults: RAWDefaults
+    let size: CGSize
 }
