@@ -98,14 +98,44 @@ def scene_from_display(x):
 LUM2020 = np.array([0.2627, 0.6780, 0.0593])
 
 
-def scene_from_display_rgb(rgb2020):
-    """Undo a phone's tone curve on luminance and keep each color's channel ratios
-    (FilmLUT.sceneFromDisplay(rgb:)). Inverting per channel would read a saturated
-    display red as a red channel stops overexposed and push it into the shoulder."""
+CURRENT_ENGINE = 3   # FilmLUT.currentEngine (3: subtractive Saturation slider; the un-render is engine 2's)
+
+# Engine 2: the inverse of Apple's rendering, measured (FilmLUT.unrender*; docs/film-looks.md §5¾).
+UNRENDER_DISPLAY_Y = np.array([0.0025, 0.004, 0.006, 0.01, 0.016, 0.025, 0.04, 0.06, 0.09, 0.13, 0.2,
+                               0.28, 0.38, 0.48, 0.58, 0.66, 0.74, 0.81, 0.87, 0.92, 0.96, 0.995])
+UNRENDER_SCENE_Y = np.array([0.014848, 0.01808, 0.021215, 0.026133, 0.032434, 0.040882, 0.053768, 0.069891, 0.092267, 0.119648, 0.18, 0.285852, 0.411258, 0.525263, 0.67323, 0.862166, 1.16483, 1.51356, 1.79013, 1.93731, 1.96963, 1.96964])
+UNRENDER_SAT_Y = np.array([0.003, 0.01, 0.03, 0.08, 0.18, 0.35, 0.6, 0.85, 1.0])
+UNRENDER_SAT_BOOST = np.array([3.357, 2.688, 1.944, 1.58, 1.397, 1.212, 1.124, 1.12, 1.0])
+
+
+def scene_from_display_rgb(rgb2020, engine=CURRENT_ENGINE):
+    """Display-referred color (linear Rec.2020) → scene light (FilmLUT.sceneFromDisplay(rgb:)).
+    Both engines undo the tone curve on luminance (inverting per channel would read a
+    saturated display red as a red channel stops overexposed). Engine 1: a guessed curve,
+    channel ratios kept. Engine 2: Apple's measured curve, and its saturation divided out."""
     rgb = np.clip(rgb2020, 0, 1)
     y = rgb @ LUM2020
-    scale = scene_from_display(y) / np.maximum(y, 1e-6)
-    return rgb * scale[..., None]
+    if engine < 2:
+        scale = scene_from_display(y) / np.maximum(y, 1e-6)
+        return rgb * scale[..., None]
+    yc = np.maximum(y, 1e-6)
+    ly = np.log2(yc)
+    s = np.where(ly < np.log2(UNRENDER_DISPLAY_Y[0]), UNRENDER_SCENE_Y[0] * yc / UNRENDER_DISPLAY_Y[0],
+                 np.exp2(np.interp(ly, np.log2(UNRENDER_DISPLAY_Y), np.log2(UNRENDER_SCENE_Y))))
+    k = np.interp(ly, np.log2(UNRENDER_SAT_Y), UNRENDER_SAT_BOOST)
+    return np.maximum(1 + (rgb / yc[..., None] - 1) / k[..., None], 0) * s[..., None]
+
+
+def display_from_scene_rgb(rgb2020):
+    """Engine 2's forward model: roughly how Apple renders scene light (the inverse of
+    scene_from_display_rgb). For standing DNGs in for processed photos."""
+    rgb = np.maximum(rgb2020, 0)
+    y = np.maximum(rgb @ LUM2020, 1e-9)
+    ly = np.log2(y)
+    d = np.where(ly < np.log2(UNRENDER_SCENE_Y[0]), UNRENDER_DISPLAY_Y[0] * y / UNRENDER_SCENE_Y[0],
+                 np.exp2(np.interp(ly, np.log2(UNRENDER_SCENE_Y), np.log2(UNRENDER_DISPLAY_Y))))
+    k = np.interp(np.log2(np.maximum(d, 1e-6)), np.log2(UNRENDER_SAT_Y), UNRENDER_SAT_BOOST)
+    return np.clip((1 + (rgb / y[..., None] - 1) * k[..., None]) * d[..., None], 0, 1)
 
 
 TWIST_CHROMA = 0.25      # log10 chroma at which a hue's brightness shift is 63% in
@@ -238,9 +268,9 @@ def _display_core(dn, stock, controls):
     # saturation (linear in the print densities, so the Swift cube can tabulate it).
     neutral = dm.mean(axis=-1, keepdims=True)
     dm = dye_saturate(dm, stock.get("dyeSaturation") or 0.0)
-    # The user's Saturation slider. From film engine 2 (`subtractive`), more saturation
+    # The user's Saturation slider. From film engine 3 (`subtractive`), more saturation
     # works like the dyes: about each color's least dense channel, so richer is darker.
-    # Engine 1 spread about the mean, which brightens saturated colors; older photos keep
+    # Engines 1-2 spread about the mean, which brightens saturated colors; older photos keep
     # it. Less saturation pulls toward the mean either way.
     sat = controls.get("saturation", 0)
     if sat > 0 and controls.get("subtractive", False):
@@ -290,13 +320,17 @@ def neutral_response(stops, stock, controls=None):
 
 # --- Cubes (what the app generates), for parity tests ---------------------------------
 
-def negative_cube(stock, source="sceneLinear", n=48):
+def negative_cube(stock, source="sceneLinear", n=48, engine=CURRENT_ENGINE, exposure=0.0):
+    """FilmLUT.negativeCube. Display-referred: un-render with `engine`; from engine 2 the
+    exposure (stops) is applied after the un-render, in scene light."""
     u = np.arange(n) / (n - 1)
     x = SHAPER_SCALE * u ** SHAPER_POWER
     b, g, r = np.meshgrid(x, x, x, indexing="ij")
     rgb = np.stack([r, g, b], axis=-1)
     if source != "sceneLinear":
-        rgb = scene_from_display_rgb(rgb)
+        rgb = scene_from_display_rgb(rgb, engine)
+        if engine >= 2:
+            rgb = rgb * 2.0 ** exposure
     return negative_density(rgb, stock) / DENSITY_SCALE  # [b, g, r, 3]
 
 
@@ -352,15 +386,19 @@ def grain_field(shape, stock, strength, seed=7):
 
 
 def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0, grain_amount=1.0,
-           source="sceneLinear"):
-    """Scene-linear sRGB-primaries image -> Display P3 linear image."""
+           source="sceneLinear", engine=CURRENT_ENGINE):
+    """Scene-linear (or display-referred) sRGB-primaries image -> Display P3 linear image."""
     controls = controls or {}
-    x = lin_srgb * 2.0 ** (exposure_ev + stock.get("exposure", 0.0))
+    ev = exposure_ev + stock.get("exposure", 0.0)
+    after = source != "sceneLinear" and engine >= 2      # engine 2: expose after un-rendering
+    x = lin_srgb * (1.0 if after else 2.0 ** ev)
     x = halation(x, stock, halation_amount, source)
     if source == "sceneLinear":
         rgb2020 = x @ SRGB_TO_REC2020.T
     else:
-        rgb2020 = scene_from_display_rgb(np.clip(x, 0, 1) @ SRGB_TO_REC2020.T)
+        rgb2020 = scene_from_display_rgb(np.clip(x, 0, 1) @ SRGB_TO_REC2020.T, engine)
+        if after:
+            rgb2020 = rgb2020 * 2.0 ** ev
     rgb2020 = np.clip(rgb2020, 0, SHAPER_SCALE)
     dn = negative_density(rgb2020, stock)
     if grain_amount > 0:

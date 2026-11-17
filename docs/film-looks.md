@@ -15,8 +15,10 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #9 | Print look (Chromagraph-style film emulation) and Print mode (PHOTO · PRINT · VIDEO) | merged |
 | #15 | Every photo filter is a film stock, plus split toning, spaced apart with a metric | merged |
 | #20 | Grainy Print photos: real RAW noise reduction, exact grain, finer grain | merged |
-| #34 | Phromagraph: a look fitted to Chromagraph's own renders (§5½) | open |
+| #34 | Phromagraph: a look fitted to Chromagraph's own renders (§5½) | merged |
 | #35 | Filters → **Looks**: seven cinematic grades replace the Instagram-ish filters (§1½) | open, into `claude/raw-import` |
+| #36 | Engine 2: the viewfinder un-render, measured (§5¾) | open, into `main` |
+| – | Looks with structure (hue twists, dye saturation), named look sets, engine 3's subtractive Saturation slider (§1¾) | `claude/beautiful-noether-ccuezc` |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
@@ -169,10 +171,12 @@ CLAUDE.md §4).
 **Retired camera choices now land on a successor:** Skin → Portrait 400, Cool Air →
 Evergreen, Cine → Blockbuster.
 
-**The Saturation slider was additive, and is fixed from film engine 2.** It spread density
+**The Saturation slider was additive, and is fixed from film engine 3.** It spread density
 about the mean, which brightens a saturated colour's dominant channel (a yellow at +50 went
-from 0.34 to 0.57 luminance). From engine 2 it pivots on the least dense channel like
-`dye_saturation`. Edits from engine 1, or with no engine, keep the old slider.
+from 0.34 to 0.57 luminance). From engine 3 it pivots on the least dense channel like
+`dye_saturation`. Edits from engines 1–2, or with no engine, keep the old slider. Engine 2
+is #36's measured un-render; engine 3 keeps that un-render and renders exactly like engine 2
+at Saturation 0.
 
 **Spread** (official four images): every new look's nearest is ≥ 0.061, with a median of
 0.065. Print and Phromagraph stay close by design.
@@ -221,8 +225,9 @@ scene light ─ exposure ─ halation ─ shaper ─ [negative cube 48³] ─ + 
 
 - **Two sources.**
   - `sceneLinear` is a RAW develop: boost 0, no local tone map, no sharpening.
-  - `displayReferred` is the viewfinder or a processed HEIF. It is un-rendered first,
-    *on luminance with channel ratios kept*, by a gentle inverse phone curve.
+  - `displayReferred` is the viewfinder or a processed HEIF. It is un-rendered first, on
+    luminance, with Apple's measured curve and its saturation divided out (engine 2,
+    §5¾; engine 1 used a guessed curve and kept channel ratios).
 - **The negative cube** holds the stock's sensitivity (interlayer), the negative curve
   (Vision3 5219) and the density.
 - **The print cube** holds, in order: printer lights, the print curve (derived from the
@@ -451,6 +456,64 @@ iPhone 12 Pro on iOS 18.7.3. Not committed (personal photos). Ask the owner for 
     and Chromagraph back to back, from a tripod or steady hands.
 - **Highlights above the develop's clip** (CIRAWFilter with boost 0 tops out at 1.0) aren't
   in the data, so the shoulder's very top is extrapolated.
+
+## 5¾. The viewfinder un-render, measured (engine 2, 2026-11-17)
+
+The viewfinder and processed photos reach the film already rendered by Apple, so the
+film first has to undo that rendering ("un-render"). Engine 1's undo was a guess. The
+Chromagraph DNGs made it measurable.
+
+**The method:**
+- Each DNG is developed twice with CIRAWFilter:
+  - Apple's defaults (`raw-develop.swift --apple`), a stand-in for the processed
+    photo and the video feed;
+  - neutral, exactly as the app develops a RAW.
+- Each shot's exposure is solved, then Apple's display luminance is compared with
+  scene luminance pixel by pixel. Scratch scripts did this; the numbers are in the
+  tables.
+
+**What Apple does, and what engine 1 got wrong:**
+- **Shadows are crushed hard.** −4 stops renders at 0.003, where engine 1 assumed 0.014.
+  Un-rendering read dark areas 1–2 stops too dark.
+- **Highlights roll off much sooner.** +3 stops renders at about 0.65; engine 1 put
+  +3.5 stops at white.
+- **Saturation is boosted, following the curve's slope:** ×3.4 in the toe, ×1.4 at grey,
+  ×1.1 in the shoulder. Engine 1 kept display channel ratios, so the un-rendered
+  picture was ~1.45× more saturated than the scene, and the film added its own on top.
+- Neither a per-channel curve nor a luminance curve alone reproduces Apple's colour. A
+  luminance curve plus the saturation boost does (chroma 0.036 vs Apple's 0.037).
+- **Exposure was applied before un-rendering,** so +1 EV in the editor on a processed
+  photo clipped everything above display 0.5 to white.
+
+**What engine 2 does** (`FilmLUT.sceneFromDisplay(rgb:engine:)`, mirrored in
+`filmmodel.py`):
+- un-renders luminance through the measured table;
+- divides chroma by the boost;
+- applies exposure afterwards, in scene light.
+
+**Why the table is E[scene | display]:** it holds the median scene light behind each
+display level, rather than the inverse of the forward curve. With Apple's local tone
+mapping scattering pixels ±0.6–1 stop, inverting the forward curve over-stretches the
+ends. End to end, viewfinder against saved photo:
+
+| Inverse | Median ΔE (Oklab) |
+|---|---|
+| Engine 1 | 0.043 |
+| Inverted forward curve | 0.045 |
+| E[scene \| display] | 0.028 |
+
+It flattens near white at +3.5 stops, which is right here, because the RAW develop clips
+there too.
+
+**Kept for older photos:** edits pinned with engine 1 (or with no engine) render exactly
+as before, and `FrozenTuningTests` checks engine 1's un-render bit for bit.
+
+**Unknowns:**
+- The tables come from CIRAWFilter's rendering of ProRAW, not from the live video feed.
+  Best next data is real viewfinder frames saved next to each DNG (a diagnostic capture).
+- The fit covers one phone (iPhone 12 Pro) and Apple's default style.
+- What's left (median ~0.03) is Apple's local tone mapping, which no global un-render can
+  remove.
 
 ## 6. Grain and noise: what's known and what isn't
 

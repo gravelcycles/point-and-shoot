@@ -53,6 +53,10 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   - **Photos keep the look they were made with.** Looks from earlier versions (Natural,
     Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400, Silver) are no longer offered,
     but photos made with them look exactly as before.
+  - **The live preview matches the saved photo.** The viewfinder undoes Apple's own
+    rendering (its curve and extra saturation, measured on real shots) before applying
+    the film, so the look you frame is the look you get. Photos edited before this
+    keep their original rendering.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
   - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.

@@ -44,6 +44,7 @@ Git history: merged into `main` so far:
 | #17 | the Print/Zero "Couldn't save" fix |
 | #18 | crash shooting zoomed in with Bayer RAW (zoom locks at 1×) |
 | #20 | grainy Print photos: noise reduction and grain |
+| #34 | Phromagraph: a filter fitted to Chromagraph's own renders |
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
@@ -335,14 +336,24 @@ is the only source of truth for what exists. Everything else reacts to it.
       to the same neutral.
     - It reads as a tint, so the new looks use crossover and hue twists instead (at most
       a trace).
-  - **The Saturation slider is subtractive from film engine 2** (`FilmRecipe.currentEngine`
-    = 2, `FilmControls.subtractiveSaturation`):
-    - More saturation pivots on each colour's least dense channel, as dye saturation does.
-      Engine 1 spread about the mean and *brightened* rich colours: a yellow at +50 went
-      from 0.34 to 0.57 luminance.
-    - Edits with engine 1, or no engine (from before versioning), keep the old slider.
-      `freezeFilmTuning` pins engine 1 on unversioned edits, never the current engine.
-    - With the slider above 0, the print cube takes the per-cell path.
+  - **Film engines** (`FilmLUT.currentEngine`, pinned per photo in `FilmRecipe.engine`;
+    `renderEngine` reads nil as 1):
+    - 1: the original.
+    - 2 (#36): the measured un-render of processed and viewfinder input.
+    - 3 (now): adds the subtractive Saturation slider (`FilmControls.subtractiveSaturation`).
+      More saturation pivots on each colour's least dense channel, as dye saturation does.
+      Engines 1–2 spread about the mean and *brightened* rich colours: a yellow at +50
+      went from 0.34 to 0.57 luminance.
+    - Engines 2+ share engine 2's un-render and its tables (`FilmLUT.unrenderEngine`). At
+      Saturation 0, engine 3 renders exactly like engine 2.
+    - `freezeFilmTuning` pins engine 1 on unversioned edits, never the current engine.
+    - With the slider above 0 on engine 3, the print cube takes the per-cell path.
+    - Hue twists and dye saturation are stock fields (off when absent), so they need no
+      engine.
+  - **Table caches** (`FilmPipeline.tableCapacity` = stock count + 6, ~1.8 MB a table).
+    The LOOK strip's "All" previews touch every stock every 2 s on the render queue, so a
+    cache smaller than the stock count would rebuild tables there and stall the
+    viewfinder. Adding stocks grows it automatically.
   - **Older photos:** `hueTwists` and `dyeSaturation` are optional, and nil means off.
     `EditRecipe.decodeSaved` never fills them in from today's stock
     (`FilmStock.offWhenMissing`), so tunings pinned before they existed render as they did.
@@ -453,13 +464,25 @@ is the only source of truth for what exists. Everything else reacts to it.
 - **Sources:**
   - `.sceneLinear` is a RAW develop with `boostAmount = 0`, no local tone mapping and no
     sharpening (`EditPipeline.configure` does this whenever `recipe.film != nil`).
-  - `.displayReferred` (viewfinder, processed HEIFs) first undoes a generic phone tone
-    curve inside the negative cube. It inverts **on luminance and keeps each color's
-    channel ratios** (`FilmLUT.sceneFromDisplay(rgb:)`).
-    - Inverting per channel read saturated display reds as stops over: they turned
-      orange and faces yellow.
-    - The curve is deliberately gentle (+3.5 stops at white), so a brightly rendered face
-      isn't pushed into the shoulder.
+  - `.displayReferred` (viewfinder, processed HEIFs) is un-rendered first, inside the
+    negative cube, **on luminance** (`FilmLUT.sceneFromDisplay(rgb:engine:)`). Inverting
+    per channel read saturated display reds as stops over: they turned orange and faces
+    yellow.
+    - **Engine 2 (current):** Apple's rendering, *measured* on the owner's ProRAWs
+      (`FilmLUT.unrender*` tables; `docs/film-looks.md` §5¾).
+      - The curve is the median scene light behind each display level (anchored
+        display 0.20 = scene 0.18).
+      - Apple's saturation boost (×3.4 in the toe to ×1.1 in the shoulder) is divided
+        out.
+      - Exposure is applied *after* the un-render, in the table (one cached table per
+        1/100 stop).
+      - The viewfinder now matches the saved RAW photo ~35% better (median ΔE 0.043 →
+        0.028 across looks); what's left is Apple's local tone mapping, which no global
+        inverse can undo.
+    - **Engine 1** (edits pinned before it, and `engine == nil`): a guessed curve
+      `display = 1.273·s/(1+0.808·s)`, channel ratios kept (so Apple's saturation stacked
+      under the film's), and exposure applied *before* un-rendering (+1 EV clipped
+      everything above display 0.5). Kept bit-exact for older edits.
 - **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
   "Print film look".
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
@@ -513,9 +536,10 @@ is the only source of truth for what exists. Everything else reacts to it.
       `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
-  - `FilmRecipe.engine` records the film-math version (`currentEngine`, now 1). Pinning
-    freezes a stock's numbers, not the code: a future change to the math that would alter
-    older photos must keep the old behaviour for older engines.
+  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 2;
+    `renderEngine` treats nil as 1, and `freezeFilmTuning` pins nil as 1). Pinning
+    freezes a stock's numbers, not the code: a change to the math that would alter older
+    photos must keep the old behaviour for older engines (engine 2 did: see "Sources").
   - Table caches key pinned tunings by id + value hash (`FilmPipeline.cacheKey`), so they
     never share LUTs with the current stock.
   - A pinned tuning missing fields that stocks gained later decodes with those fields taken
@@ -547,7 +571,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
-| Film looks: inverse of a phone's tone curve (viewfinder, processed photos) | `FilmLUT.sceneFromDisplay` | display = 1.273·s/(1+0.808·s), applied to luminance |
+| Film looks: inverse of Apple's rendering (viewfinder, processed photos) | `FilmLUT.unrender*` (engine 2) | measured from CIRAWFilter's default render of 13 iPhone 12 Pro ProRAWs, a stand-in for the video feed; refit with real viewfinder frames when possible |
 | Looks' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
 
 ---

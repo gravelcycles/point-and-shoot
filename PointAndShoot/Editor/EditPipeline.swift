@@ -131,13 +131,14 @@ enum EditPipeline {
             // The tuning this photo was made with (pinned, or from the frozen history).
             fs.tuning = FilmStock.resolved(for: r)
             fs.source = developedFromRAW ? .sceneLinear : .displayReferred
+            fs.engine = film.renderEngine
             fs.exposure = developedFromRAW ? 0 : r.exposure / 50   // RAW: already in the develop
             fs.halation = film.halation / 50
             fs.grain = r.grain / 50
             fs.controls = FilmControls(contrast: r.contrast / 100, saturation: r.saturation / 100,
                                        crossover: film.crossover / 100,
                                        highlights: r.highlights / 100, shadows: r.shadows / 100,
-                                       subtractiveSaturation: (film.engine ?? 1) >= 2)
+                                       subtractiveSaturation: film.renderEngine >= 3)
             fs.animateGrain = animateGrain
             image = FilmPipeline.apply(image, settings: fs, unit: unit)
             // Whites, blacks and fade still apply on top, as a curve.

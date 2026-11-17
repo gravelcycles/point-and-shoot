@@ -371,9 +371,10 @@ MONO_MIX = np.array([0.34, 0.56, 0.10])
 
 
 def _phone_render(lin):
-    """A generic phone rendering of scene light (the inverse of FilmLUT.sceneFromDisplay),
-    so DNGs can stand in for processed photos (the Original row, CSSgram)."""
-    return np.clip(lin * 1.273 / (1 + 0.808 * np.maximum(lin, 0)), 0, 1)
+    """Apple's rendering of scene light as engine 2 models it (the inverse of
+    FilmLUT.sceneFromDisplay), so DNGs can stand in for processed photos (the Original
+    row, CSSgram). sRGB primaries in and out."""
+    return np.clip(F.display_from_scene_rgb(lin @ F.SRGB_TO_REC2020.T) @ np.linalg.inv(F.SRGB_TO_REC2020).T, 0, 1)
 
 
 def _spread_table(title, labs):
@@ -490,6 +491,8 @@ def parity():
     for sid in ("print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleach", "noir"):
         st, s = stocks[sid], sw[sid]
         neg, negd = F.negative_cube(st, "sceneLinear", 48), F.negative_cube(st, "displayReferred", 48)
+        negd1 = F.negative_cube(st, "displayReferred", 48, engine=1)
+        negde = F.negative_cube(st, "displayReferred", 48, exposure=0.7)
         pc, pcc, pcc2 = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48), F.print_cube(st, ctl2, 48)
         checks = {
             "neutral": (s["neutral"], F.neutral_response(stops, st)),
@@ -497,6 +500,8 @@ def parity():
             "colors": (s["colors"], F.display(F.negative_density(colors, st), st)),
             "neg": (s["neg"], [neg[b, g, r] for r, g, b in i_neg]),
             "negD": (s["negD"], [negd[b, g, r] for r, g, b in i_neg]),
+            "negD_v1": (s["negD_v1"], [negd1[b, g, r] for r, g, b in i_neg]),
+            "negD_ev": (s["negD_ev"], [negde[b, g, r] for r, g, b in i_neg]),
             "print": (s["print"], [pc[b, g, r] for r, g, b in i_pr]),
             "print_ctl": (s["print_ctl"], [pcc[b, g, r] for r, g, b in i_pr]),
             "print_ctl2": (s["print_ctl2"], [pcc2[b, g, r] for r, g, b in i_pr]),

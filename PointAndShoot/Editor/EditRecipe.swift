@@ -180,12 +180,13 @@ struct FilmRecipe: Codable, Equatable {
     /// The film math's version when the tuning was pinned (`FilmRecipe.currentEngine`).
     /// nil = before versioning. A future change to the film *math* (not just a stock's
     /// numbers) that would alter older photos must keep the old behaviour for older engines.
+    /// 1: the original math (also nil). 2: display-referred input (processed photos, the
+    /// viewfinder) un-rendered with Apple's measured curve and saturation, exposure after.
     var engine: Int?
 
-    /// 1: the original film math. 2 (2026-11-17): the Saturation slider adds saturation
-    /// subtractively, like the dyes (richer is darker); engine 1 photos keep the old
-    /// slider. Hue twists and dye saturation need no bump: they're off when absent.
-    static let currentEngine = 2
+    static let currentEngine = FilmLUT.currentEngine
+    /// The engine an edit renders with: nil means it predates versioning, i.e. engine 1.
+    var renderEngine: Int { engine ?? 1 }
     /// 0…100; 50 = the look as designed.
     var halation: Double = 50
     /// -100…100; 0 = the look's own color crossover (warm highlights, cool shadows),
