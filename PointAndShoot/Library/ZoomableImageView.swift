@@ -17,7 +17,7 @@ struct ZoomableImageView: UIViewRepresentable {
     /// Zoom scale (1 = fit) as it changes, including while pinching from 1×.
     var onZoom: (CGFloat) -> Void = { _ in }
     /// A touch sequence on the photo started (`false`, one finger) or a second finger joined
-    /// it (`true`). Synchronous, straight from UIKit's touch handling, so the viewer knows
+    /// it or lifts from it (`true`). Synchronous, straight from UIKit's touch handling, so the viewer knows
     /// before its swipe-down drag ends that this was a pinch, not a pull.
     var onTouches: (_ multiTouch: Bool) -> Void = { _ in }
 
@@ -205,6 +205,9 @@ final class TouchCountRecognizer: UIGestureRecognizer {
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { lift(touches) }
 
     private func lift(_ touches: Set<UITouch>) {
+        // A pinch's fingers lifting: say so again, so "recently pinched" counts from the
+        // end of the pinch, not its start.
+        if down >= 2 { report(true) }
         down = max(0, down - touches.count)
         if down == 0 { state = .failed }
     }

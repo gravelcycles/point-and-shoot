@@ -63,10 +63,19 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     - fine film grain that lives in the mid-tones
   - **In the editor:** Tune's sliders work inside the film model, and Details adds
     **Grain**, **Halation** and **Crossover**.
+- **Phromagraph: Chromagraph's look, measured.** A FILTER that's fitted to Chromagraph
+  Camera's own renders of its own RAWs (13 shots of the same scenes, pixel for pixel),
+  kept separate from Print.
+  - Creamy highlights and skies, teal-leaning mid-tones, dense soft blacks and only a faint
+    glow around lights.
+  - Like Print, it shoots RAW (zoom stays at 1×) and each shot is exposed to match the
+    viewfinder.
+  - Grain starts off, as in Chromagraph. The editor's **Grain** slider at 50 matches
+    Chromagraph's grain 1.25.
 - **Hold the shutter for burst.** Shots fire as fast as the camera keeps up, with a
   counter on the button. Burst frames skip RAW so they stay fast.
 - The app reopens on the lens you used last.
-- **Zoom stays at 1× in Print, Zero and Bayer RAW.** Those shoot the sensor's full frame,
+- **Zoom stays at 1× in Print, Phromagraph, Zero and Bayer RAW.** Those shoot the sensor's full frame,
   which can't be digitally zoomed; pick a lens instead. Pinching just tells you why.
 - **Silent shutter by default.** No click, no sounds at all. Turn **Shutter sound** on in
   Settings if you want it. Muting needs iOS 18, and isn't allowed in some countries (e.g.
@@ -141,7 +150,7 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
     swipes still adjust); double-tap for fit ↔ 2.5×. Zoomed in, the preview renders from
     the full-resolution photo, so you can judge grain, sharpening and noise.
   - **Filters** (with an **About** guide explaining each): Print (the film emulation above),
-    Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir, Silver,
+    Phromagraph (Chromagraph, measured), Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir, Silver,
     with live thumbnails. On a photo with a DNG, every filter develops from the sensor data.
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.

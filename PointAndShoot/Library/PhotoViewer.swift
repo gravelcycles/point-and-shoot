@@ -27,6 +27,11 @@ struct PhotoViewer: View {
     @State private var dismissing = false
     /// Two fingers pinched since the current drag began.
     @State private var pinchedDuringDrag = false
+    /// When a second finger last touched the photo. Never cleared: a drag ending within
+    /// moments of a pinch is that pinch's fingers lifting, whatever order SwiftUI and UIKit
+    /// deliver the lift in.
+    @State private var lastMultiTouch = Date.distantPast
+    private var recentlyPinched: Bool { Date().timeIntervalSince(lastMultiTouch) < 0.6 }
     /// UI tests: the last zoom report (scale @ whether it was for the selected page).
     @State private var zoomProbe = "none"
 
@@ -109,13 +114,16 @@ struct PhotoViewer: View {
         }
         .onChange(of: dismissDragActive) { _, active in
             guard !active else { return }
-            pinchedDuringDrag = pageZoomed
+            ViewerEventProbe.shared.add("g-")
+            // Not the place to clear `pinchedDuringDrag`: SwiftUI can end and restart its
+            // drag mid-pinch (when a finger joins or lifts). A new touch sequence clears it.
             if !dismissing, dragY != 0 {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
             }
         }
         .onChange(of: selectedID) { _, id in
             pageZoomed = false
+            pinchedDuringDrag = false
             if let id, let i = store.shots.firstIndex(where: { $0.id.uuidString == id }) { lastIndex = i }
         }
         // One presentation per anchor view.
@@ -176,10 +184,13 @@ struct PhotoViewer: View {
                              onTouches: { multiTouch in
                                  // Two fingers anywhere in this touch sequence make it a
                                  // pinch: when they lift it must never count as a swipe-down.
+                                 ViewerEventProbe.shared.add(multiTouch ? "t2" : "t1")
                                  if multiTouch {
+                                     lastMultiTouch = Date()
                                      pinchedDuringDrag = true
                                      if dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
-                                 } else if !dismissDragActive {
+                                 } else {
+                                     // A new touch sequence (first finger down).
                                      pinchedDuringDrag = false
                                  }
                              })
@@ -197,13 +208,15 @@ struct PhotoViewer: View {
                 .updating($dismissDragActive) { _, active, _ in active = true }
                 .onChanged { v in
                     // Zoomed in (or pinching), a drag pans the photo; it never dismisses.
-                    guard !pageZoomed, !pinchedDuringDrag else { return }
+                    guard !pageZoomed, !pinchedDuringDrag, !recentlyPinched else { return }
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
+                        if dragY == 0 { ViewerEventProbe.shared.add("d") }
                         dragY = v.translation.height
                     }
                 }
                 .onEnded { v in
-                    if pageZoomed || pinchedDuringDrag {
+                    ViewerEventProbe.shared.add("e\(pinchedDuringDrag ? 1 : 0)\(pageZoomed ? 1 : 0)y\(Int(dragY))")
+                    if pageZoomed || pinchedDuringDrag || recentlyPinched {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
                         return
                     }
@@ -214,6 +227,7 @@ struct PhotoViewer: View {
                             showGrid = true
                         } else {
                             dismissing = true
+                            ViewerEventProbe.shared.add("X")
                             dismiss()
                         }
                     } else {
@@ -246,7 +260,10 @@ struct PhotoViewer: View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
                 circleButton("square.grid.2x2", id: "viewer.grid") { showGrid = true }
-                circleButton("camera", id: "viewer.close") { dismiss() }
+                circleButton("camera", id: "viewer.close") {
+                    ViewerEventProbe.shared.add("C")
+                    dismiss()
+                }
                 circleButton(working ? "hourglass" : "square.and.arrow.up", id: "viewer.share") { share() }
                     .disabled(selectedShot == nil || working)
                 Spacer()
