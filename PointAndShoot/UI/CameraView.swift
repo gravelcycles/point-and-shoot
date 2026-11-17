@@ -231,6 +231,7 @@ struct CameraView: View {
                 }
                 .accessibilityIdentifier("camera.thumbnail")
                 .overlay(alignment: .top) { RollCountProbe(store: store).offset(y: -12) }
+                .overlay(alignment: .bottom) { ViewerEventProbeView().offset(y: 12) }
                 .disabled(camera.isRecording)
                 Spacer()
                 ShutterButton(mode: camera.settings.mode, isRecording: camera.isRecording,
