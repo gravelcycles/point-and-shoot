@@ -303,7 +303,10 @@ final class EditSession {
     func saveCopy(options: ShotExporter.Options = ShotExporter.Options(CameraSettings.load())) async -> Bool {
         isSaving = true
         defer { isSaving = false }
-        if store.shot(shot.id) != nil { store.setRecipe(recipe, for: shot.id) }
+        if store.shot(shot.id) != nil, !store.setRecipe(recipe, for: shot.id) {
+            errorMessage = "Couldn't save the edit. Is the phone's storage full?"
+            return false
+        }
         savedRecipe = recipe
         guard let current = store.shot(shot.id) else { return false }
         do {

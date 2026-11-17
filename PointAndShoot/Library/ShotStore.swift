@@ -87,6 +87,10 @@ final class ShotStore {
         let dirs = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         for dir in dirs {
             guard let id = UUID(uuidString: dir.lastPathComponent), !ids.contains(id) else { continue }
+            // Only folders that never got a record. One whose record exists but didn't
+            // decode (a future format, a read error) is left alone: never delete a real shot.
+            if fm.fileExists(atPath: dir.appendingPathComponent("shot.json").path)
+                || fm.fileExists(atPath: dir.appendingPathComponent("recipe.json").path) { continue }
             let modified = (try? dir.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
             if Date().timeIntervalSince(modified) > 3600 {
                 try? fm.removeItem(at: dir)
@@ -159,15 +163,17 @@ final class ShotStore {
             return false
         }
         recipes[id] = r
-        // Settle too: a shot edited before its first develop finished still needs its RAW
-        // noise reduction and film exposure (prepare only fills what's missing).
-        develop(id, viewfinderKey: nil)
+        // Settle the RAW develop too (a shot edited before its first develop finished needs
+        // its noise reduction), but never change the brightness the editor showed.
+        develop(id, viewfinderKey: nil, settle: .rawOnly)
         return true
     }
 
     /// Renders the graded preview and thumbnail, one shot at a time. A fresh shot's grade is
     /// settled first (RAW noise reduction, a film look's matched exposure).
-    private func develop(_ id: UUID, viewfinderKey: Double?, settle: Bool = true) {
+    enum Settle: Sendable { case none, rawOnly, full }
+
+    private func develop(_ id: UUID, viewfinderKey: Double?, settle: Settle = .full) {
         guard let shot = shot(id) else { return }
         pendingRenders[id, default: 0] += 1
         developing.insert(id)
@@ -192,15 +198,19 @@ final class ShotStore {
         }
     }
 
-    private nonisolated static func renderPreviews(shot: Shot, dir: URL, recipe: EditRecipe, settle: Bool,
+    private nonisolated static func renderPreviews(shot: Shot, dir: URL, recipe: EditRecipe, settle: Settle,
                                                    viewfinderKey: Double?) async -> EditRecipe? {
         let box = RecipeBox()
         await BakeQueue.shared.run {
             let start = Date()
             var r = recipe
-            if settle {
-                r = ShotRenderer.prepare(recipe, shot: shot, in: dir, viewfinderKey: viewfinderKey)
+            if settle != .none {
+                r = ShotRenderer.prepare(recipe, shot: shot, in: dir, viewfinderKey: viewfinderKey,
+                                         matchExposure: settle == .full)
             }
+            // Kept even if the render below fails (backgrounded): the match to the viewfinder
+            // can't be redone later.
+            box.value = r
             guard let preview = ShotRenderer.render(shot, in: dir, recipe: r, maxSide: ShotRenderer.previewSide) else {
                 Diag.error(.bake, "couldn't render \(shot.id.uuidString.prefix(8))")
                 return
@@ -213,7 +223,6 @@ final class ShotStore {
             } catch {
                 Diag.error(.bake, "couldn't write the preview of \(shot.id.uuidString.prefix(8))", error)
             }
-            box.value = r
         }
         return box.value
     }
@@ -259,16 +268,18 @@ final class ShotStore {
         Diag.log(.delete, "trashed \(moved.count)")
     }
 
-    func restore(_ ids: [UUID]) {
+    func restore(_ ids: [UUID], now: Date = Date()) {
         let set = Set(ids)
         var back = trash.filter { set.contains($0.id) }
         guard !back.isEmpty else { return }
         trash.removeAll { set.contains($0.id) }
         for i in back.indices {
             back[i].trashedAt = nil
-            // A shot past its 30 days gets a fresh 30 from now, or the next sweep would
-            // trash it again.
-            back[i].restoredAt = Date()
+            // Only a shot already past its 30 days gets a fresh 30 from now (or the next
+            // sweep would trash it again); an Undo keeps the days it had.
+            if !ShotRetention.dueForTrash([back[i]], now: now, storeForever: false).isEmpty {
+                back[i].restoredAt = now
+            }
             persist(back[i])
         }
         shots.append(contentsOf: back)

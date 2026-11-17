@@ -233,6 +233,8 @@ struct EditorView: View {
                     onSetDefault(session.recipe.asDefaultGrade)
                     Haptics.success()
                 } label: { Label("Set as Default Grade", systemImage: "star") }
+                // A retired look can't start new shots: pick a current one first.
+                .disabled(session.recipe.look != nil && Look.named(session.recipe.look) == nil)
                 Divider()
                 Button(role: .destructive) {
                     pushUndo()
@@ -644,6 +646,9 @@ struct GradeSlider: View {
     var onBegin: () -> Void = {}
 
     @State private var dragStart: Double?
+    /// True while a drag is in progress; SwiftUI resets it even when the drag is cancelled
+    /// (which `onEnded` never hears about), so a stale start never leaks into the next drag.
+    @GestureState private var dragging = false
     /// The drag has changed the value (and pushed its undo step).
     @State private var dragMoved = false
     @State private var crossTick = 0
@@ -690,6 +695,7 @@ struct GradeSlider: View {
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)
+                        .updating($dragging) { _, state, _ in state = true }
                         .onChanged { g in
                             if dragStart == nil { dragStart = value }
                             // Relative drag (the thumb doesn't jump to the finger), full
@@ -719,6 +725,12 @@ struct GradeSlider: View {
                 })
             }
             .frame(height: 28)
+        }
+        .onChange(of: dragging) { _, active in
+            if !active {
+                dragStart = nil
+                dragMoved = false
+            }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: crossTick)
         .accessibilityElement(children: .ignore)
