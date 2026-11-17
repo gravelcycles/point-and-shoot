@@ -47,6 +47,14 @@ Git history: merged into `main` so far:
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
+**Redesign branch (`claude/raw-studio`).** A Chromagraph-style rework (RAW-only capture, an
+in-app library, new editor and Preferences; reference: `docs/chromagraph-reference.md`) lives
+on this integration branch until the owner has compared it on device. Its sub-PRs merge into
+it, not into `main`. So both versions can be installed side by side it builds as **"P&S
+Studio"**, `APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot.studio`, with a tan icon;
+`scripts/deploy-iphone.sh` picks the bundle ID up from the project. **Revert those three
+(bundle ID, display name, icon) when the branch merges to `main`.**
+
 ---
 
 ## 2. First session on the Mac: start here
