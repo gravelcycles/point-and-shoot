@@ -1,6 +1,6 @@
 # Film and movie looks: what makes them film, and how we build them
 
-Research brief behind the looks lineup of 2026-11-17 (`claude/beautiful-noether-ccuezc`).
+Research brief behind the looks lineup of 2026-11-17 (#37 for P&S Studio, #38 for this app).
 It answers the owner's worry that the looks were still "instagramified": faded blacks and
 a tint washed over everything. `docs/film-looks.md` is the tuning handbook and CLAUDE.md
 §4 is the code reference. This file holds the *why*, with sources.
