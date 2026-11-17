@@ -22,35 +22,41 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
 - **The top bar** has big round buttons for flash, self-timer and settings (⚙︎), each with
   a haptic click. The **format pill** in the middle ("HEIF · Natural ▾") opens a panel with
   labelled choices for file type, RAW and processing.
-- **One control row** under the viewfinder: FOCUS, WB, ISO, SHUTTER, EV and FILTER. White
+- **One control row** under the viewfinder: FOCUS, WB, ISO, SHUTTER, EV and LOOK. White
   means the camera is deciding, yellow means you set it. Tap one to dial it in.
-- **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, FILTER) to put it back on auto.
-- **Filters at capture time.** Tap **FILTER** for live square previews of each filter, and
+- **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, LOOK) to put it back on auto.
+- **Looks at capture time.** Tap **LOOK** for live square previews of each look, and
   **About** to read what each one does. You see it live in the viewfinder, and every shot
   is saved with the look as an *editable edit*. The untouched original stays one tap away
   in the editor or Photos.
-  - **Every filter is a film stock,** not a set of slider moves. Each has its own tone
-    curve, color balance, film color (rich colors get denser, not louder), halation and
-    grain.
-    - **Natural:** a clean negative scan.
-    - **Warm 400:** golden hour: amber light, matte brown blacks, grain.
-    - **Skin:** bright, soft and peachy, with a gentle glow.
-    - **Cool Air:** airy, with blue-cyan shadows.
-    - **Cine:** low key, teal shadows under amber highlights, a red glow around lights.
-    - **Chrome:** slide film: dark, dense and richly saturated.
-    - **Faded:** a sun-faded print with milky indigo blacks.
-    - **Punch:** maximum color.
-    - **Mono 400, Noir, Silver:** black and white (neutral; inky and cold; soft sepia).
-  - **Each filter has its own shadows, brightness and color,** spaced at least as far
-    apart as Instagram-style filters, so they're easy to tell apart at a glance.
-  - **Bright skin stays skin-colored** instead of going gold.
+  - **Every look is a film or a movie grade,** not a tint or a saturation slider. Each is
+    a film stock with its own tone curve and shoulder, color balance and crossover, film
+    color (rich colors get denser, not louder), halation and grain.
+    - **Print** and **Phromagraph:** film from the sensor (below).
+    - **Punch:** a vivid negative pushed hard: maximum color.
+    - **Desert:** inspired by desert epics: warm ochre and sand, quiet color, soft lifted
+      blacks, a gentle highlight roll-off.
+    - **Pastel:** a storybook grade: high key, candy pinks, butter yellows, mint, cream
+      whites.
+    - **Amber Haze:** orange fog: nearly monochrome amber, smoky highlights, a wide glow.
+    - **Sodium:** a streetlight thriller: green-yellow light, muddy shadows, cold skin.
+    - **Neon Night:** saturated reds against green shadows, crushed blacks, a strong red
+      glow around lights.
+    - **Bleach Bypass:** silver left in the print: hard contrast, drained color, grit.
+    - **Slide:** seventies slide film: rich reds, deep blue skies, dense blacks.
+    - **Noir:** pushed black and white: inky cold blacks, heavy grain and glow.
+  - **Each look has its own key, contrast, color and shadows,** spaced further apart than
+    Instagram-style filters, so they're easy to tell apart at a glance.
+  - **Photos keep the look they were made with.** Looks from earlier versions (Natural,
+    Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400, Silver) are no longer offered,
+    but photos made with them look exactly as before.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
   - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.
-  - **It's single-purpose:** Print mode always shoots RAW, so there's no format or filter
+  - **It's single-purpose:** Print mode always shoots RAW, so there's no format or look
     to fiddle with. Flash, timer and exposure stay.
-  - **Or make it a filter:** Settings → Photo → **Print film look** → Filter puts it in the
-    FILTER list instead.
+  - **Or make it a look:** Settings → Photo → **Print film look** → Look puts it in the
+    LOOK list instead.
   - **What you see is what you get:** each shot is exposed to match the viewfinder's
     brightness.
   - **How it works:** the camera shoots Bayer RAW and keeps the DNG, like Zero. Print runs
@@ -63,7 +69,7 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     - fine film grain that lives in the mid-tones
   - **In the editor:** Tune's sliders work inside the film model, and Details adds
     **Grain**, **Halation** and **Crossover**.
-- **Phromagraph: Chromagraph's look, measured.** A FILTER that's fitted to Chromagraph
+- **Phromagraph: Chromagraph's look, measured.** A look that's fitted to Chromagraph
   Camera's own renders of its own RAWs (13 shots of the same scenes, pixel for pixel),
   kept separate from Print.
   - Creamy highlights and skies, teal-leaning mid-tones, dense soft blacks and only a faint
@@ -149,9 +155,10 @@ camera waits for every in-flight shot to finish saving before it pauses, so noth
   - **Pinch to zoom** in while you edit, with two fingers to move around (one-finger
     swipes still adjust); double-tap for fit ↔ 2.5×. Zoomed in, the preview renders from
     the full-resolution photo, so you can judge grain, sharpening and noise.
-  - **Filters** (with an **About** guide explaining each): Print (the film emulation above),
-    Phromagraph (Chromagraph, measured), Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Punch, Mono 400, Noir, Silver,
-    with live thumbnails. On a photo with a DNG, every filter develops from the sensor data.
+  - **Looks** (with an **About** guide explaining each): Print (the film emulation above),
+    Phromagraph (Chromagraph, measured), Punch, Desert, Pastel, Amber Haze, Sodium, Neon
+    Night, Bleach Bypass, Slide and Noir, with live thumbnails. On a photo with a DNG,
+    every look develops from the sensor data.
   - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
     vibrance, warmth, tint.
   - **Details**: structure, sharpening, fade, grain, vignette.

@@ -5,20 +5,20 @@
    "name": "Desert",
    "about": "A desert epic: warm ochre and sand, low saturation, soft lifted blacks and a long, gentle highlight roll-off. No teal.",
    "grey": 0.15,
-   "slope": 1.45,
+   "slope": 1.6,
    "shoulder": 1.5,
    "white": 0.95,
-   "floor": 0.015,
+   "floor": 0.012,
    "printer": [
-    -0.05,
-    0.01,
-    0.15
+    -0.07,
+    0.0,
+    0.16
    ],
    "crossover": [
     0.02,
     0.05
    ],
-   "interlayer": -0.25,
+   "interlayer": -0.2,
    "crosstalk": 0.8,
    "halation": [
     0.1,

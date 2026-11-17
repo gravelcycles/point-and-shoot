@@ -60,7 +60,7 @@ def derive_print_curve(neg_curve, Y, white):
     N0 = float(F.curve_density(neg_curve, 0.0))
     x = -(N - N0)
     Dp = np.minimum(DMIN - np.log10(np.maximum(Y(s), 1e-9) / white), DMAX)
-    order = np.argsort(x)
+    order = np.argsort(x, kind="stable")   # ties keep curve order: reproducible across numpy versions
     x, Dp = x[order], Dp[order]
     keep = np.concatenate([[True], np.diff(x) > 1e-4])
     x, Dp = x[keep], Dp[keep]
