@@ -71,7 +71,8 @@ final class ControlHitTargetTests: XCTestCase {
             print(app.debugDescription)
             return XCTFail("Tapping the settings button's edge didn't open Settings")
         }
-        // Grid lives in Assists, further down the form.
+        // Grid lives in Camera → Viewfinder.
+        app.buttons["Camera"].firstMatch.tap()
         let grid = app.switches["Grid"]
         var swipes = 0
         while !grid.isHittable && swipes < 8 {
@@ -178,11 +179,32 @@ final class ControlHitTargetTests: XCTestCase {
     func testShutterSoundToggleIsInSettings() {
         tapOffLabel(app.buttons["topbar.settings"], dx: 0.5, dy: 0.5)
         XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 4))
+        app.buttons["Camera"].firstMatch.tap()
         let toggle = app.switches["Shutter sound"]
         var swipes = 0
         while !toggle.isHittable && swipes < 10 { app.swipeUp(); swipes += 1 }
         XCTAssertTrue(toggle.exists, "Settings has no Shutter sound toggle")
         XCTAssertEqual(toggle.value as? String, "0", "The shutter should be silent by default")
+    }
+
+    /// Double-tapping the viewfinder opens Preferences (Chromagraph's shortcut), and every
+    /// tab is there.
+    func testDoubleTapViewfinderOpensPreferences() {
+        let viewfinder = app.otherElements["viewfinder"]
+        XCTAssertTrue(viewfinder.waitForExistence(timeout: 3))
+        viewfinder.doubleTap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 4), "double-tap didn't open Preferences")
+        for tab in ["General", "Camera", "Processing"] {
+            XCTAssertTrue(app.buttons[tab].firstMatch.exists, "no \(tab) tab")
+        }
+        app.buttons["Processing"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["settings.defaultLook"].waitForExistence(timeout: 3)
+                      || app.otherElements["settings.defaultLook"].exists
+                      || app.staticTexts["Default Grade"].exists
+                      || app.staticTexts["DEFAULT GRADE"].exists,
+                      "Processing has no Default Grade")
+        app.buttons["General"].firstMatch.tap()
+        XCTAssertTrue(app.switches["settings.storeForever"].waitForExistence(timeout: 3), "General has no Store Forever")
     }
 
     /// Settings → Diagnostics opens and shows this launch in the log.
