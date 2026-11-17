@@ -50,6 +50,12 @@ struct EditorView: View {
     @State private var selectionTick = 0
     @State private var zeroTick = 0
     @State private var confirmDiscard = false
+    /// Two fingers are zooming/panning the photo.
+    @State private var pinching = false
+    /// A pinch interrupted the current one-finger drag: ignore it until the fingers lift.
+    @State private var dragCancelled = false
+    /// The one-finger drag is in progress (resets itself when SwiftUI ends or cancels it).
+    @GestureState private var dragActive = false
 
     /// Called with a short message ("Saved to Photos") after a successful save.
     private let onSaved: (String) -> Void
@@ -84,6 +90,12 @@ struct EditorView: View {
         .preferredColorScheme(.dark)
         .statusBarHidden()
         .task { await session.load(maxPixels: 2400) }
+        .onChange(of: dragActive) { _, active in
+            if !active, !pinching {
+                dragCancelled = false
+                if dragMode != nil { withAnimation(.easeOut(duration: 0.2)) { dragMode = nil } }
+            }
+        }
         .sensoryFeedback(.selection, trigger: selectionTick)
         .sensoryFeedback(.impact(weight: .light), trigger: zeroTick)
         .interactiveDismissDisabled(session.hasChanges)
@@ -190,6 +202,7 @@ struct EditorView: View {
             }
             .buttonStyle(PressScaleStyle(scale: 0.94))
             .disabled(session.isLoading || session.isSaving || !session.hasChanges)
+            .accessibilityIdentifier("editor.save")
             .opacity(session.hasChanges ? 1 : 0.45)
         }
         .foregroundStyle(.white)
@@ -221,7 +234,12 @@ struct EditorView: View {
         GeometryReader { geo in
             let image = displayImage
             ZStack {
-                MetalImageView(image: image)
+                MetalImageView(image: image,
+                               zoomable: tool != .crop && !session.isLoading,
+                               oneFingerPan: adjustments.isEmpty,
+                               pixelSize: session.pixelSize,
+                               onZoom: zoomChanged,
+                               onPinch: pinchChanged)
 
                 if tool == .crop, !showOriginal, let image {
                     CropOverlay(crop: $session.recipe.crop,
@@ -258,10 +276,35 @@ struct EditorView: View {
         }
     }
 
+    /// Zoomed in: render from the sharper source (loaded the first time).
+    private func zoomChanged(_ scale: CGFloat) {
+        let zoomed = scale > 1.01
+        if session.zoomedIn != zoomed { session.zoomedIn = zoomed }
+        if zoomed && !session.detailReady { Task { await session.loadDetail() } }
+    }
+
+    /// Two fingers on the photo zoom and pan; the one-finger adjust drag stands down until
+    /// every finger lifts, and an adjustment it had already started is undone.
+    private func pinchChanged(_ active: Bool) {
+        pinching = active
+        guard active else {
+            // No finger left dragging: nothing to ignore any more.
+            if !dragActive { dragCancelled = false }
+            return
+        }
+        if dragMode == .adjust, let adj = current {
+            session.recipe[keyPath: adj.keyPath] = dragStartValue
+            if !undoStack.isEmpty { undoStack.removeLast() }
+        }
+        if dragMode != nil { withAnimation(.easeOut(duration: 0.15)) { dragMode = nil } }
+        dragCancelled = true
+    }
+
     private var adjustGesture: some Gesture {
         DragGesture(minimumDistance: 6)
+            .updating($dragActive) { _, active, _ in active = true }
             .onChanged { v in
-                guard let _ = current else { return }
+                guard let _ = current, !pinching, !dragCancelled else { return }
                 if dragMode == nil {
                     let vertical = abs(v.translation.height) > abs(v.translation.width)
                     withAnimation(.easeOut(duration: 0.15)) { dragMode = vertical ? .choose : .adjust }
@@ -292,6 +335,7 @@ struct EditorView: View {
                 }
             }
             .onEnded { _ in
+                dragCancelled = false
                 withAnimation(.easeOut(duration: 0.2)) { dragMode = nil }
             }
     }
@@ -425,7 +469,7 @@ struct EditorView: View {
             .disabled(tool == .raw && !session.developsFromRAW)
             .opacity(tool == .raw && !session.developsFromRAW ? 0.35 : 1)
 
-            Text("Swipe ↕ on the photo to choose · ↔ to adjust · double-tap to reset")
+            Text("Swipe ↕ to choose · ↔ to adjust · pinch to zoom · double-tap a value to reset")
                 .font(.system(size: 10.5))
                 .foregroundStyle(.white.opacity(0.4))
         }
@@ -548,6 +592,7 @@ struct EditorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("editor.tool.\(t.rawValue)")
             }
         }
         .padding(.top, 10)
