@@ -31,6 +31,12 @@
       same table for the 26 Instagram-style CSSgram filters (scripts/cssgram.py) as a
       yardstick; --sheet writes a contact sheet to look at.
 
+  print-look.py scope OUT.jpg [--looks JSON] [--ids a,b,...]
+      Vectorscope of every look (or --ids): how each moves the 24 ColorChecker patches
+      in Oklab a/b. A tint shows as every arrow pointing the same way, or colours
+      collapsing to one blob; film shows greys staying put and each hue moving its own
+      way. The quickest check that a look is film and not a filter (docs/film-looks.md §4).
+
 Needs: numpy scipy pillow rawpy opencv-python-headless (pillow-heif for .heic).
 """
 from __future__ import annotations
@@ -491,6 +497,54 @@ def parity():
     print("parity OK")
 
 
+# --- scope (vectorscope of the ColorChecker) --------------------------------------------
+
+COLORCHECKER = [(115, 82, 68), (194, 150, 130), (98, 122, 157), (87, 108, 67), (133, 128, 177), (103, 189, 170),
+                (214, 126, 44), (80, 91, 166), (193, 90, 99), (94, 60, 108), (157, 188, 64), (224, 163, 46),
+                (56, 61, 150), (70, 148, 73), (175, 54, 60), (231, 199, 31), (187, 86, 149), (8, 133, 161),
+                (243, 243, 242), (200, 200, 200), (160, 160, 160), (122, 122, 121), (85, 85, 85), (52, 52, 52)]
+
+
+def scope(out_path, looks_path=None, ids=None):
+    """Small multiples, one per look: each ColorChecker patch (sRGB, through the
+    display-referred path like a processed photo) from where it starts to where the look
+    puts it, in Oklab a/b. Greys are ringed in white."""
+    import math
+    import filmlooks
+    from PIL import Image, ImageDraw
+    looks_path = looks_path or filmlooks.LOOKS
+    stocks = filmlooks.all_stocks(F.load_stock(STOCK), looks_path)
+    specs = filmlooks.load_looks(looks_path)["looks"]
+    ids = ids or [k for k in stocks if "mono_tone" not in specs.get(k, {})]
+    src = F.decode_srgb(np.array(COLORCHECKER, dtype=np.float64)[None] / 255.0)
+    srgb_to_p3 = np.linalg.inv(P3_TO_SRGB)
+    orig = oklab_p3(src @ srgb_to_p3.T)[0]
+    S, cols = 300, 4
+    rows = math.ceil(len(ids) / cols)
+    img = Image.new("RGB", (cols * S, rows * (S + 26)), (18, 18, 18))
+    d = ImageDraw.Draw(img)
+    scale = S / 2 / 0.22
+    for n, sid in enumerate(ids):
+        st = stocks[sid]
+        lab = oklab_p3(np.clip(F.render(src, st, grain_amount=0, halation_amount=0, source="displayReferred"), 0, 1))[0]
+        ox, oy = (n % cols) * S, (n // cols) * (S + 26) + 26
+        cx, cy, R = ox + S / 2, oy + S / 2, S * 0.45
+        d.text((ox + 8, oy - 20), st["name"], fill=(235, 235, 235))
+        d.ellipse([cx - R, cy - R, cx + R, cy + R], outline=(60, 60, 60))
+        d.line([cx - R, cy, cx + R, cy], fill=(45, 45, 45))
+        d.line([cx, cy - R, cx, cy + R], fill=(45, 45, 45))
+        for i, c in enumerate(COLORCHECKER):
+            p0 = (cx + orig[i, 1] * scale, cy - orig[i, 2] * scale)
+            p1 = (cx + lab[i, 1] * scale, cy - lab[i, 2] * scale)
+            d.line([p0, p1], fill=(150, 150, 150))
+            d.ellipse([p0[0] - 2, p0[1] - 2, p0[0] + 2, p0[1] + 2], outline=(110, 110, 110))
+            r = 5 if i < 18 else 4
+            d.ellipse([p1[0] - r, p1[1] - r, p1[0] + r, p1[1] + r], fill=c,
+                      outline=(255, 255, 255) if i >= 18 else None)
+    img.save(out_path, quality=92)
+    print("wrote", out_path)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -506,6 +560,10 @@ def main():
     sp.add_argument("--cssgram", action="store_true", help="also print CSSgram's spread on the same images")
     sp.add_argument("--sheet", help="write a contact sheet (looks x images) to this JPEG")
     sp.add_argument("--looks", help="another looks JSON (default scripts/film-looks.json), e.g. an older one to compare")
+    sc = sub.add_parser("scope")
+    sc.add_argument("out")
+    sc.add_argument("--looks", help="another looks JSON (default scripts/film-looks.json)")
+    sc.add_argument("--ids", help="comma-separated look ids (default: every color look)")
     ft = sub.add_parser("fit")
     ft.add_argument("pairs_dir")
     ft.add_argument("--out", default=STOCK)
@@ -520,6 +578,8 @@ def main():
         parity()
     elif a.cmd == "spread":
         spread(a.images, a.side, a.cssgram, a.sheet, a.looks)
+    elif a.cmd == "scope":
+        scope(a.out, a.looks, a.ids.split(",") if a.ids else None)
     elif a.cmd == "fit":
         fit(a.pairs_dir, a.out, same_raw=a.same_raw)
 

@@ -310,7 +310,9 @@ confirmed by measurement):
   - A cast moves every pixel and scores high.
   - Chasing 0.06 with printer lights, split tones and floors is how looks become
     Instagram filters.
-  - Separate looks by key, contrast, dye density and hue signature instead. A bounded
+  - Separate looks by key, contrast, dye density and hue signature instead. Check with
+    `print-look.py scope OUT.jpg`, a ColorChecker vectorscope: a tint shows as parallel
+    arrows or a collapse to one blob. A bounded
     search over grey, slope and dye saturation helps (the 2026-11-17 pass used a scratch
     tool; the bounds keep each look's character).
 - **Density saturation about the mean *brightens* saturated colours.** Spreading a red's
