@@ -165,6 +165,8 @@ final class ControlHitTargetTests: XCTestCase {
     /// Print shoots Bayer RAW, which crashes AVFoundation when zoomed (#18): pinching in
     /// Print must not zoom, and must say why.
     func testPinchInPrintIsLockedAndExplained() {
+        // Bayer RAW is what locks zoom (ProRAW, the default, zooms).
+        switchToBayerRAW()
         app.buttons["mode.print"].tap()
         let viewfinder = app.otherElements["viewfinder"]
         XCTAssertTrue(viewfinder.waitForExistence(timeout: 3))
