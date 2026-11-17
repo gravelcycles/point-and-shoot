@@ -116,7 +116,7 @@ extension Look {
     var recipe: EditRecipe {
         var r = EditRecipe()
         apply(&r)
-        r.look = id
+        r.look = id == "none" ? nil : id
         return r
     }
 }

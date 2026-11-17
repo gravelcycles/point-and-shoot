@@ -26,6 +26,28 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.zoomLocked, "Video always zooms")
     }
 
+    /// The photo output turns ProRAW on exactly when the settings say ProRAW (the default
+    /// `.off` included); otherwise every "ProRAW" shot silently came out Bayer.
+    func testProRAWIsEnabledWheneverItIsWhatWeShoot() {
+        for mode in RawMode.allCases {
+            var s = CameraSettings()
+            s.rawMode = mode
+            XCTAssertEqual(CameraController.proRAWActive(s), s.shootsProRAW, "\(mode)")
+        }
+        XCTAssertTrue(CameraController.proRAWActive(CameraSettings()))
+    }
+
+    /// Exactly what the current app (`main`) saves: an upgrade must load it, shooting ProRAW.
+    func testSettingsSavedByTheCurrentAppLoad() throws {
+        let json = #"{"mode":"photo","photoFormat":"heif","rawMode":"off","keepProcessedWithRAW":true,"processing":"zero","zeroKeepsDNG":true,"flash":"off","resolution":"standard","selfTimer":0,"captureLook":"warm400","printPlacement":"mode","videoResolution":"uhd4K","frameRate":24,"videoCodec":"hevc","videoColor":"sdr","stabilization":"standard","recordAudio":true,"shutterAngleLock":true,"logViewAssist":true,"showGrid":true,"showLevel":true,"showHistogram":false,"focusPeaking":true,"peakingColor":"red","zebras":false,"zebraThreshold":0.95,"frameLines":"none","volumeShutter":true,"saveLocation":true,"haptics":true,"shutterSound":false}"#
+        let s = try XCTUnwrap(CameraSettings.decodeSaved(Data(json.utf8)))
+        XCTAssertTrue(s.shootsProRAW)
+        XCTAssertFalse(s.zoomLocked)
+        XCTAssertFalse(s.storeForever)
+        XCTAssertFalse(s.autoExport)
+        XCTAssertEqual(s.exportMaxSide, 2880)
+    }
+
     func testPrintAsFilterLeavesTheModePicker() {
         var s = CameraSettings()
         s.printPlacement = .filter

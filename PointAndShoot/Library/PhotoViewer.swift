@@ -331,7 +331,9 @@ struct PhotoViewer: View {
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 .buttonStyle(PressScaleStyle(scale: 0.94))
-                .disabled(shot == nil)
+                // Not while its first develop is settling the grade (the editor would start
+                // from, and save, an unsettled one).
+                .disabled(shot == nil || shot.map { store.developing.contains($0.id) } == true)
                 .accessibilityIdentifier("viewer.edit")
                 Spacer()
                 Button { export() } label: {
