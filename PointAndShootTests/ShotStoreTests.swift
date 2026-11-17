@@ -166,26 +166,71 @@ final class ShotStoreTests: XCTestCase {
         XCTAssertEqual(ShotRetention.dueForPurge([recentlyTrashed, longTrashed], now: now), [longTrashed.id])
 
         XCTAssertEqual(ShotRetention.daysLeft(fresh, now: now, storeForever: false), 1)
+        var imported = shot(daysOld: 365, now: now)
+        imported.added = now.addingTimeInterval(-2 * 86_400)
+        XCTAssertEqual(ShotRetention.dueForTrash([imported], now: now, storeForever: false), [],
+                       "the 30 days start when it entered the library")
+        XCTAssertEqual(ShotRetention.daysLeft(imported, now: now, storeForever: false), 28)
         XCTAssertNil(ShotRetention.daysLeft(kept, now: now, storeForever: false))
         XCTAssertNil(ShotRetention.daysLeft(fresh, now: now, storeForever: true))
     }
 
     func testApplyRetentionMovesOldShotsAndPurgesOldTrash() async throws {
         let now = Date()
-        let old = try await addShot(captured: now.addingTimeInterval(-31 * 86_400))
-        let kept = try await addShot(captured: now.addingTimeInterval(-60 * 86_400))
+        // An older RAW (an import, a restored backup): its 30 days start when it was added.
+        let old = try await addShot(captured: now.addingTimeInterval(-90 * 86_400))
+        let kept = try await addShot(captured: now.addingTimeInterval(-90 * 86_400))
         store.setKeep(true, for: [kept.id])
-        let fresh = try await addShot(captured: now)
 
         store.applyRetention(storeForever: false, now: now)
-        XCTAssertEqual(Set(store.shots.map(\.id)), [kept.id, fresh.id])
+        XCTAssertEqual(Set(store.shots.map(\.id)), [old.id, kept.id], "an import of an older RAW isn't trashed on arrival")
+
+        store.applyRetention(storeForever: false, now: now.addingTimeInterval(31 * 86_400))
+        XCTAssertEqual(store.shots.map(\.id), [kept.id])
         XCTAssertEqual(store.trash.map(\.id), [old.id])
 
-        // 31 days later the trashed shot is gone for good (and the fresh one is now trashed).
-        store.applyRetention(storeForever: false, now: now.addingTimeInterval(31 * 86_400))
+        // 30 more days in the Trash: gone for good.
+        store.applyRetention(storeForever: false, now: now.addingTimeInterval(62 * 86_400))
         XCTAssertNil(store.shot(old.id))
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.dir(old.id).path))
         XCTAssertEqual(store.shots.map(\.id), [kept.id])
+    }
+
+    func testRestoringFromTheTrashStartsAFresh30Days() async throws {
+        let shot = try await addShot()
+        store.moveToTrash([shot.id])
+        store.restore([shot.id])
+        // Even a shot past its 30 days stays a while after being put back.
+        store.applyRetention(storeForever: false, now: Date().addingTimeInterval(29 * 86_400))
+        XCTAssertNotNil(store.shots.first { $0.id == shot.id })
+    }
+
+    func testStoreForeverNeverTrashes() async throws {
+        let shot = try await addShot()
+        store.applyRetention(storeForever: true, now: Date().addingTimeInterval(400 * 86_400))
+        XCTAssertNotNil(store.shots.first { $0.id == shot.id })
+    }
+
+    func testAGradeSavedWhileDevelopingIsNotOverwritten() async throws {
+        // Saved right after the capture, before its first develop (settle) has finished.
+        let shot = try await store.add(original: jpeg(), fileExtension: "jpg", kind: .processed,
+                                       capturePreview: nil, recipe: EditRecipe())
+        var edited = store.recipe(for: shot.id)
+        edited.exposure = 42
+        store.setRecipe(edited, for: shot.id)
+        await waitUntilDeveloped(shot.id)
+        XCTAssertEqual(store.recipe(for: shot.id).exposure, 42)
+        let reopened = ShotStore(root: root)
+        await reopened.load()
+        XCTAssertEqual(reopened.recipe(for: shot.id).exposure, 42, "the edit must be what's on disk")
+    }
+
+    func testLoadDoesNotDropOrDuplicateAShotAddedMeanwhile() async throws {
+        let fresh = ShotStore(root: root)
+        let added = try await fresh.add(original: jpeg(), fileExtension: "jpg", kind: .processed,
+                                        capturePreview: nil, recipe: EditRecipe())
+        await fresh.load()
+        XCTAssertEqual(fresh.shots.filter { $0.id == added.id }.count, 1)
     }
 
     // MARK: Export

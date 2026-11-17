@@ -32,12 +32,21 @@ enum ShotExporter {
 
     /// Renders one shot to finished-photo bytes (off the main thread).
     static func render(_ shot: Shot, store: ShotStore, options: Options) async -> Data? {
+        // A fresh shot's grade is settled by its first develop (RAW noise reduction, a
+        // film look's matched exposure): wait for it, up to a minute.
+        for _ in 0..<600 where store.developing.contains(shot.id) {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        let shot = store.shot(shot.id) ?? shot
         let dir = store.dir(shot.id)
         let recipe = store.recipe(for: shot.id)
         let start = Date()
-        let data = await Task.detached(priority: .userInitiated) {
-            ShotRenderer.exportData(shot, in: dir, recipe: recipe, format: options.format,
-                                    maxSide: options.maxSide, quality: options.quality)
+        let data = await Task.detached(priority: .userInitiated) { () -> Data? in
+            // Still unsettled (the develop timed out): settle it here, the same way.
+            let r = (recipe.rawInitialized || !shot.isRAW) ? recipe
+                : ShotRenderer.prepare(recipe, shot: shot, in: dir, viewfinderKey: nil)
+            return ShotRenderer.exportData(shot, in: dir, recipe: r, format: options.format,
+                                           maxSide: options.maxSide, quality: options.quality)
         }.value
         if let data {
             Diag.log(.save, "rendered export of \(shot.id.uuidString.prefix(8)): \(data.count / 1024) KB in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
@@ -86,7 +95,8 @@ enum ShotExporter {
         for _ in 0..<600 where store.developing.contains(id) {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
-        guard let shot = store.shot(id) else { return }
+        // Not if it was trashed meanwhile.
+        guard let shot = store.shots.first(where: { $0.id == id }) else { return }
         do {
             try await exportToPhotos([shot], store: store, options: options)
         } catch {
