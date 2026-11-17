@@ -87,8 +87,14 @@ final class SettingsTests: XCTestCase {
             XCTAssertFalse(s.filterLooks.isEmpty)
             XCTAssertTrue(s.filterLooks.allSatisfy { $0.set == set }, set.name)
         }
-        XCTAssertEqual(LookSet.allCases.map(\.looks.count).reduce(0, +), Look.all.count - 1,
-                       "every look but Original is in exactly one set")
+        // A look added without `set:` silently lands in Essentials: pin its membership.
+        XCTAssertEqual(LookSet.essentials.looks.map(\.id), ["print", "phromagraph", "punch", "noir"])
+        // Every film look's stock exists (a typo would fall back to Print without a word).
+        for look in Look.all {
+            guard let stock = look.recipe.film?.stock else { continue }
+            XCTAssertNotNil(FilmStock.all[stock], "\(look.id) uses stock \(stock), which doesn't exist")
+            XCTAssertEqual(stock, look.id, "\(look.id)'s stock should share its id")
+        }
         s.lookSet = LookSet.movie.rawValue
         let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
         XCTAssertEqual(decoded.lookSet, LookSet.movie.rawValue)
@@ -96,10 +102,27 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.filterLooks.count, all.count, "an unknown set shows every look")
     }
 
+    /// The strip always shows the look in use, even from another set (first, so it can be
+    /// seen and turned off), and a set's count leaves Print out while Print is a mode.
+    func testStripKeepsTheActiveLookAndCountsWhatItShows() {
+        var s = CameraSettings()
+        s.lookSet = LookSet.movie.rawValue
+        s.captureLook = "desert"            // a Grades look
+        XCTAssertEqual(s.stripLooks.first?.id, "desert")
+        XCTAssertEqual(s.stripLooks.count, s.filterLooks.count + 1)
+        s.captureLook = "blockbuster"       // already in the set: not doubled
+        XCTAssertEqual(s.stripLooks.map(\.id), s.filterLooks.map(\.id))
+        XCTAssertEqual(s.printPlacement, .mode)
+        XCTAssertEqual(s.stripCount(of: .essentials), 3, "Print is a mode, not a card")
+        s.printPlacement = .filter
+        XCTAssertEqual(s.stripCount(of: .essentials), 4)
+        XCTAssertEqual(s.stripCount(of: .movie), 4)
+    }
+
     /// A look that's no longer offered never stays the camera's choice: it moves to its
     /// successor, or to Original.
     func testRetiredLookMovesToItsSuccessorOrOff() throws {
-        for (retired, expected) in [("chrome", "slide"), ("mono400", "noir"), ("silver", "noir"),
+        for (retired, expected) in [("chrome", "classicslide"), ("mono400", "noir"), ("silver", "noir"),
                                     ("cine", "blockbuster"), ("portrait", "portrait400"), ("cool", "evergreen"),
                                     ("warm400", nil), ("bogus", nil)] as [(String, String?)] {
             var s = CameraSettings()

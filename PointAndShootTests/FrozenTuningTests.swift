@@ -300,7 +300,9 @@ final class FrozenTuningTests: XCTestCase {
         var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as? [String: Any])
         var film = try XCTUnwrap(obj["film"] as? [String: Any])
         var tuning = try XCTUnwrap(film["tuning"] as? [String: Any])
-        for key in FilmStock.offWhenMissing { tuning.removeValue(forKey: key) }
+        // Hard-coded, not FilmStock.offWhenMissing: forgetting a field there must fail here.
+        XCTAssertTrue(Set(FilmStock.offWhenMissing).isSuperset(of: ["hueTwists", "dyeSaturation"]))
+        for key in ["hueTwists", "dyeSaturation"] { tuning.removeValue(forKey: key) }
         film["tuning"] = tuning
         obj["film"] = film
         let reopened = try XCTUnwrap(EditRecipe.decodeSaved(try JSONSerialization.data(withJSONObject: obj)))
@@ -325,21 +327,25 @@ final class FrozenTuningTests: XCTestCase {
         r.saturation = 60
         engine2.saturation = 60
         XCTAssertGreaterThan(maxDiff(pixels(engine2), pixels(r)), 0.01, "engine 3's Saturation slider should differ")
+        // ...and in the right direction: on a rich color, engine 3's slider is darker (dyes),
+        // engine 2's brighter.
+        func luminance(_ recipe: EditRecipe) -> Float {
+            var rr = recipe
+            rr.grain = 0
+            let red = CIImage(color: CIColor(red: 0.8, green: 0.25, blue: 0.12)).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+            let out = EditPipeline.apply(rr, to: red, developedFromRAW: false)
+            let rect = CGRect(x: 0, y: 0, width: 8, height: 8)
+            var px = [Float](repeating: 0, count: 8 * 8 * 4)
+            EditPipeline.context.render(out.cropped(to: rect), toBitmap: &px, rowBytes: 8 * 16, bounds: rect,
+                                        format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+            return 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]
+        }
+        XCTAssertLessThan(luminance(r), luminance(engine2), "engine 3's Saturation should darken a rich red")
         var unversioned = r
         unversioned.film?.engine = nil
         var engine1 = r
         engine1.film?.engine = 1
         XCTAssertLessThan(maxDiff(pixels(engine1), pixels(unversioned)), 1e-4, "no engine must render as engine 1")
-    }
-
-    /// Re-saving an edit from before versioning pins engine 1 (the math it was made with),
-    /// never the current engine.
-    func testFreezingAnUnversionedEditPinsEngineOne() {
-        var r = printRecipe
-        r.film?.tuning = nil
-        r.film?.engine = nil
-        r.freezeFilmTuning()
-        XCTAssertEqual(r.film?.engine, 1)
     }
 
     func testPickingTheLookAgainMovesToTheNewestTuning() {

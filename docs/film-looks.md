@@ -80,8 +80,8 @@ Slide were rebuilt.
 | Amber Haze (`amber`) | Orange fog over a future city: nearly monochrome amber, smoky highlights | Interlayer −0.8 (almost mono), strong orange printer lights and tints, white 0.86 and floor 0.045 (smoke), a wide warm bloom (σ 6/20 ‰); `huePreserve` 0 or hue protection would re-saturate it |
 | Sodium (`sodium`) | Streetlight thriller: green-yellow cast, muddy desaturated shadows, cold skin, low key | Printer lights −g, +b; olive shadow tint; `channel_mix` takes red from green (cold skin); interlayer −0.35; key 0.12 |
 | Neon Night (`neon`) | Neon-lit romance: saturated reds against green shadows, crushed blacks, strong glow | Interlayer 0.9, slope 2.0, key 0.085, floor 0; green shadow tint, red highlight tint; red halation 0.45 |
-| Bleach Bypass (`bleach`) | Silver retained: hard contrast, drained colour, metallic highlights, grit | Slope 2.1, interlayer −0.35, full dye crosstalk, steel shadow tint, grain 0.012, structure +20 in `Look.all` |
-| Slide (`slide`) | Seventies slide film: rich reds, deep blue skies, dense blacks, warm light | Slope 2.0, floor 0, interlayer 1.1 with crosstalk 0.9 (dense colours darken: deep skies), cool shadows under warm highlights |
+| Bleach Bypass (`bleach`, now "Bleach Grit") | Silver retained: hard contrast, drained colour, metallic highlights, grit | Slope 2.1, interlayer −0.35, full dye crosstalk, steel shadow tint, grain 0.012, structure +20 in `Look.all` |
+| Slide (`slide`, now "Slide 70s") | Seventies slide film: rich reds, deep blue skies, dense blacks, warm light | Slope 2.0, floor 0, interlayer 1.1 with crosstalk 0.9 (dense colours darken: deep skies), cool shadows under warm highlights |
 
 **New tool: `channel_mix`** (`film-looks.json`): a 3×3 mix of scene RGB (linear
 Rec.2020), rows normalised to 1 so neutrals stay neutral, folded into the stock's
@@ -148,12 +148,12 @@ has `floor` 0, and split toning is gone or a trace.
 |---|---|---|
 | Portrait 400 (`portrait400`) | Portra 400 | High key, soft contrast into real blacks, luminous warm skin, olive greens, pale cyan skies |
 | Evergreen (`evergreen`) | Fuji 400 | Emerald greens, pink skin, magenta highlights over green shadows (crossover [+.05, +.05]) |
-| Slide (`slide`) | Kodachrome | Dark key, hard contrast, dense crimson reds and gold against muted olive greens and deep skies |
+| Slide (`classicslide`) | Kodachrome | Dark key, hard contrast, dense crimson reds and gold against muted olive greens and deep skies |
 | Lush (`lush`) | Velvia | Lush greens, violet-leaning deep skies, warm hues pushed to red, hard white clip |
 | Three-Strip (`threestrip`) | Technicolor dye transfer | High key, pure dense primaries (key black), rosy skin, warm light |
 | Blockbuster (`blockbuster`) | Teal and orange, done by a colourist | Skin hue locked, greens and skies turned teal, purples muted, neutral blacks |
 | Night 800 (`night800`) | CineStill 800T | Cyan shadows under amber light, red halation, low key, grain |
-| Bleach Bypass (`bleach`) | ENR / CCE | Dye saturation −0.55 (silver), hard contrast, inky blacks, grit |
+| Bleach Bypass (`bleachbypass`) | ENR / CCE | Dye saturation −0.6 (silver), hard contrast, inky blacks, grit |
 
 **Unchanged:** Print, Phromagraph, Punch and Noir (they regenerate byte-identical).
 
@@ -162,11 +162,15 @@ and test"):** every look stays available and the pickers switch between sets (`L
 CLAUDE.md §4).
 - Essentials: Print, Phromagraph, Punch, Noir.
 - Film Stocks and Movie: the looks above.
-- Grades: §1½'s pass, tunings untouched. Its Slide and Bleach Bypass are now `slide70s` /
-  "Slide 70s" and `bleachgrit` / "Bleach Grit".
+- Grades: §1½'s pass, ids and tunings untouched. Its Slide and Bleach Bypass keep ids
+  `slide` / `bleach`, shown as "Slide 70s" / "Bleach Grit"; the new ones are
+  `classicslide` / `bleachbypass`. (A first version reused `slide` / `bleach` for the new
+  looks; a review caught that saved choices, default grades and the editor would then
+  point at the wrong look.)
 
 `spread` measures each set together with the essentials, and every set clears 0.06
-(nearest 0.061–0.086).
+(nearest 0.060–0.079, re-measured after #36's engine-2 un-render moved the JPEG
+columns: Three-Strip and Night 800 were retuned for it).
 
 **Retired camera choices now land on a successor:** Skin → Portrait 400, Cool Air →
 Evergreen, Cine → Blockbuster.
@@ -178,7 +182,7 @@ from 0.34 to 0.57 luminance). From engine 3 it pivots on the least dense channel
 is #36's measured un-render; engine 3 keeps that un-render and renders exactly like engine 2
 at Saturation 0.
 
-**Spread** (official four images): every new look's nearest is ≥ 0.061, with a median of
+**Spread** (official four images, before #36's un-render; see above for today's): every new look's nearest was ≥ 0.061, with a median of
 0.065. Print and Phromagraph stay close by design.
 
 On a wider 16-image set (Kodak portraits, parrots, a ColorChecker DNG, sun flare,
@@ -341,6 +345,11 @@ confirmed by measurement):
   transmittance shoots up: Y 0.07 → 0.22 at +0.4. The Saturation slider still does this.
   The stock's `dyeSaturation` pivots on the least dense channel instead, so purity costs
   density, as with real dyes.
+- **Hue twists can fold the hue order.** A raised-cosine twist's steepest slope is
+  rotation·π/(2·width); past 1 the output hue runs backwards (Blockbuster's first greens
+  twist, +70° over ±60°, made yellow-greens come out more teal than greens: seams in
+  foliage gradients). `filmlooks.py` now refuses any stock whose d(hue out)/d(hue in)
+  drops below 0.2; keep |rotation| under ~0.5·width and widen twists that converge.
 - **Hue measured after the sensitivity matrix is useless for yellows.** Interlayer pushes
   their blue exposure below zero, and it clamps, so every saturated yellow and orange
   reads as hue 60. Twists therefore measure hue on scene light, in log(x + 0.01).

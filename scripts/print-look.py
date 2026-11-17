@@ -65,9 +65,42 @@ def _arr(v, per_line=8, indent="            "):
     return "[\n" + ",\n".join(indent + l for l in lines) + ",\n" + indent[:-4] + "]"
 
 
+LOOKS_SWIFT = os.path.join(HERE, "..", "PointAndShoot", "Editor", "EditRecipe.swift")
+
+
+def check_look_sets(specs, swift_path=LOOKS_SWIFT):
+    """Every look's set in film-looks.json must match its `Look.all` entry's `set:` in the
+    app (missing = essentials), and every film look in the app must have a stock: the two
+    lists are kept by hand, so catch drift here rather than on the phone."""
+    import re
+    src = open(swift_path).read()
+    app = {}
+    for block in re.split(r"\n        Look\(", src)[1:]:
+        head = block.split("),\n")[0]
+        mid = re.match(r'id: "(\w+)"', head)
+        if not mid:
+            continue
+        mset = re.search(r"set: \.(\w+)", head)
+        mfilm = re.search(r'film\("(\w+)"', head)
+        app[mid.group(1)] = (mset.group(1) if mset else "essentials", mfilm.group(1) if mfilm else None)
+    problems = []
+    for lid, spec in specs.items():
+        want = spec.get("set", "essentials")
+        if lid not in app:
+            problems.append(f"{lid}: in film-looks.json but not in Look.all")
+        elif app[lid][0] != want:
+            problems.append(f"{lid}: set {want!r} in film-looks.json, {app[lid][0]!r} in Look.all")
+    for lid, (_, stock) in app.items():
+        if stock and stock not in specs and stock not in ("print", "phromagraph"):
+            problems.append(f"Look {lid!r} uses stock {stock!r}, which no JSON defines")
+    if problems:
+        sys.exit("film-looks.json and Look.all disagree:\n  " + "\n  ".join(problems))
+
+
 def export_swift(stock_path=STOCK, out=SWIFT):
     """Writes every film stock (Print + the looks in film-looks.json) to Swift."""
     import filmlooks
+    check_look_sets(filmlooks.load_looks()["looks"])
     stocks = filmlooks.all_stocks(F.load_stock(stock_path))
     ind = "                "
 
@@ -483,12 +516,12 @@ def parity():
     stocks = filmlooks.all_stocks(F.load_stock(STOCK))
     stops = np.arange(-6, 6.01, 0.5)
     ctl = dict(contrast=0.4, saturation=0.5, crossover=-0.5, highlights=0.3, shadows=-0.4)
-    ctl2 = dict(ctl, subtractive=True)    # engine 2's Saturation slider
+    ctl2 = dict(ctl, subtractive=True)    # engine 3's Saturation slider
     i_neg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
     worst = 0.0
-    for sid in ("print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleach", "noir"):
+    for sid in ("print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleachbypass", "bleach", "noir"):
         st, s = stocks[sid], sw[sid]
         neg, negd = F.negative_cube(st, "sceneLinear", 48), F.negative_cube(st, "displayReferred", 48)
         negd1 = F.negative_cube(st, "displayReferred", 48, engine=1)

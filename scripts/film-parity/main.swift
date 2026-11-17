@@ -9,12 +9,12 @@ let idxNeg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33),
 let idxPrint = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
 var ctl = FilmControls()
 ctl.contrast = 0.4; ctl.saturation = 0.5; ctl.crossover = -0.5; ctl.highlights = 0.3; ctl.shadows = -0.4
-var ctl2 = ctl      // engine 2: the Saturation slider adds saturation subtractively
+var ctl2 = ctl      // engine 3: the Saturation slider adds saturation subtractively
 ctl2.subtractiveSaturation = true
 
 var out: [String: Any] = [:]
 var timing: [String: [Double]] = [:]
-for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleach", "noir"] {
+for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockbuster", "night800", "bleachbypass", "bleach", "noir"] {
     let s = FilmStock.named(id)
     var neutral: [[Double]] = [], neutralCtl: [[Double]] = []
     for st in stride(from: -6.0, through: 6.0, by: 0.5) {

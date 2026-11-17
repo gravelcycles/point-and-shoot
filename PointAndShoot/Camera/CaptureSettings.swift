@@ -439,9 +439,24 @@ extension CameraSettings {
     /// the chosen set (`lookSet`) or all of them.
     var filterLooks: [Look] {
         let set = LookSet.named(lookSet)
-        return Look.all.filter {
-            $0.id != "none" && (printPlacement == .filter || $0.id != Self.printLookID) && (set == nil || $0.set == set)
+        return Look.all.filter { offersInStrip($0) && (set == nil || $0.set == set) }
+    }
+
+    /// The LOOK strip's cards: the chosen set's looks, plus the look in use when it's from
+    /// another set, first, so it can still be seen and turned off.
+    var stripLooks: [Look] {
+        var looks = filterLooks
+        if let id = captureLook, let look = Look.named(id), offersInStrip(look), !looks.contains(where: { $0.id == id }) {
+            looks.insert(look, at: 0)
         }
+        return looks
+    }
+
+    /// How many cards a set puts in the strip (Print is left out while it's a mode).
+    func stripCount(of set: LookSet) -> Int { set.looks.filter(offersInStrip).count }
+
+    private func offersInStrip(_ look: Look) -> Bool {
+        look.id != "none" && (printPlacement == .filter || look.id != Self.printLookID)
     }
 
     /// The look applied to stills right now: Print in Print mode, otherwise the chosen

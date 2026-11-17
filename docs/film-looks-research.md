@@ -110,12 +110,12 @@ stock builds them. Hue numbers are twist centres.
 |---|---|---|---|
 | **Portrait 400** | Kodak Portra 400 | Soft toe and very long shoulder; warm, peachy-magenta highlights; greens toward yellow with less chroma; "bold yet reserved" saturation; real blacks | Key 0.25, slope 1.2, shoulder 1.5, floor 0. Skin +0.2 stops (luminous); greens −14° and −25% chroma; cyans toward yellow; magentas −15%. Slight warm and magenta printer lights |
 | **Evergreen** | Fuji Superia / Pro 400H | Cooler than Kodak; greens toward emerald or cyan with chroma kept; magenta highlights over green shadows, which is a *crossover*; pink, cooler skin | Crossover [+0.05, +0.05] (red and blue steeper: green shadows, magenta highlights). Greens +25° toward cyan; skin −8° toward pink and lighter; reds toward crimson; yellows lemon. Cool printer lights |
-| **Slide** | Kodachrome 64 | Intense reds and yellows against *muted* blues and greens; high contrast; dense blacks; clean clip | Key 0.11, slope 2.2, shoulder 2.8, dye saturation +0.35. Reds +30% and −0.2 stops (dense crimson); yellows golden +25%; greens olive (−14°, −25%, −0.2 stops); skies deep but not electric (−0.4 stops) |
+| **Slide** (`classicslide`) | Kodachrome 64 | Intense reds and yellows against *muted* blues and greens; high contrast; dense blacks; clean clip | Key 0.11, slope 2.2, shoulder 2.8, dye saturation +0.35. Reds +30% and −0.2 stops (dense crimson); yellows golden +25%; greens olive (−14°, −25%, −0.2 stops); skies deep but not electric (−0.4 stops) |
 | **Lush** | Velvia 50 | Intensely vivid greens; warm hues rotated toward red (yellows redder, skin ruddy); deep violet-leaning blues; hard white clip | Shoulder 3.0, dye saturation +0.3, interlayer 0.5. Greens +50%; skies +12° toward violet, +35%, −0.35 stops; oranges −10° and yellows −8° toward red; magentas +45% |
-| **Three-Strip** | Technicolor dye transfer | Dense, pure primaries that darken as they saturate; deep blacks; *high key* (it needed huge light); rosy skin; warm highlights | Key 0.25, dye saturation +0.55, `key_black` 0.3. Hues pulled toward the primaries (yellow-green +22° → green, teal −15° → green, cyan +18° → blue, violet −15° → blue, magenta-red +14° → red); skin −12° rosy; warm crossover |
-| **Blockbuster** | Modern teal and orange, done by a colourist | Skin hue *locked* and warmed; greens toward teal with less chroma; blues toward cyan; yellows toward orange; luminance-gated warm highlights; *neutral blacks* | Twists converge 15–50° onto skin (+35% chroma); greens +70° → teal at −0.3 stops; blues −35° → cyan; purples muted −45%. Crossover [+0.12, −0.22] gives warm highlights over cool shadows. No shadow tint |
-| **Night 800** | CineStill 800T (Vision3 500T without rem-jet) | Tungsten balance: cool ambient, amber practicals; red halation only around bright sources; pushed contrast and grain | Cool printer lights plus a strong crossover [+0.16, −0.24]. Reds +30% and brighter (glow); ambers +20%; greens → teal. Red halation 0.55 with a wide spread and a low threshold. Key 0.085, grain 0.012 |
-| **Bleach Bypass** | *Saving Private Ryan* (ENR), *Se7en* (CCE) | 40–70% desaturation; harder contrast; inky blacks; blood and warm colours go darker; grit | Dye saturation −0.55 (silver), slope 2.2, crosstalk 1.0. Skin kept a touch (+30% chroma). Grain 0.012; structure +20 |
+| **Three-Strip** | Technicolor dye transfer | Dense, pure primaries that darken as they saturate; deep blacks; *high key* (it needed huge light); rosy skin; warm highlights | Key 0.26, dye saturation +0.6, `key_black` 0.4, hue protection only 0.35 (so bright primaries stay dense). Hues pulled toward the primaries with wide twists that never fold (yellow-green +16° → green, teal −14° → green, cyan +14° → blue, violet −13° → blue, magenta-red +10° → red); skin −10° rosy; warm crossover |
+| **Blockbuster** | Modern teal and orange, done by a colourist | Skin hue *locked* and warmed; greens toward teal with less chroma; blues toward cyan; yellows toward orange; luminance-gated warm highlights; *neutral blacks* | Twists converge 15–50° onto skin (+35% chroma); greens +40° (over ±90°) → teal at −0.3 stops; blues −30° → cyan; purples muted −45%. Crossover [+0.12, −0.22] gives warm highlights over cool shadows. No shadow tint |
+| **Night 800** | CineStill 800T (Vision3 500T without rem-jet) | Tungsten balance: cool ambient, amber practicals; red halation only around bright sources; pushed contrast and grain | Cool printer lights plus a strong crossover [+0.18, −0.28], a trace of cyan in the shadows. Reds +30% and brighter (glow); ambers +20%; greens → teal. Red halation 0.55 with a wide spread and a low threshold. Key 0.085, grain 0.012 |
+| **Bleach Bypass** (`bleachbypass`) | *Saving Private Ryan* (ENR), *Se7en* (CCE) | 40–70% desaturation; harder contrast; inky blacks; blood and warm colours go darker; grit | Dye saturation −0.6 (silver), slope 2.2, crosstalk 1.0. Skin kept a touch (+30% chroma). Grain 0.012; structure +20 |
 
 The rest are unchanged:
 - **Print**: Chromagraph, by eye.
@@ -141,7 +141,8 @@ So the rule quietly pushes tuning toward casts and lifted blacks, which is proba
 how the earlier rounds ended up "instagrammy".
 
 What we did:
-- Kept the rule, and met it on the official four images: nearest ≥ 0.061, median 0.065.
+- Kept the rule, and met it on the official four images within each set: nearest 0.060–0.079
+  (after #36's engine-2 un-render).
 - Met it with *non-tint* separations: key, contrast, dye density and hue signatures.
 - Tuned the tone axes with a small bounded search (scratch tool; the bounds keep each
   look's character).
@@ -150,7 +151,7 @@ On a wider 16-image set (portraits, foliage, a ColorChecker, sun flare, saturate
 
 | Set | Nearest-neighbour range |
 |---|---|
-| New looks | 0.056–0.071 |
+| New looks (before #36's un-render) | 0.056–0.071 |
 | Today's app filters | 0.052–0.070 |
 | PR #35 | 0.060–0.081 |
 

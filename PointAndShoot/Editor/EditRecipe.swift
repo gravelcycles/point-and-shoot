@@ -182,6 +182,7 @@ struct FilmRecipe: Codable, Equatable {
     /// numbers) that would alter older photos must keep the old behaviour for older engines.
     /// 1: the original math (also nil). 2: display-referred input (processed photos, the
     /// viewfinder) un-rendered with Apple's measured curve and saturation, exposure after.
+    /// 3: engine 2 plus a subtractive Saturation slider (richer is darker, like the dyes).
     var engine: Int?
 
     static let currentEngine = FilmLUT.currentEngine
@@ -320,7 +321,7 @@ enum LookSet: String, CaseIterable, Identifiable {
     /// What the set is, for the picker and the guide's section header.
     var detail: String {
         switch self {
-        case .essentials: "Print, Phromagraph, Punch and Noir."
+        case .essentials: "Print (when it isn't a mode), Phromagraph, Punch and Noir."
         case .stocks: "Real film stocks: each renders skin, foliage and skies its own way, with dense blacks and dye-dense color."
         case .movie: "Movie grades built like film: Technicolor, teal and orange, tungsten night, bleach bypass."
         case .grades: "The first cinematic pass (PR #35): color casts, split toning and softer blacks. Here to compare."
@@ -392,8 +393,8 @@ struct Look: Identifiable {
              set: .stocks, apply: film("portrait400") { $0.structure = -6 }),
         Look(id: "evergreen", name: "Evergreen", detail: "Fuji-style negative: cool and crisp, emerald greens, pink-leaning skin, magenta highlights over green shadows.",
              set: .stocks, apply: film("evergreen") { $0.vignette = 8 }),
-        Look(id: "slide", name: "Slide", detail: "Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.",
-             set: .stocks, apply: film("slide") { $0.vignette = 12 }),
+        Look(id: "classicslide", name: "Slide", detail: "Classic slide film: dense blacks, hard contrast, intense reds and golden yellows against muted olive greens and deep blue skies.",
+             set: .stocks, apply: film("classicslide") { $0.vignette = 12 }),
         Look(id: "lush", name: "Lush", detail: "Vivid landscape slide: lush greens, deep violet-leaning skies, warm colors pushed toward red and a hard white clip.",
              set: .stocks, apply: film("lush") { $0.vignette = 14; $0.structure = 8 }),
         Look(id: "threestrip", name: "Three-Strip", detail: "Dye-transfer Technicolor: high key, pure dense primaries, rosy skin, warm light and solid blacks.",
@@ -402,11 +403,13 @@ struct Look: Identifiable {
              set: .movie, apply: film("blockbuster") { $0.vignette = 18; $0.structure = 10 }),
         Look(id: "night800", name: "Night 800", detail: "Tungsten 800 after dark: cyan shadows under amber light, a red glow around every light, pushed contrast and grain.",
              set: .movie, apply: film("night800") { $0.vignette = 22 }),
-        Look(id: "bleach", name: "Bleach Bypass", detail: "Silver left in the print: drained color, hard contrast, inky blacks and gritty grain.",
-             set: .movie, apply: film("bleach") { $0.structure = 20; $0.vignette = 12 }),
+        Look(id: "bleachbypass", name: "Bleach Bypass", detail: "Silver left in the print: drained color, hard contrast, inky blacks and gritty grain.",
+             set: .movie, apply: film("bleachbypass") { $0.structure = 20; $0.vignette = 12 }),
         // Grades: the first cinematic pass (PR #35), kept to compare against the two sets
-        // above. Same tunings and extras as it shipped; its Slide and Bleach Bypass have
-        // their own ids here (slide70s, bleachgrit) since the new ones took those.
+        // above. Same ids, tunings and extras as it shipped, so its photos and saved
+        // choices keep meaning the same look; only its Slide and Bleach Bypass are renamed
+        // (Slide 70s, Bleach Grit) next to the new ones (classicslide, bleachbypass).
+        // Never reuse an id for a different look.
         Look(id: "desert", name: "Desert", detail: "Inspired by desert epics: warm ochre and sand, quiet color, soft lifted blacks and a long, gentle highlight roll-off.",
              set: .grades, apply: film("desert") { $0.vignette = 14 }),
         Look(id: "pastel", name: "Pastel", detail: "A storybook grade: high key and soft, candy pinks, butter yellows, mint and warm cream whites.",
@@ -417,10 +420,10 @@ struct Look: Identifiable {
              set: .grades, apply: film("sodium") { $0.vignette = 24 }),
         Look(id: "neon", name: "Neon Night", detail: "Neon-lit romance: saturated reds against green shadows, crushed blacks and a strong red glow around lights.",
              set: .grades, apply: film("neon") { $0.vignette = 26 }),
-        Look(id: "slide70s", name: "Slide 70s", detail: "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
-             set: .grades, apply: film("slide70s") { $0.vignette = 12 }),
-        Look(id: "bleachgrit", name: "Bleach Grit", detail: "Silver left in the print: hard contrast, drained color, metallic highlights and gritty grain.",
-             set: .grades, apply: film("bleachgrit") { $0.structure = 20; $0.vignette = 12 }),
+        Look(id: "slide", name: "Slide 70s", detail: "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
+             set: .grades, apply: film("slide") { $0.vignette = 12 }),
+        Look(id: "bleach", name: "Bleach Grit", detail: "Silver left in the print: hard contrast, drained color, metallic highlights and gritty grain.",
+             set: .grades, apply: film("bleach") { $0.structure = 20; $0.vignette = 12 }),
     ]
 
     /// Looks that are no longer offered, by id: their names, so a photo made with one can
@@ -429,7 +432,7 @@ struct Look: Identifiable {
     /// `FilmStock.Legacy`); only the camera's choice and the pickers move on.
     static let retired: [String: (name: String, successor: String?)] = [
         "natural": ("Natural", nil), "warm400": ("Warm 400", nil), "portrait": ("Skin", "portrait400"),
-        "cool": ("Cool Air", "evergreen"), "cine": ("Cine", "blockbuster"), "chrome": ("Chrome", "slide"),
+        "cool": ("Cool Air", "evergreen"), "cine": ("Cine", "blockbuster"), "chrome": ("Chrome", "classicslide"),
         "faded": ("Faded", nil), "mono400": ("Mono 400", "noir"), "silver": ("Silver", "noir"),
     ]
 

@@ -418,16 +418,22 @@ struct EditorView: View {
         }
     }
 
-    /// Original plus the chosen set's looks (or every look).
+    /// Original plus the chosen set's looks (or every look), and the photo's own look when
+    /// it's from another set, so the one in use always shows.
     private var shownLooks: [Look] {
         guard let set = LookSet.named(lookSet) else { return Look.all }
-        return [Look.all[0]] + set.looks
+        var looks = [Look.all[0]] + set.looks
+        if let id = session.recipe.look, let look = Look.named(id), !looks.contains(where: { $0.id == id }) {
+            looks.insert(look, at: 1)
+        }
+        return looks
     }
 
     private var lookSetMenu: some View {
         let current = LookSet.named(lookSet)
         return Menu {
-            Picker("Look set", selection: $lookSet) {
+            Picker("Look set", selection: Binding(get: { LookSet.named(lookSet)?.rawValue ?? "all" },   // unknown id = all
+                                                  set: { lookSet = $0 })) {
                 Text("All looks").tag("all")
                 ForEach(LookSet.allCases) { set in
                     Text("\(set.name) (\(set.looks.count))").tag(set.rawValue)

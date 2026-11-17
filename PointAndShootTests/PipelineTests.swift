@@ -87,10 +87,59 @@ final class PipelineTests: XCTestCase {
         let red = FilmLUT.negativeDensity((0.5, 0.06, 0.04), stock: plain)
         let r0 = FilmLUT.display(negative: red, stock: plain), r1 = FilmLUT.display(negative: red, stock: silver)
         XCTAssertLessThan(max(r1.0, r1.1, r1.2) - min(r1.0, r1.1, r1.2), max(r0.0, r0.1, r0.2) - min(r0.0, r0.1, r0.2))
-        // Greys: Print's print curves are the same per channel, so a grey stays a grey.
-        let grey = FilmLUT.negativeDensity((0.18, 0.18, 0.18), stock: plain)
-        let g0 = FilmLUT.display(negative: grey, stock: plain), g1 = FilmLUT.display(negative: grey, stock: rich)
-        XCTAssertEqual(lum(g1), lum(g0), accuracy: 0.02)
+        // A grey (three equal densities) is untouched, either way.
+        for d in [0.3, 1.2, 2.5] {
+            for amount in [0.4, -0.5] {
+                let out = FilmLUT.dyeSaturate((d, d, d), amount)
+                XCTAssertEqual(out.0, d, accuracy: 1e-12); XCTAssertEqual(out.1, d, accuracy: 1e-12)
+                XCTAssertEqual(out.2, d, accuracy: 1e-12)
+            }
+        }
+    }
+
+    /// Hue twists never fold or squeeze the hue order (filmlooks.py refuses them; this is
+    /// the same check on the shipped stocks): walking round the hue circle at a fixed
+    /// chroma, the twisted hue keeps moving forward.
+    func testHueTwistsKeepTheHueOrder() {
+        let r3 = 3.0.squareRoot()
+        func hue(_ c: (Double, Double, Double)) -> Double {
+            let l = (log10(max(c.0, 0) + FilmLUT.twistOffset), log10(max(c.1, 0) + FilmLUT.twistOffset),
+                     log10(max(c.2, 0) + FilmLUT.twistOffset))
+            return atan2((r3 / 2) * (l.1 - l.2), l.0 - 0.5 * (l.1 + l.2)) * 180 / .pi
+        }
+        for stock in FilmStock.all.values {
+            guard let twists = stock.hueTwists, !twists.isEmpty else { continue }
+            var last: Double?
+            var turned = 0.0
+            for i in 0..<720 {
+                let a = Double(i) / 2 * .pi / 180, m = log10(0.19), c = 0.4
+                let u = c * cos(a), v = c * sin(a)
+                let rgb = (pow(10, m + 2 / 3 * u) - FilmLUT.twistOffset, pow(10, m - u / 3 + v / r3) - FilmLUT.twistOffset,
+                           pow(10, m - u / 3 - v / r3) - FilmLUT.twistOffset)
+                let h = hue(FilmLUT.twist(rgb, twists))
+                if let last {
+                    var step = h - last
+                    if step < -180 { step += 360 } else if step > 180 { step -= 360 }
+                    XCTAssertGreaterThan(step, 0.05, "\(stock.id): hue order folds near \(Double(i) / 2)°")
+                    turned += step
+                }
+                last = h
+            }
+            XCTAssertEqual(turned, 359.5, accuracy: 1, "\(stock.id): twisted hues should go round once")
+        }
+    }
+
+    /// Cache keys: the engine flag only matters with Saturation above 0, so a look at its
+    /// defaults asks for the same tables prewarm built (with default controls).
+    func testFilmControlsCanonicalKeySharesTables() {
+        var c = FilmControls()
+        c.subtractiveSaturation = true
+        XCTAssertEqual(c.canonical, FilmControls())
+        c.saturation = -0.3
+        var expected = FilmControls(); expected.saturation = -0.3
+        XCTAssertEqual(c.canonical, expected)
+        c.saturation = 0.3
+        XCTAssertTrue(c.canonical.subtractiveSaturation, "the flag matters with Saturation above 0")
     }
 
     /// From film engine 3, more Saturation works like the dyes: a rich color gets darker.

@@ -219,6 +219,10 @@ struct FilmStock: Hashable, Codable {
     /// degrees of `hue` turn by `rotation` degrees, scale their chroma by 1 + `saturation`
     /// and get `stops` brighter (or darker). Hues: 0 red, 60 yellow, 120 green, 180 cyan,
     /// 240 blue, 300 magenta (skin ≈ 30, foliage ≈ 80, sky ≈ 225).
+    /// Pinned tunings decode this with plain synthesized `Decodable` (TolerantJSON doesn't
+    /// recurse into arrays), so never add a required field: new fields must be optional, or
+    /// every photo pinned before them loses its whole edit. `filmlooks.py` refuses twists
+    /// that fold or squeeze the hue order (slope < 0.2).
     struct HueTwist: Hashable, Codable {
         var hue: Double
         var width: Double
@@ -265,6 +269,15 @@ struct FilmControls: Hashable {
 
     /// The user's saturation goes about each color's least dense channel.
     var saturatesSubtractively: Bool { subtractiveSaturation && saturation > 0 }
+
+    /// The same controls with the engine flag cleared where it changes nothing (Saturation
+    /// ≤ 0), so table caches see one key: engine-2 and engine-3 edits share tables, and
+    /// prewarmed tables (built with default controls) serve every engine-3 look.
+    var canonical: FilmControls {
+        var c = self
+        if !c.saturatesSubtractively { c.subtractiveSaturation = false }
+        return c
+    }
 }
 
 /// Builds the two lookup tables the Core Image pipeline uses.
@@ -576,7 +589,9 @@ enum FilmLUT {
     /// dominant color stays and the others get denser, richer *and darker* (spreading
     /// about the mean would brighten the dominant channel instead). < 0 is retained silver:
     /// silver adds density in proportion to the mean, which with the print re-timed for
-    /// grey is a pull toward the mean density. Neutrals are untouched either way.
+    /// grey is a pull toward the mean density. A grey whose three densities are equal is
+    /// untouched; a stock's printer lights or crossover give greys a cast, which this scales
+    /// by 1 + amount (and positive amounts add a little density: Slide's grey −0.08 stop).
     static func dyeSaturate(_ d: (Double, Double, Double), _ amount: Double) -> (Double, Double, Double) {
         guard amount != 0 else { return d }
         let pivot = amount > 0 ? min(d.0, d.1, d.2) : (d.0 + d.1 + d.2) / 3
