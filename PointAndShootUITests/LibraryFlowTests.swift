@@ -116,26 +116,37 @@ final class LibraryFlowTests: XCTestCase {
 
     // MARK: Zoom
 
+    /// The viewer's zoom state, as the app sees it (a -uitest probe).
+    private func zoomProbe() -> String {
+        let probe = app.staticTexts.matching(identifier: "viewer.zoomProbe").firstMatch
+        return probe.exists ? probe.label : "no probe"
+    }
+
     func testPinchZoomInTheViewerPansInsteadOfDismissing() {
         openViewer()
         let photo = app.descendants(matching: .any).matching(identifier: "viewer.photo").firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 6), "the photo page isn't zoomable")
         photo.pinch(withScale: 3, velocity: 2)
         Thread.sleep(forTimeInterval: 0.8)
+        let afterZoom = zoomProbe()
+        XCTAssertTrue(afterZoom.hasPrefix("zoomed=1"), "pinching didn't zoom: \(afterZoom)")
         // Zoomed in, a downward drag moves around the photo; it mustn't close the viewer.
         photo.swipeDown()
         Thread.sleep(forTimeInterval: 0.8)
-        XCTAssertTrue(app.buttons["viewer.close"].exists, "a drag while zoomed dismissed the viewer")
-        // Double-tap back to fit; the viewer still works.
+        XCTAssertTrue(app.buttons["viewer.close"].exists, "a drag while zoomed dismissed the viewer (\(afterZoom))")
+        // Double-tap back to fit.
         photo.doubleTap()
-        // Pinching out below fit bounces back, and leaves the viewer as it was (a cancelled
-        // swipe-down once left the page pulled down with the controls hidden).
+        Thread.sleep(forTimeInterval: 0.8)
+        let afterFit = zoomProbe()
+        XCTAssertTrue(afterFit.hasPrefix("zoomed=0"), "double-tap didn't go back to fit: \(afterFit)")
+        // Pinching in below fit bounces back. Its fingers move down the screen, but it's a
+        // pinch, not a swipe-down: the viewer stays open with its controls.
         photo.pinch(withScale: 0.5, velocity: -2)
         let trash = app.buttons["viewer.delete"]
         let deadline = Date().addingTimeInterval(3)
         while !(trash.exists && trash.isHittable) && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }
         XCTAssertTrue(trash.exists && trash.isHittable,
-                      "controls gone after zooming back out (viewer open: \(photo.exists), back on the camera: \(app.buttons["strip.ev"].exists))")
+                      "controls gone after pinching in at fit (viewer open: \(photo.exists), back on the camera: \(app.buttons["strip.ev"].exists), before: \(afterFit), now: \(zoomProbe()))")
     }
 
     func testPinchZoomInTheEditorDoesNotAdjustAnything() {
