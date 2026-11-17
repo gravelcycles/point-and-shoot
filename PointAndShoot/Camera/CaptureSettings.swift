@@ -462,5 +462,5 @@ extension CameraSettings {
     var zoomLocked: Bool { mode.isStill && !shootsProRAW }
 
     /// What to call the zoom-locked mode in a toast.
-    var zoomLockReason: String { "Bayer RAW" }
+    var zoomLockReason: String { mode == .print ? "Print" : "Bayer RAW" }
 }
