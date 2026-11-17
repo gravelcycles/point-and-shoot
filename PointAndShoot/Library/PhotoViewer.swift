@@ -118,7 +118,9 @@ struct PhotoViewer: View {
         }
         .onChange(of: dismissDragActive) { _, active in
             guard !active else { return }
-            pinchedDuringDrag = pageZoomed
+            ViewerEventProbe.shared.add("g-")
+            // Not the place to clear `pinchedDuringDrag`: SwiftUI can end and restart its
+            // drag mid-pinch (when a finger joins or lifts). A new touch sequence clears it.
             if !dismissing, dragY != 0 {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
             }
@@ -126,6 +128,7 @@ struct PhotoViewer: View {
         .onChange(of: selectedID) { _, id in
             // The page left behind snaps back to fit (ZoomableImageView.isCurrent).
             pageZoomed = false
+            pinchedDuringDrag = false
             if let id, let i = roll.assets.firstIndex(where: { $0.localIdentifier == id }) { lastIndex = i }
         }
         .task(id: selectedID) {
@@ -198,10 +201,12 @@ struct PhotoViewer: View {
                               onTouches: { multiTouch in
                                   // Two fingers anywhere in this touch sequence make it a
                                   // pinch: when they lift it must never count as a swipe-down.
+                                  ViewerEventProbe.shared.add(multiTouch ? "t2" : "t1")
                                   if multiTouch {
                                       pinchedDuringDrag = true
                                       if dragY != 0 { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 } }
-                                  } else if !dismissDragActive {
+                                  } else {
+                                      // A new touch sequence (first finger down).
                                       pinchedDuringDrag = false
                                   }
                               })
@@ -224,10 +229,12 @@ struct PhotoViewer: View {
                     guard !pageZoomed, !pinchedDuringDrag else { return }
                     // Only a mostly-vertical, downward pull dismisses; sideways is paging.
                     if v.translation.height > 0, v.translation.height > abs(v.translation.width) * 1.4 {
+                        if dragY == 0 { ViewerEventProbe.shared.add("d") }
                         dragY = v.translation.height
                     }
                 }
                 .onEnded { v in
+                    ViewerEventProbe.shared.add("e\(pinchedDuringDrag ? 1 : 0)\(pageZoomed ? 1 : 0)y\(Int(dragY))")
                     if pageZoomed || pinchedDuringDrag {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { dragY = 0 }
                         return
@@ -240,6 +247,7 @@ struct PhotoViewer: View {
                             showGrid = true
                         } else {
                             dismissing = true
+                            ViewerEventProbe.shared.add("X")
                             dismiss()
                         }
                     } else {
@@ -269,7 +277,7 @@ struct PhotoViewer: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            Button { dismiss() } label: {
+            Button { ViewerEventProbe.shared.add("C"); dismiss() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(width: 40, height: 40)
