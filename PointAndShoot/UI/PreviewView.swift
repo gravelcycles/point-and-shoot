@@ -30,8 +30,8 @@ struct PreviewView: UIViewRepresentable {
         let tap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.tap(_:)))
         let doubleTap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.doubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
-        // A single tap (focus) waits to be sure it isn't the first of a double-tap.
-        tap.require(toFail: doubleTap)
+        // Focus never waits: a single tap focuses at once (making it wait to rule out a
+        // double-tap made every focus feel late). A double-tap focuses and opens Settings.
         let long = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.longPress(_:)))
         long.minimumPressDuration = 0.55
         let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.pinch(_:)))
