@@ -46,6 +46,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.storeForever)
         XCTAssertFalse(s.autoExport)
         XCTAssertEqual(s.exportMaxSide, 2880)
+        XCTAssertEqual(s.availableModes, [.photo, .print, .video])
     }
 
     func testStartingGrade() {
@@ -88,13 +89,19 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.wantsPlainLiveView)
     }
 
-    func testPrintAsFilterLeavesTheModePicker() {
+    /// P&S Studio: Print is both a mode (the simple one) and one of Photo's looks.
+    func testPrintIsAModeAndALook() {
         var s = CameraSettings()
-        s.printPlacement = .filter
-        XCTAssertEqual(s.availableModes, [.photo, .video])
-        XCTAssertTrue(s.filterLooks.contains { $0.id == CameraSettings.printLookID })
-        s.printPlacement = .mode
-        XCTAssertFalse(s.filterLooks.contains { $0.id == CameraSettings.printLookID })
+        for placement in PrintPlacement.allCases {
+            s.printPlacement = placement
+            XCTAssertEqual(s.availableModes, [.photo, .print, .video])
+            XCTAssertTrue(s.filterLooks.contains { $0.id == CameraSettings.printLookID })
+        }
+        s.captureLook = CameraSettings.printLookID
+        XCTAssertEqual(s.activeLook, CameraSettings.printLookID, "Print picked in Photo applies")
+        s.captureLook = "punch"
+        s.mode = .print
+        XCTAssertEqual(s.activeLook, CameraSettings.printLookID, "Print mode is always Print")
     }
 
     // MARK: Saved settings from other app versions
@@ -142,7 +149,7 @@ final class SettingsTests: XCTestCase {
         var s = CameraSettings()
         XCTAssertNil(s.lookSet)
         let all = s.filterLooks
-        XCTAssertEqual(all.count, Look.all.count - 2, "all looks but Original and Print (a mode)")
+        XCTAssertEqual(all.count, Look.all.count - 1, "all looks but Original (Print is one of them in Studio)")
         for set in LookSet.allCases {
             XCTAssertFalse(set.looks.isEmpty, "\(set.name) is empty")
             s.lookSet = set.rawValue
@@ -172,7 +179,7 @@ final class SettingsTests: XCTestCase {
     }
 
     /// The strip always shows the look in use, even from another set (first, so it can be
-    /// seen and turned off), and a set's count leaves Print out while Print is a mode.
+    /// seen and turned off), and a set's count includes Print (a card as well as a mode).
     func testStripKeepsTheActiveLookAndCountsWhatItShows() {
         var s = CameraSettings()
         s.lookSet = LookSet.movie.rawValue
@@ -181,10 +188,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.stripLooks.count, s.filterLooks.count + 1)
         s.captureLook = "blockbuster"       // already in the set: not doubled
         XCTAssertEqual(s.stripLooks.map(\.id), s.filterLooks.map(\.id))
-        XCTAssertEqual(s.printPlacement, .mode)
-        XCTAssertEqual(s.stripCount(of: .essentials), 3, "Print is a mode, not a card")
-        s.printPlacement = .filter
-        XCTAssertEqual(s.stripCount(of: .essentials), 4)
+        XCTAssertEqual(s.stripCount(of: .essentials), 4, "Print is a card as well as a mode")
         XCTAssertEqual(s.stripCount(of: .movie), 4)
     }
 

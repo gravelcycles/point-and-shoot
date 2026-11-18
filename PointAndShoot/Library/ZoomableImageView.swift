@@ -38,6 +38,9 @@ struct ZoomableImageView: UIViewRepresentable {
         c.onTouches = onTouches
         view.pixelSize = pixelSize
         view.setImage(image)
+        // Only the page on screen answers to "viewer.photo" (UI tests pinch it); the
+        // pager's other pages are off screen.
+        view.accessibilityIdentifier = isCurrent ? "viewer.photo" : "viewer.photo.offscreen"
         if !isCurrent { view.resetZoom(animated: false) }
     }
 

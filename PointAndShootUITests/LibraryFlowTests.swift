@@ -42,6 +42,31 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["strip.ev"].waitForExistence(timeout: 4))
     }
 
+    /// The grid is its own screen (opened from the viewer's bottom-left button), and its
+    /// camera button goes straight back to shooting.
+    func testGridIsAScreenWithAWayBackToTheCamera() {
+        openViewer()
+        app.buttons["viewer.grid"].tap()
+        let camera = app.buttons["grid.camera"]
+        XCTAssertTrue(camera.waitForExistence(timeout: 4), "the grid has no camera button")
+        let cells = app.descendants(matching: .any).matching(identifier: "grid.cell")
+        XCTAssertEqual(cells.count, 3)
+        camera.tap()
+        XCTAssertTrue(app.buttons["strip.ev"].waitForExistence(timeout: 4), "the grid's camera button didn't return to the camera")
+    }
+
+    /// One photo's ⋯ menu offers what the grid's Select menu does.
+    func testViewerMoreMenuOffersGradeAndArchive() {
+        openViewer()
+        app.buttons["viewer.more"].tap()
+        // Menu items, by their titles.
+        XCTAssertTrue(app.buttons["Copy Grade"].waitForExistence(timeout: 3), "no Copy Grade")
+        XCTAssertTrue(app.buttons["Paste Grade"].exists, "no Paste Grade")
+        XCTAssertTrue(app.buttons["Archive RAW…"].exists, "no Archive RAW")
+        app.buttons["Copy Grade"].tap()
+        XCTAssertTrue(app.staticTexts["Grade copied"].waitForExistence(timeout: 3))
+    }
+
     func testTrashFromTheViewerAndUndo() {
         openViewer()
         let before = rollCount()

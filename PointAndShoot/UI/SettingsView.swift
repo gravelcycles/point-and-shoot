@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var confirmReset: ResetKind?
     /// Turning Store Forever off would move this many photos to the Trash right away.
     @State private var confirmStopStoring = 0
+    @State private var showDiagnostics = false
 
     enum Tab: String, CaseIterable, Identifiable {
         case general, camera, processing
@@ -55,6 +56,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Preferences")
+            .navigationDestination(isPresented: $showDiagnostics) { DiagnosticsView() }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -162,6 +164,7 @@ struct SettingsView: View {
                 }
             }
             .disabled(importing)
+            .settingsRow()
             .accessibilityIdentifier("settings.importRAW")
         } header: {
             Text("Import from Photos")
@@ -179,6 +182,7 @@ struct SettingsView: View {
                 }
             }
             .disabled(importing)
+            .settingsRow()
             .accessibilityIdentifier("settings.importArchive")
         } header: {
             Text("Import Archive")
@@ -187,6 +191,7 @@ struct SettingsView: View {
         }
         Section {
             Button("Lock Screen Camera Setup…") { showLockScreenHelp = true }
+                .settingsRow()
         } header: {
             Text("Lock Screen")
         } footer: {
@@ -197,9 +202,20 @@ struct SettingsView: View {
                 hintsSeen = false
                 dismiss()
             }
+            .settingsRow()
             LabeledContent("Version", value: Diag.buildDescription)
-            NavigationLink("Diagnostics") { DiagnosticsView() }
-                .accessibilityIdentifier("settings.diagnostics")
+            // A button rather than a NavigationLink, for the same clear pressed state.
+            Button { showDiagnostics = true } label: {
+                HStack {
+                    Text("Diagnostics")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .settingsRow(plain: true)
+            .accessibilityIdentifier("settings.diagnostics")
         } header: {
             Text("Help")
         } footer: {
@@ -207,6 +223,7 @@ struct SettingsView: View {
         }
         Section {
             Button("Reset General Settings", role: .destructive) { confirmReset = .general }
+                .settingsRow()
         } footer: {
             Text("Factory settings for auto export and geotagging. Store New Photos Forever is left as it is.")
         }
@@ -236,11 +253,6 @@ struct SettingsView: View {
                  : "Bayer RAW: the sensor's own single frame, with real grain and contrast. Zoom stays at 1× (the full sensor is recorded).")
         }
         Section {
-            Picker("Print film look", selection: camera.binding(\.printPlacement)) {
-                ForEach(PrintPlacement.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("settings.printPlacement")
             Toggle("Plain live view", isOn: camera.binding(\.plainLiveView))
                 .accessibilityIdentifier("settings.plainLiveView")
             Picker("Self-timer", selection: camera.binding(\.selfTimer)) {
@@ -252,10 +264,7 @@ struct SettingsView: View {
         } header: {
             Text("Shooting")
         } footer: {
-            Text((s.printPlacement == .mode
-                  ? "PHOTO · PRINT · VIDEO: Print is its own mode. "
-                  : "Print is one of the looks in Photo mode. ")
-                 + "Plain live view: every photo here develops from the RAW alone, but iPhones only give the viewfinder Apple's processed video. This asks for a plainer feed (no video HDR, no local brightening) so the viewfinder tracks the photo more closely. Experimental.")
+            Text("Plain live view: every photo here develops from the RAW alone, but iPhones only give the viewfinder Apple's processed video. This asks for a plainer feed (no video HDR, no local brightening) so the viewfinder tracks the photo more closely. Experimental.")
         }
         Section {
             Toggle("Grid", isOn: camera.binding(\.showGrid))
@@ -301,6 +310,7 @@ struct SettingsView: View {
         videoSection(s)
         Section {
             Button("Reset Camera Settings", role: .destructive) { confirmReset = .camera }
+                .settingsRow()
         } footer: {
             Text("Factory settings for RAW format, shooting, viewfinder, controls and video. Your library, export options and default grade aren't touched.")
         }
@@ -383,6 +393,7 @@ struct SettingsView: View {
                 Slider(value: camera.binding(\.exportQuality), in: 0.5...1, step: 0.05)
             }
             Button("Reset to Defaults") { reset(.export) }
+                .settingsRow()
                 .disabled(s.exportFormat == .heif && s.exportMaxSide == 2880 && s.exportQuality == 1)
         } header: {
             Text("Export Options")
@@ -507,6 +518,7 @@ struct DefaultGradeSection: View {
                 slider("vignette")
             }
             Button("Reset to Defaults") { camera.update { $0.defaultGrade = nil } }
+                .settingsRow()
                 .disabled(camera.settings.defaultGrade == nil)
         } header: {
             Text("Default Grade")
@@ -582,5 +594,33 @@ private struct LockScreenHelp: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+/// A Preferences button row that lights up the moment it's touched. List rows only
+/// highlight after a short delay (so scrolls don't flash them), and a quick tap often showed
+/// nothing at all. Fills the row (`settingsRow()` zeroes its insets) and pads it back.
+struct SettingsRowStyle: ButtonStyle {
+    /// Primary-coloured text (a row that opens a page), rather than the tint.
+    var plain = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(configuration.role == .destructive ? AnyShapeStyle(Color.red)
+                             : plain ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
+            .opacity(isEnabled ? 1 : 0.4)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 20)
+            .contentShape(Rectangle())
+            .background(configuration.isPressed ? Color.white.opacity(0.16) : Color.clear)
+            .animation(configuration.isPressed ? nil : .easeOut(duration: 0.25), value: configuration.isPressed)
+    }
+}
+
+extension View {
+    func settingsRow(plain: Bool = false) -> some View {
+        buttonStyle(SettingsRowStyle(plain: plain))
+            .listRowInsets(EdgeInsets())
     }
 }

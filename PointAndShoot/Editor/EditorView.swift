@@ -314,6 +314,7 @@ struct EditorView: View {
             let image = displayImage
             ZStack {
                 MetalImageView(image: image,
+                               contentKey: session.recipeRevision &* 8 + (showOriginal ? 1 : 0) + (tool == .crop ? 2 : 0) + (session.isLoading ? 4 : 0),
                                zoomable: tool != .crop && !session.isLoading,
                                oneFingerPan: true,
                                pixelSize: session.pixelSize,

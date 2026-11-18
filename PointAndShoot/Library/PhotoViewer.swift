@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// What the camera's thumbnail opens: the shot you just took, full screen, with every shot
-/// in a filmstrip below it (Chromagraph's reel). Swipe sideways or tap the filmstrip to move
-/// through the library, swipe down to get back to shooting. Shots live in the app's own
-/// library (`ShotStore`); Export puts the rendered photo into Photos.
+/// in a filmstrip below it (Chromagraph's reel), newest on the right like Photos. Swipe
+/// right (toward the left) or tap the filmstrip for older shots, swipe down to get back to
+/// shooting. The grid button (bottom left) swaps in the whole library as its own screen.
+/// Shots live in the app's own library (`ShotStore`); Export puts the rendered photo into
+/// Photos.
 struct PhotoViewer: View {
     let store: ShotStore
     let camera: CameraController
@@ -14,7 +16,10 @@ struct PhotoViewer: View {
     @State private var chromeHidden = false
     @State private var dragY: CGFloat = 0
     @State private var editing: Shot?
+    /// The library grid fills the screen in place of the photo (its own screen, with a way
+    /// straight back to the camera).
     @State private var showGrid = false
+    @State private var confirmArchive = false
     /// The photo was opened from the grid, so swiping down goes back to the grid.
     @State private var cameFromGrid = false
     @State private var shareURL: ShareItem?
@@ -53,7 +58,11 @@ struct PhotoViewer: View {
                             : (camera.lastSavedShotID?.uuidString ?? store.shots.first?.id.uuidString))
     }
 
-    private var showPending: Bool { awaitingCapture && camera.lastThumbnail != nil }
+    /// A shot is still saving: show its page ("Developing…") at once, over the camera's
+    /// preview when it has arrived, never the previous photo meanwhile.
+    private var showPending: Bool { awaitingCapture }
+    /// The library in display order: oldest on the left, newest on the right.
+    private var ordered: [Shot] { store.shots.reversed() }
     private var selectedShot: Shot? {
         guard let selectedID, let id = UUID(uuidString: selectedID) else { return nil }
         return store.shots.first { $0.id == id }
@@ -85,13 +94,34 @@ struct PhotoViewer: View {
                 .transition(.opacity)
             }
 
+            if showGrid {
+                RollGrid(store: store, camera: camera, onSelect: { shot in
+                    selectedID = shot.id.uuidString
+                    cameFromGrid = true
+                    withAnimation(.easeOut(duration: 0.2)) { showGrid = false }
+                }, onCamera: {
+                    ViewerEventProbe.shared.add("C")
+                    dismiss()
+                })
+                .background(Color.black.ignoresSafeArea())
+                .transition(.opacity)
+                .zIndex(1)
+            }
+
             if let banner {
                 bannerView(banner)
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    .zIndex(2)
             }
         }
         .preferredColorScheme(.dark)
-        .statusBarHidden(chromeHidden)
+        .statusBarHidden(chromeHidden && !showGrid)
+        .confirmationDialog("Archive RAW Photo", isPresented: $confirmArchive, titleVisibility: .visible) {
+            Button("Save to Photo Library") { archiveToPhotos() }
+            Button("Save or Share Zip…") { archiveZip() }
+        } message: {
+            Text("Saves the original RAW file. A zip also includes the photo's grade, and Import Archive in Preferences brings it back.")
+        }
         .overlay(alignment: .topLeading) { RollCountProbe(store: store).padding(.top, 2) }
         .overlay(alignment: .topTrailing) {
             if TestHooks.isUITest {
@@ -144,14 +174,6 @@ struct PhotoViewer: View {
                     }
                 }
             Color.clear
-                .sheet(isPresented: $showGrid) {
-                    RollGrid(store: store, camera: camera) { shot in
-                        selectedID = shot.id.uuidString
-                        cameFromGrid = true
-                        showGrid = false
-                    }
-                }
-            Color.clear
                 .sheet(item: $shareURL) { item in
                     ActivityView(items: item.urls)
                         .presentationDetents([.medium, .large])
@@ -165,14 +187,7 @@ struct PhotoViewer: View {
     private var pager: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 0) {
-                if showPending, let thumb = camera.lastThumbnail {
-                    PendingPage(image: thumb)
-                        .containerRelativeFrame([.horizontal, .vertical])
-                        .contentShape(Rectangle())
-                        .onTapGesture(perform: toggleChrome)
-                        .id(Self.pendingID)
-                }
-                ForEach(store.shots) { shot in
+                ForEach(ordered) { shot in
                     let id = shot.id.uuidString
                     ShotPage(shot: shot, store: store, isCurrent: id == selectedID,
                              developing: store.developing.contains(shot.id),
@@ -200,9 +215,19 @@ struct PhotoViewer: View {
                         .containerRelativeFrame([.horizontal, .vertical])
                         .id(id)
                 }
+                // The shot being saved goes where it will land: newest, on the right.
+                if showPending {
+                    PendingPage(image: camera.lastThumbnail)
+                        .containerRelativeFrame([.horizontal, .vertical])
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: toggleChrome)
+                        .id(Self.pendingID)
+                }
             }
             .scrollTargetLayout()
         }
+        // Opens at the newest end (the right).
+        .defaultScrollAnchor(.trailing)
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $selectedID)
         .ignoresSafeArea()
@@ -227,7 +252,7 @@ struct PhotoViewer: View {
                         if cameFromGrid {
                             cameFromGrid = false
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { dragY = 0 }
-                            showGrid = true
+                            withAnimation(.easeOut(duration: 0.2)) { showGrid = true }
                         } else {
                             dismissing = true
                             ViewerEventProbe.shared.add("X")
@@ -262,7 +287,6 @@ struct PhotoViewer: View {
     private var topBar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                circleButton("square.grid.2x2", id: "viewer.grid") { showGrid = true }
                 circleButton("camera", id: "viewer.close") {
                     ViewerEventProbe.shared.add("C")
                     dismiss()
@@ -270,6 +294,7 @@ struct PhotoViewer: View {
                 circleButton(working ? "hourglass" : "square.and.arrow.up", id: "viewer.share") { share() }
                     .disabled(selectedShot == nil || working)
                 Spacer()
+                moreMenu
                 circleButton(selectedShot?.keep == true ? "bookmark.fill" : "bookmark", id: "viewer.keep",
                              tint: selectedShot?.keep == true ? .tan : .white) {
                     guard let shot = selectedShot else { return }
@@ -329,7 +354,9 @@ struct PhotoViewer: View {
         let shot = selectedShot
         return VStack(spacing: 10) {
             HStack {
-                Color.clear.frame(width: 44, height: 44)
+                circleButton("square.grid.2x2", id: "viewer.grid") {
+                    withAnimation(.easeOut(duration: 0.2)) { showGrid = true }
+                }
                 Spacer()
                 Button {
                     if let shot { editing = shot }
@@ -381,6 +408,33 @@ struct PhotoViewer: View {
         shot.isRAW && store.developing.contains(shot.id) && !store.recipe(for: shot.id).rawInitialized
     }
 
+    /// One photo's extras, as in the grid's Select menu: copy/paste its grade, archive its RAW.
+    private var moreMenu: some View {
+        Menu {
+            Button {
+                guard let shot = selectedShot else { return }
+                EditClipboard.recipe = store.recipe(for: shot.id)
+                show(Banner(text: "Grade copied"))
+            } label: { Label("Copy Grade", systemImage: "doc.on.doc") }
+            .accessibilityIdentifier("viewer.copyGrade")
+            Button { pasteGrade() } label: { Label("Paste Grade", systemImage: "doc.on.clipboard") }
+                .accessibilityIdentifier("viewer.pasteGrade")
+            Divider()
+            Button { confirmArchive = true } label: { Label("Archive RAW…", systemImage: "archivebox") }
+                .accessibilityIdentifier("viewer.archive")
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 38, height: 38)
+                .background(.ultraThinMaterial, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .disabled(selectedShot == nil || working)
+        .accessibilityIdentifier("viewer.more")
+        .accessibilityLabel("More")
+    }
+
     private func circleButton(_ symbol: String, id: String, tint: Color = .white,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -429,6 +483,50 @@ struct PhotoViewer: View {
         show(Banner(text: "Moved to Trash", undoTrash: [shot.id]), seconds: 4)
     }
 
+    private func pasteGrade() {
+        guard let shot = selectedShot else { return }
+        guard let copied = EditClipboard.recipe else {
+            show(Banner(text: "Copy a grade first: ⋯ → Copy Grade on another photo"), seconds: 3)
+            return
+        }
+        // As with the editor: not until the first develop has settled the grade.
+        guard !awaitingFirstSettle(shot) else {
+            show(Banner(text: "Still developing — try again in a moment"))
+            return
+        }
+        Haptics.impact(.light)
+        if store.setRecipe(copied.look(appliedTo: store.recipe(for: shot.id)), for: shot.id) {
+            show(Banner(text: "Grade pasted"))
+        }
+    }
+
+    private func archiveToPhotos() {
+        guard let shot = selectedShot else { return }
+        working = true
+        Task {
+            do {
+                _ = try await ShotArchive.archiveToPhotos([shot], store: store)
+                show(Banner(text: "RAW photo added to Photos"))
+            } catch {
+                show(Banner(text: "Couldn't archive: \(error.localizedDescription)"), seconds: 5)
+            }
+            working = false
+        }
+    }
+
+    private func archiveZip() {
+        guard let shot = selectedShot else { return }
+        working = true
+        Task {
+            do {
+                shareURL = ShareItem(url: try await ShotArchive.makeZip([shot], store: store))
+            } catch {
+                show(Banner(text: "Couldn't make the zip: \(error.localizedDescription)"), seconds: 5)
+            }
+            working = false
+        }
+    }
+
     private func export() {
         guard let shot = selectedShot else { return }
         working = true
@@ -456,6 +554,8 @@ struct PhotoViewer: View {
 
     private func show(_ b: Banner, seconds: Double = 1.8) {
         Diag.log(.viewer, "banner: \(b.text)")
+        // UI tests wait for the app to go idle before looking: give them time to see it.
+        let seconds = TestHooks.isUITest ? max(seconds, 6) : seconds
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { banner = b }
         Task {
             try? await Task.sleep(for: .seconds(seconds))
@@ -487,7 +587,8 @@ struct Filmstrip: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 3) {
-                    ForEach(store.shots) { shot in
+                    // Oldest on the left, newest on the right, like the pager above.
+                    ForEach(Array(store.shots.reversed())) { shot in
                         let id = shot.id.uuidString
                         ShotThumbnail(shot: shot, store: store)
                             .frame(width: id == selectedID ? 50 : 36, height: 46)
@@ -538,20 +639,26 @@ struct ShotThumbnail: View {
 // MARK: - Pages
 
 private struct PendingPage: View {
-    let image: UIImage
+    /// The camera's quick preview, once it has arrived.
+    let image: UIImage?
 
     var body: some View {
         ZStack {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .blur(radius: 6)
-                .opacity(0.8)
+            Color.black
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .blur(radius: 6)
+                    .opacity(0.8)
+                    .transition(.opacity)
+            }
             VStack(spacing: 10) {
                 ProgressView().tint(.white).controlSize(.large)
                 Text("Developing…").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: image != nil)
     }
 }
 

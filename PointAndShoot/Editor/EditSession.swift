@@ -22,7 +22,11 @@ final class EditSession {
     let shot: Shot
     let store: ShotStore
 
-    var recipe = EditRecipe()
+    var recipe = EditRecipe() {
+        didSet { if recipe != oldValue { recipeRevision &+= 1 } }
+    }
+    /// Bumped on every change to the grade: the canvas re-renders its zoom bitmap then.
+    @ObservationIgnored private(set) var recipeRevision = 0
     /// The recipe as it was when opened (or last saved) — for "discard changes?".
     private(set) var savedRecipe = EditRecipe()
     /// Quick screen-size image shown instantly while the real source decodes.

@@ -557,7 +557,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       under the film's), and exposure applied *before* un-rendering (+1 EV clipped
       everything above display 0.5). Kept bit-exact for older edits.
 - **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
-  "Print film look".
+  "Print film look". **P&S Studio: Print is both** (the owner, 2026-11-18): always a mode
+  ("the simple mode") and always one of Photo's looks. `printPlacement` is ignored and its
+  setting hidden (kept so settings round-trip with `main`).
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
     (`isStill`), so it uses the photo pipeline.
     - It drops the controls that don't apply: no format pill (always RAW), no LOOK
@@ -733,10 +735,16 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 - **GPS:** works offline. Written to EXIF (position, altitude, speed, compass heading),
   QuickTime ISO 6709 metadata, and `PHAsset.location`.
 - **Library** (§4 "Library, trash and retention"):
-  - The viewer opens on the newest shot, with a "Developing…" placeholder while it saves.
-    A filmstrip of every shot sits under the photo. Paging, swipe down to dismiss.
-  - Header: grid, camera, share · Keep (bookmark), trash. An info line shows RAW type,
-    date, exposure and days left. Bottom: edit and export (tan).
+  - The viewer opens on the newest shot. A shot still saving gets its "Developing…" page
+    at once (over the camera's preview once it arrives), never the previous photo
+    meanwhile. Newest on the **right** (like Photos): the pager and the filmstrip run
+    oldest → newest, so older shots are to the left. Paging, swipe down to dismiss.
+  - Header: camera, share · ⋯ (Copy/Paste Grade, Archive RAW…), Keep (bookmark), trash.
+    An info line shows RAW type, date, exposure and days left. Bottom: grid (left, above
+    the filmstrip), edit and export (tan).
+  - The grid is its own screen inside the viewer (not a sheet), with a camera button
+    straight back to shooting; tapping a photo opens it, and swiping that photo down
+    returns to the grid.
   - Zoom like Photos (`ZoomableImageView`, a UIScrollView): pinch anchored under the
     fingers with pan at the same time, rubber-banding, double-tap fit ↔ 2.5×, up to 2×
     native pixels (4–8×). At 1× the scroll view has nothing to scroll, so swipes page and
@@ -760,6 +768,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     2.5×; one finger pans when zoomed. Zoom is a transform in the renderer, so Core Image renders
     only the visible region; zoomed in, `EditSession` switches to a sharper source
     (`loadDetail`, long side ≤ 4096, RAW at the matching scale). Off in Crop.
+    Zoom and pan frames draw a bitmap of the edit (rendered once it stops changing for
+    0.25 s, keyed by `EditSession.recipeRevision`), never the RAW develop + film graph per
+    frame, which lagged on device. Slider drags still render the graph live.
   - A discard guard for unsaved changes.
 - **iOS 18 Lock Screen camera + Control Center control:**
   - The extension writes to Photos when allowed. Otherwise it parks files in
