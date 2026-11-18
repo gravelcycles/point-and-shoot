@@ -44,7 +44,14 @@ enum RecipeBaker {
             EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
             if recipe.rawFilmExposure == nil,
                let target = viewfinderKey ?? FilmPipeline.sceneKey(of: base, context: EditPipeline.context, source: .displayReferred) {
-                recipe.rawFilmExposure = matchedExposure(raw, target: target)
+                if let match = FilmPipeline.matchRAWExposure(raw, target: target, context: EditPipeline.context) {
+                    recipe.rawFilmExposure = match.ev
+                    let source = viewfinderKey != nil ? "viewfinder" : "photo"
+                    Diag.log(.bake, "film exposure " + String(format: "%+.2f EV: ", match.ev) + source
+                             + String(format: " key %.4f, RAW key %.4f", target, match.rawKey))
+                } else {
+                    Diag.error(.bake, "couldn't measure the RAW's brightness; developing it unmatched")
+                }
                 EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
             }
             output = raw.outputImage.map { EditPipeline.apply(recipe, to: $0, developedFromRAW: true) }
@@ -68,21 +75,6 @@ enum RecipeBaker {
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest(for: asset).contentEditingOutput = editingOutput
         }
-    }
-
-    /// Stops that bring this RAW develop's scene key to `target`, measured on a small
-    /// develop (the key is an average; resolution doesn't change it). Clamped: a dark night
-    /// scene that Apple's video lifts hard shouldn't push the film more than 2.5 stops.
-    private static func matchedExposure(_ raw: CIRAWFilter, target: Double) -> Double? {
-        let native = raw.nativeSize
-        let full = raw.scaleFactor
-        raw.scaleFactor = Float(min(1, 256 / max(native.width, native.height, 1)))
-        defer { raw.scaleFactor = full }
-        guard let image = raw.outputImage,
-              let key = FilmPipeline.sceneKey(of: image, context: EditPipeline.context, source: .sceneLinear),
-              key > 0, target > 0 else { return nil }
-        let ev = min(max(log2(target / key), -1.5), 2.5)
-        return (ev * 100).rounded() / 100
     }
 
     private static func rawFilter(_ data: Data?, asset: PHAsset) async -> CIRAWFilter? {
