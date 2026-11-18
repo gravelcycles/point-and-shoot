@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import ImageIO
 import PhotosUI
@@ -21,10 +22,21 @@ enum ShotArchive {
     @discardableResult
     static func archiveToPhotos(_ shots: [Shot], store: ShotStore) async throws -> Int {
         var n = 0
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
         for shot in shots {
             let url = store.dir(shot.id).appendingPathComponent(shot.original)
             let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            try await PhotoLibrary.savePhoto(primary: data, rawCompanion: nil)
+            let location = shot.latitude.flatMap { lat in shot.longitude.map { CLLocation(latitude: lat, longitude: $0) } }
+            if shot.isRAW {
+                try await PhotoLibrary.saveRAW(data, fileExtension: url.pathExtension.isEmpty ? "dng" : url.pathExtension,
+                                               name: "PS_" + formatter.string(from: shot.captured),
+                                               created: shot.captured, location: location)
+            } else {
+                // A processed original (no RAW was possible): saved as the photo it is.
+                try await PhotoLibrary.savePhoto(primary: data, rawCompanion: nil, location: location)
+            }
             n += 1
         }
         Diag.log(.save, "archived \(n) RAW to Photos")

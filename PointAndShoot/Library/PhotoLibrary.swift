@@ -74,6 +74,42 @@ enum PhotoLibrary {
         return box.value
     }
 
+    /// Saves a RAW file on its own (Archive RAW), labelled as a RAW for Photos and for
+    /// every app that imports from it. Handed over as bytes with no type or name, Photos
+    /// can file a DNG as a plain TIFF; RAW importers (Chromagraph's "Import RAW", our own)
+    /// then find no RAW in it and fail. So: a `.dng` file, typed com.adobe.raw-image, with
+    /// a camera-style file name and the shot's date and place.
+    @discardableResult
+    static func saveRAW(_ data: Data, fileExtension: String = "dng", name: String,
+                        created: Date? = nil, location: CLLocation? = nil) async throws -> String? {
+        try await ensureAddAccess()
+        let ext = fileExtension.lowercased()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let type = UTType(filenameExtension: ext).flatMap { $0.conforms(to: .rawImage) ? $0 : nil }
+            ?? UTType("com.adobe.raw-image")!
+        let box = IDBox()
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.location = location
+                if let created { request.creationDate = created }
+                let options = PHAssetResourceCreationOptions()
+                options.uniformTypeIdentifier = type.identifier
+                options.originalFilename = "\(name).\(ext.uppercased())"
+                options.shouldMoveFile = true
+                request.addResource(with: .photo, fileURL: url, options: options)
+                box.value = request.placeholderForCreatedAsset?.localIdentifier
+            }
+        } catch {
+            Diag.error(.save, "Photos RAW save failed (\(data.count / 1024) KB, \(type.identifier))", error)
+            throw error
+        }
+        return box.value
+    }
+
     @discardableResult
     static func saveVideo(at url: URL, location: CLLocation? = nil) async throws -> String? {
         try await ensureAddAccess()
