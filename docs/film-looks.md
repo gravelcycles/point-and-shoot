@@ -649,15 +649,24 @@ this app (`Chromagraph RAW 2026-11-18/`, git-ignored; `phromagraph.py develop-ev
   the cause). **On Bayer files Chromagraph develops 1.3 EV darker** (+0.54 ± 0.09) and
   flatter: its deep shadows sit as if at +1.8 while mids are at +0.45, so the Phromagraph
   fit is looser there (ΔE 0.024–0.033).
-- So film looks now develop per RAW type (`EditRecipe.filmRAWExposure(bayer:)`): ProRAW
-  +1.86, Bayer +0.54; Print always shoots ProRAW; ProRAW is the default ("Cleaner").
+- #52 then developed per RAW type: ProRAW +1.86, Bayer +0.54; Print always shoots ProRAW;
+  ProRAW is the default ("Cleaner"). Superseded by natural brightness (below).
 - Against Apple's rendering (CIRAWFilter defaults, scene keys through engine 2) a Bayer
   RAW sits at a constant +1.2 in all three scenes (+1.20, +1.21, +1.18), while ProRAW
   follows the scene (+0.5…+2.5): relative to Apple, a Bayer RAW is ~0.65 EV brighter
-  than a ProRAW in these scenes. So the viewfinder's Bayer offset is −0.67
-  (`ViewfinderMatch.bayerOffset`), and at these constants a Bayer shot may come out
-  ~0.6 EV darker than a ProRAW shot of the same scene: the owner's side-by-side decides
-  whether Bayer should be closer to +1.2.
+  than a ProRAW in these scenes (0.63 at EV 10): that's `EditRecipe.bayerScale`, so a
+  Bayer and a ProRAW shot of one scene develop equally bright.
+
+**Natural brightness (2026-11-18, after "chromagraph sucks for RAW").** Chromagraph's
+fixed +1.86 lifts dim scenes far past what the eye saw (the owner's ISO 640 bunk-bed room,
+EV ≈ 3.4: "an overexposed monstrosity"). The develop now follows the scene's light from
+the photo's saved settings, the way Apple's rendering does, a touch under, capped at
+Chromagraph's +1.86: min(1.83 + 0.122·(EV100 − 10) − 0.2, 1.86), minus 0.63 for Bayer
+(EV100 clamped to 3…15). On the reference shoots: TV room (Bayer, EV 6.4) +0.56, street
+(Bayer, EV 11.1) +1.13, tree (Bayer, EV 13) +1.23, sunset (ProRAW, EV 15.2) +1.86. The
+viewfinder correction follows from the same function: −0.2 up to ~EV 11.9, darker above.
+The Bayer scale (0.63) is an estimate from Apple's renderings; a ProRAW and a Bayer shot of
+one scene should look equally bright, and the owner's side-by-side will check it.
 
 ## 6. Grain and noise: what's known and what isn't
 

@@ -78,7 +78,7 @@ enum ShotRenderer {
     static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL) -> EditRecipe {
         var r = recipe
         r.freezeFilmTuning()
-        r = r.withFilmDevelopExposure(hasRAW: shot.isRAW, bayer: shot.kind == .bayerRAW)
+        r = r.withFilmDevelopExposure(for: shot)
         guard shot.isRAW, let raw = rawFilter(shot, in: dir) else {
             r.useRAW = shot.isRAW
             return r

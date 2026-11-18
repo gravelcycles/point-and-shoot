@@ -23,7 +23,15 @@ final class EditSession {
     let store: ShotStore
 
     var recipe = EditRecipe() {
-        didSet { if recipe != oldValue { recipeRevision &+= 1 } }
+        didSet {
+            // Every change goes through here (a look picked, a paste, undo, a reset), so the
+            // film develop's exposure is settled for this photo's RAW in one place: the
+            // preview always renders exactly what Save will store. (Picking a look leaves it
+            // nil; rendered as nil, the preview came out ~2 stops darker than the save.)
+            let settled = recipe.withFilmDevelopExposure(for: shot)
+            if settled != recipe { recipe = settled }
+            if recipe != oldValue { recipeRevision &+= 1 }
+        }
     }
     /// Bumped on every change to the grade: the canvas re-renders its zoom bitmap then.
     @ObservationIgnored private(set) var recipeRevision = 0
@@ -134,11 +142,9 @@ final class EditSession {
         // A film photo from before film looks had a develop exposure (shot before
         // 2026-11-14) developed its RAW ~1.9 EV dark. Develop it like every film photo now,
         // from the RAW at the fixed exposure; it opens as an unsaved change, so Save keeps it.
-        recipe = loaded.withFilmDevelopExposure(hasRAW: hasRAW, bayer: shot.kind == .bayerRAW)
-        if recipe != loaded {
-            Diag.log(.editor, "film photo \(shot.id.uuidString.prefix(8)) develop exposure settled: "
-                     + String(format: "%+.2f EV", recipe.rawFilmExposure ?? 0))
-        }
+        recipe = loaded.withFilmDevelopExposure(for: shot)
+        Diag.log(.editor, "editor open \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)\(hasRAW ? "" : ", no RAW")): "
+                 + recipe.developSummary + (recipe != loaded ? " (settled from: \(loaded.developSummary))" : ""))
         isLoading = false
         Task { await renderLookThumbnails() }
     }
@@ -258,6 +264,13 @@ final class EditSession {
         look.apply(&r)
         r.look = look.id == "none" ? nil : look.id
         recipe = r
+        Diag.log(.editor, "look picked on \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)): \(recipe.developSummary)")
+    }
+
+    /// Pastes a copied grade's look onto this photo (its crop and RAW develop are kept).
+    func paste(_ copied: EditRecipe) {
+        recipe = copied.look(appliedTo: recipe)
+        Diag.log(.editor, "grade pasted on \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)): \(recipe.developSummary)")
     }
 
     /// The camera's own value for a RAW develop slider (what its reset goes back to).
@@ -290,7 +303,7 @@ final class EditSession {
         r.quarterTurns = recipe.quarterTurns
         r.flipped = recipe.flipped
         // A film grade develops at the fixed film exposure for this photo's RAW type.
-        r = r.withFilmDevelopExposure(hasRAW: hasRAW, bayer: shot.kind == .bayerRAW)
+        r = r.withFilmDevelopExposure(for: shot)
         recipe = r
     }
 
@@ -303,12 +316,20 @@ final class EditSession {
             assetDeleted = true
             return false
         }
+        let shown = recipe
         guard store.setRecipe(recipe, for: shot.id) else {
             errorMessage = "Couldn't save the edit. Is the phone's storage full?"
             return false
         }
         recipe = store.recipe(for: shot.id)
         savedRecipe = recipe
+        // The saved develop must be what the editor showed; say so loudly if not.
+        if recipe.developSummary != shown.developSummary {
+            Diag.error(.editor, "saved \(shot.id.uuidString.prefix(8)) develops differently from the editor: showed "
+                       + shown.developSummary + "; saved " + recipe.developSummary)
+        } else {
+            Diag.log(.editor, "saved \(shot.id.uuidString.prefix(8)): \(recipe.developSummary)")
+        }
         return true
     }
 

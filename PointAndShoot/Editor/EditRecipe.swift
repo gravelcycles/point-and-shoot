@@ -51,28 +51,69 @@ struct EditRecipe: Codable, Equatable {
     /// from before 2026-11-14 have none (developed ~2 stops dark); photos baked between #22
     /// and #42 carry a per-shot value matched to the viewfinder. Optional so older edits decode.
     var rawFilmExposure: Double?
-    /// The film looks' RAW develop exposure: the photo comes from the RAW alone, at a fixed
-    /// brightness per RAW type, like any RAW converter (docs/film-looks.md §5⅞).
-    /// - ProRAW: +1.86 EV over a neutral develop, Chromagraph's own (12 of its ProRAWs, and
-    ///   again on 2026-11-18, where we land within 0.01 EV of its export).
-    /// - Bayer RAW: +0.54, how Chromagraph develops this app's Bayer DNGs (3 scenes, ±0.09).
-    ///   At +1.86 they came out 1.3 EV brighter than Chromagraph's.
-    static let filmRAWExposure: Double = 1.86
-    static let filmBayerRAWExposure: Double = 0.54
-    static func filmRAWExposure(bayer: Bool) -> Double { bayer ? filmBayerRAWExposure : filmRAWExposure }
+    /// The film looks' RAW develop exposure, from the RAW and its saved camera settings
+    /// alone (docs/film-looks.md §5⅞): natural brightness, about where Apple's camera puts
+    /// the scene, a touch under ("def not too bright").
+    /// - The scene's light, EV100 from the photo's ISO, shutter and aperture, sets it: Apple
+    ///   renders dim scenes darker and bright ones brighter. Measured on 12 ProRAWs, the
+    ///   develop that lands at Apple's brightness is 1.83 + 0.122·(EV100 − 10)
+    ///   (correlation 0.81); EV100 is clamped to the measured 3…15.
+    /// - `naturalBias` (−0.2 EV) keeps it just under Apple's, and it never goes past
+    ///   Chromagraph's fixed +1.86 (`brightestFilmExposure`): bright scenes come out as
+    ///   Chromagraph's, dim ones darker (Apple renders sun brighter still, up to +2.4).
+    /// - A Bayer RAW develops ~0.63 EV brighter than a ProRAW of the same scene, so it gets
+    ///   that much less (`bayerScale`): the two look the same.
+    /// - Without exposure metadata, EV100 10 (a bright interior).
+    /// Chromagraph instead develops ProRAW at a fixed +1.86 (bright and lifted in dim
+    /// scenes) and Bayer files at +0.54 (dark and flat): matched exactly in #34–#52, and too
+    /// bright for the owner.
+    static func filmRAWExposure(bayer: Bool, ev100: Double?) -> Double {
+        let ev = min(max(ev100 ?? 10, 3), 15)
+        return min(appleMatchedExposure(ev100: ev) + naturalBias, brightestFilmExposure) - (bayer ? bayerScale : 0)
+    }
+    static let brightestFilmExposure = 1.86
+    /// The ProRAW develop exposure that lands at Apple's brightness for a scene this bright.
+    static func appleMatchedExposure(ev100: Double) -> Double { 1.83 + 0.122 * (ev100 - 10) }
+    static let naturalBias = -0.2
+    static let bayerScale = 0.63
+    /// The automatic values earlier builds pinned: #42's fixed +1.86 (any RAW) and #52's
+    /// Bayer +0.54. A photo still on one of them was never set by hand.
+    static let earlierFixedExposures: [Double] = [1.86, 0.54]
 
-    /// This edit with its film develop exposure settled for the photo's RAW type. Picking or
-    /// pasting a film look leaves it nil, so the photo's own RAW decides; this fills it in
-    /// (store, renderer and editor, which know the RAW). Also:
+    /// This edit with its film develop exposure settled for the photo (its RAW type and
+    /// scene light, `filmRAWExposure(bayer:ev100:)`). Picking or pasting a film look leaves
+    /// it nil, so the photo decides; this fills it in (store, renderer and editor, which know
+    /// the shot), rounded to 0.01 EV. Also:
     /// - photos from before film looks had one (shot before 2026-11-14) developed ~1.9 EV
     ///   dark; the editor opens them this way, as an unsaved change;
-    /// - a Bayer RAW still carrying +1.86, the shared default until 2026-11-19, moves to the
-    ///   Bayer value. Any other value (a viewfinder match from #22–#41, a later pin) stays.
-    func withFilmDevelopExposure(hasRAW: Bool, bayer: Bool) -> EditRecipe {
+    /// - a photo still on an earlier automatic value (`earlierFixedExposures`) moves to
+    ///   the natural one. Any other value (a viewfinder match from #22–#41, a later pin) stays.
+    /// One line for Diagnostics: how this edit develops (look, the RAW develop's exposure
+    /// split into the film's and the slider's, noise reduction, film engine). A film look on
+    /// a RAW with no film exposure renders ~2 stops dark, so it's flagged.
+    var developSummary: String {
+        var parts = ["look \(look ?? "none")"]
+        if film != nil {
+            if let ev = rawFilmExposure {
+                parts.append(String(format: "develop %+.2f EV (film %+.2f, slider %+.2f)", ev + exposure / 50, ev, exposure / 50))
+            } else {
+                parts.append(String(format: "develop %+.2f EV (film exposure MISSING, slider %+.2f)", exposure / 50, exposure / 50))
+            }
+            parts.append("engine \(film?.renderEngine ?? 1)")
+        } else {
+            parts.append(String(format: "exposure %+.2f EV", exposure / 50))
+        }
+        parts.append(useRAW ? String(format: "RAW NR %.0f", rawNoiseReduction) : "processed")
+        return parts.joined(separator: ", ")
+    }
+
+    func withFilmDevelopExposure(hasRAW: Bool, bayer: Bool, ev100: Double?) -> EditRecipe {
         guard hasRAW, useRAW, film != nil else { return self }
-        guard rawFilmExposure == nil || (bayer && rawFilmExposure == EditRecipe.filmRAWExposure) else { return self }
+        let auto = EditRecipe.filmRAWExposure(bayer: bayer, ev100: ev100)
+        let isEarlierDefault = rawFilmExposure.map { v in EditRecipe.earlierFixedExposures.contains { abs($0 - v) < 1e-9 } } ?? false
+        guard rawFilmExposure == nil || (isEarlierDefault && rawFilmExposure != auto) else { return self }
         var r = self
-        r.rawFilmExposure = EditRecipe.filmRAWExposure(bayer: bayer)
+        r.rawFilmExposure = (auto * 100).rounded() / 100
         return r
     }
 

@@ -68,9 +68,10 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     LOOK list instead.
   - **Always ProRAW, and it zooms.** Print shoots Apple ProRAW, what Chromagraph shoots and
     what Print was matched on.
-  - **Developed from the RAW alone:** every shot develops at a fixed brightness for its RAW
-    type, Chromagraph's (ProRAW +1.86 stops over a neutral develop, Bayer RAW +0.54),
-    whatever the viewfinder showed.
+  - **Developed from the RAW alone, at natural brightness:** each shot's brightness comes
+    from its own ISO, shutter and aperture, about where the iPhone's camera puts the scene,
+    a touch under, so dim rooms stay dim and sun never blows out past Chromagraph's level.
+    Bayer RAW and ProRAW come out equally bright.
     Older photos keep theirs; picking the look again in the editor brings the current one.
   - **Plain live view** (Preferences → Camera, experimental): asks the camera for a plainer
     feed, with no video HDR and no local brightening, so the viewfinder tracks the RAW

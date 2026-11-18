@@ -239,6 +239,10 @@ final class ShotStoreTests: XCTestCase {
     }
 
     private var filmGrade: EditRecipe { Look.all.first { $0.recipe.film != nil }!.recipe }
+    /// The natural develop for a test shot (no exposure metadata: EV 10).
+    private func natural(_ kind: Shot.Kind) -> Double {
+        (EditRecipe.filmRAWExposure(bayer: kind == .bayerRAW, ev100: nil) * 100).rounded() / 100
+    }
 
     /// A film grade saved onto a shot develops at the fixed exposure for that shot's RAW.
     func testAFilmGradeDevelopsAtTheFixedExposureForItsRAWType() async throws {
@@ -250,24 +254,22 @@ final class ShotStoreTests: XCTestCase {
         await waitUntilDeveloped(bayer.id)
         let reopened = ShotStore(root: root)
         await reopened.load()
-        XCTAssertEqual(reopened.recipe(for: pro.id).rawFilmExposure, EditRecipe.filmRAWExposure)
-        XCTAssertEqual(reopened.recipe(for: bayer.id).rawFilmExposure, EditRecipe.filmBayerRAWExposure)
+        XCTAssertEqual(reopened.recipe(for: pro.id).rawFilmExposure, natural(.proRAW))
+        XCTAssertEqual(reopened.recipe(for: bayer.id).rawFilmExposure, natural(.bayerRAW))
     }
 
     func testAFreshFilmShotIsPinnedToTheFixedExposureForItsRAWType() async throws {
         let pro = try await addShot(recipe: filmGrade, kind: .proRAW)
         let bayer = try await addShot(recipe: filmGrade, kind: .bayerRAW)
-        XCTAssertEqual(store.recipe(for: pro.id).rawFilmExposure, EditRecipe.filmRAWExposure,
-                       "ProRAW develops at Chromagraph's +1.86")
-        XCTAssertEqual(store.recipe(for: bayer.id).rawFilmExposure, EditRecipe.filmBayerRAWExposure,
-                       "Bayer RAW develops at Chromagraph's Bayer value")
+        XCTAssertEqual(store.recipe(for: pro.id).rawFilmExposure, natural(.proRAW), "natural, for its scene")
+        XCTAssertEqual(store.recipe(for: bayer.id).rawFilmExposure, natural(.bayerRAW), "Bayer: as bright as ProRAW")
     }
 
-    /// Bayer shots graded before 2026-11-19 carry the shared +1.86, 1.3 EV too bright:
-    /// loading the library moves them to the Bayer value, and nothing else.
-    func testLoadingMovesBayerShotsOffTheOldSharedExposure() async throws {
+    /// Shots still on an earlier build's automatic value (#42's +1.86, #52's Bayer +0.54):
+    /// loading the library moves them to the natural one, and nothing else.
+    func testLoadingMovesShotsOffEarlierAutomaticExposures() async throws {
         var old = filmGrade
-        old.rawFilmExposure = EditRecipe.filmRAWExposure
+        old.rawFilmExposure = 1.86                       // #42's fixed default
         var matched = filmGrade
         matched.rawFilmExposure = 2.31                   // a viewfinder match: kept
         let bayer = try await addShot(recipe: old, kind: .bayerRAW)
@@ -275,14 +277,42 @@ final class ShotStoreTests: XCTestCase {
         let kept = try await addShot(recipe: matched, kind: .bayerRAW)
         // What the earlier build left on disk: +1.86 on the Bayer shot.
         try JSONEncoder().encode(old).write(to: store.dir(bayer.id).appendingPathComponent("recipe.json"))
+        try JSONEncoder().encode(old).write(to: store.dir(pro.id).appendingPathComponent("recipe.json"))
         let reopened = ShotStore(root: root)
         await reopened.load()
-        XCTAssertEqual(reopened.recipe(for: bayer.id).rawFilmExposure, EditRecipe.filmBayerRAWExposure)
-        XCTAssertEqual(reopened.recipe(for: pro.id).rawFilmExposure, EditRecipe.filmRAWExposure)
+        XCTAssertEqual(reopened.recipe(for: bayer.id).rawFilmExposure, natural(.bayerRAW))
+        XCTAssertEqual(reopened.recipe(for: pro.id).rawFilmExposure, natural(.proRAW))
         XCTAssertEqual(reopened.recipe(for: kept.id).rawFilmExposure, 2.31)
         let again = ShotStore(root: root)
         await again.load()
-        XCTAssertEqual(again.recipe(for: bayer.id).rawFilmExposure, EditRecipe.filmBayerRAWExposure, "saved, once")
+        XCTAssertEqual(again.recipe(for: bayer.id).rawFilmExposure, natural(.bayerRAW), "saved, once")
+    }
+
+    /// On device: picking Phromagraph in the editor showed a dark photo, and Save stored a
+    /// +1.86 one ("a nice dark photo … I click save and it's this overexposed monstrosity").
+    /// Picking left the film exposure unset and the preview rendered it as 0 EV. Whatever
+    /// the editor shows must be what Save stores, for every way a grade changes.
+    @MainActor
+    func testTheEditorShowsExactlyWhatSaveStores() async throws {
+        for kind in [Shot.Kind.proRAW, .bayerRAW] {
+            let shot = try await addShot(kind: kind)
+            let session = EditSession(shot: shot, store: store)
+            let expected = natural(kind)
+            session.apply(look: Look.named("phromagraph")!)
+            XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): picking a look")
+            var copied = session.recipe
+            copied.rawFilmExposure = nil
+            session.apply(look: Look.all[0])   // Original
+            session.paste(Look.named(CameraSettings.printLookID)!.recipe)
+            XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): pasting a look")
+            session.recipe = copied                      // undo, or any direct change
+            XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): setting the grade")
+            let shown = session.recipe
+            let saved = await session.save()
+            XCTAssertTrue(saved)
+            XCTAssertEqual(session.recipe, shown, "\(kind): Save must store what the editor showed")
+            XCTAssertEqual(store.recipe(for: shot.id).rawFilmExposure, expected)
+        }
     }
 
     func testTheDefaultGradeLeavesTheExposureToEachShot() {

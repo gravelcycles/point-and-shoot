@@ -358,11 +358,11 @@ final class FrozenTuningTests: XCTestCase {
     }
 
     /// Picking a film look leaves the develop exposure to the photo's RAW type (settled by
-    /// `withFilmDevelopExposure`): +1.86 for ProRAW, +0.54 for Bayer.
+    /// `withFilmDevelopExposure`): natural for its scene light and RAW type.
     func testFilmLooksLeaveTheRAWExposureToThePhoto() {
         for look in Look.all { XCTAssertNil(look.recipe.rawFilmExposure, "\(look.id)") }
-        XCTAssertEqual(printRecipe.withFilmDevelopExposure(hasRAW: true, bayer: false).rawFilmExposure, EditRecipe.filmRAWExposure)
-        XCTAssertEqual(printRecipe.withFilmDevelopExposure(hasRAW: true, bayer: true).rawFilmExposure, EditRecipe.filmBayerRAWExposure)
+        XCTAssertEqual(printRecipe.withFilmDevelopExposure(hasRAW: true, bayer: false, ev100: 10).rawFilmExposure, 1.63)
+        XCTAssertEqual(printRecipe.withFilmDevelopExposure(hasRAW: true, bayer: true, ev100: 10).rawFilmExposure, 1.0)
         // A photo's value (a viewfinder match, an older pin) stays until the look is picked
         // again, which leaves it to the RAW type again.
         var older = printRecipe

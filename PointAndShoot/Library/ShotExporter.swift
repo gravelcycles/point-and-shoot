@@ -49,7 +49,7 @@ enum ShotExporter {
                                            maxSide: options.maxSide, quality: options.quality)
         }.value
         if let data {
-            Diag.log(.save, "rendered export of \(shot.id.uuidString.prefix(8)): \(data.count / 1024) KB in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+            Diag.log(.save, "rendered export of \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)): \(data.count / 1024) KB in \(Int(Date().timeIntervalSince(start) * 1000)) ms: \(recipe.developSummary)")
         } else {
             Diag.error(.save, "couldn't render export of \(shot.id.uuidString.prefix(8))")
         }

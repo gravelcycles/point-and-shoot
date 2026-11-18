@@ -228,7 +228,7 @@ struct EditorView: View {
                 Button {
                     guard let copied = EditClipboard.recipe else { return }
                     pushUndo()
-                    withAnimation(.snappy) { session.recipe = copied.look(appliedTo: session.recipe) }
+                    withAnimation(.snappy) { session.paste(copied) }
                 } label: { Label("Paste Grade", systemImage: "doc.on.clipboard") }
                 .disabled(EditClipboard.recipe == nil)
                 Button {

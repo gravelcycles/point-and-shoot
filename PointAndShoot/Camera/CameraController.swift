@@ -365,9 +365,7 @@ final class CameraController: NSObject {
         guard let ev = ViewfinderMatch.meteredEV100(aperture: Double(m.aperture), seconds: m.duration,
                                                     iso: Double(m.iso), targetOffset: Double(m.offset),
                                                     targetBias: Double(m.bias)) else { return }
-        // The RAW type the next shot will be (PhotoPlanner falls back to Bayer without ProRAW).
-        let bayer = !(settings.shootsProRAW && supportsProRAW)
-        let next = ViewfinderMatch.stepped(ViewfinderMatch.correction(ev100: ev, bayer: bayer), current: viewfinderExposure)
+        let next = ViewfinderMatch.stepped(ViewfinderMatch.correction(ev100: ev), current: viewfinderExposure)
         guard next != viewfinderExposure else { return }
         viewfinderExposure = next
         if settings.startingGrade?.film != nil {

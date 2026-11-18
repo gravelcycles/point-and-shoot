@@ -33,20 +33,19 @@ final class ViewfinderMatchTests: XCTestCase {
         XCTAssertEqual(minusOne, metered, accuracy: 1e-9)
     }
 
-    func testCorrectionBrightensDimScenesAndDarkensBrightOnes() {
-        // Measured: the viewfinder ran ~1 EV under the photo at night, ~0.5 over in sun.
-        XCTAssertGreaterThan(ViewfinderMatch.correction(ev100: 4.7), 0.6)          // night street
-        XCTAssertEqual(ViewfinderMatch.correction(ev100: 10), 0.03, accuracy: 1e-9)  // indoors / dusk
-        XCTAssertLessThan(ViewfinderMatch.correction(ev100: 15), -0.5)              // bright sun
-        // Never extrapolates far beyond the measured range.
-        XCTAssertEqual(ViewfinderMatch.correction(ev100: -5), ViewfinderMatch.maxCorrection)
-        XCTAssertEqual(ViewfinderMatch.correction(ev100: 25), -ViewfinderMatch.maxCorrection)
-        var last = Double.infinity
-        for ev in stride(from: 0.0, through: 20, by: 0.5) {
-            let c = ViewfinderMatch.correction(ev100: ev)
-            XCTAssertLessThanOrEqual(c, last)
-            last = c
+    /// The photo follows Apple's per-scene brightness (a touch under), so the preview only
+    /// needs that touch (−0.2), and comes down with the photo where it's capped.
+    func testCorrectionIsTheNaturalBiasUpToTheCap() {
+        for ev in stride(from: 3.0, through: 11.5, by: 0.5) {
+            XCTAssertEqual(ViewfinderMatch.correction(ev100: ev), EditRecipe.naturalBias, accuracy: 1e-9, "EV \(ev)")
         }
+        // Brighter scenes stop at the cap (+1.86); Apple's rendering keeps getting brighter,
+        // so the preview comes down with the photo.
+        XCTAssertLessThan(ViewfinderMatch.correction(ev100: 14), EditRecipe.naturalBias)
+        XCTAssertEqual(ViewfinderMatch.correction(ev100: 14),
+                       EditRecipe.brightestFilmExposure - EditRecipe.appleMatchedExposure(ev100: 14), accuracy: 1e-9)
+        XCTAssertGreaterThanOrEqual(ViewfinderMatch.correction(ev100: 40), -ViewfinderMatch.maxCorrection)
+        XCTAssertLessThanOrEqual(ViewfinderMatch.correction(ev100: -10), ViewfinderMatch.maxCorrection)
     }
 
     func testCorrectionMovesInStepsWithoutFlicker() {
@@ -62,32 +61,43 @@ final class ViewfinderMatchTests: XCTestCase {
 
     // MARK: Old photos develop at the fixed exposure
 
-    func testFilmPhotoWithoutADevelopExposureGetsTheFixedOneForItsRAW() {
-        var r = Look.named(CameraSettings.printLookID)!.recipe
-        r.rawFilmExposure = nil                       // as saved before 2026-11-14, or a fresh pick
-        XCTAssertEqual(r.withFilmDevelopExposure(hasRAW: true, bayer: false).rawFilmExposure, EditRecipe.filmRAWExposure)
-        XCTAssertEqual(r.withFilmDevelopExposure(hasRAW: true, bayer: true).rawFilmExposure, EditRecipe.filmBayerRAWExposure)
-        XCTAssertNil(r.withFilmDevelopExposure(hasRAW: false, bayer: false).rawFilmExposure, "no RAW, nothing to develop")
-        var processed = r
-        processed.useRAW = false
-        XCTAssertNil(processed.withFilmDevelopExposure(hasRAW: true, bayer: true).rawFilmExposure)
-        var matched = r
-        matched.rawFilmExposure = 2.4                 // baked with a per-shot match (#22–#41)
-        XCTAssertEqual(matched.withFilmDevelopExposure(hasRAW: true, bayer: true).rawFilmExposure, 2.4, "never replaced")
-        XCTAssertNil(EditRecipe().withFilmDevelopExposure(hasRAW: true, bayer: true).rawFilmExposure, "not a film look")
-        // The shared +1.86 (until 2026-11-19) moves to the Bayer value only on a Bayer RAW.
-        var shared = r
-        shared.rawFilmExposure = EditRecipe.filmRAWExposure
-        XCTAssertEqual(shared.withFilmDevelopExposure(hasRAW: true, bayer: true).rawFilmExposure, EditRecipe.filmBayerRAWExposure)
-        XCTAssertEqual(shared.withFilmDevelopExposure(hasRAW: true, bayer: false).rawFilmExposure, EditRecipe.filmRAWExposure)
+    /// Natural brightness from the photo's own settings: dim scenes darker, bright ones
+    /// brighter (Apple's measured behaviour), a touch under Apple, and a Bayer RAW darker by
+    /// the amount it develops brighter, so both look the same.
+    func testNaturalExposureFollowsTheScenesLight() {
+        let dim = EditRecipe.filmRAWExposure(bayer: false, ev100: 3.4)     // the owner's bunk-bed room
+        let room = EditRecipe.filmRAWExposure(bayer: false, ev100: 10)
+        let sun = EditRecipe.filmRAWExposure(bayer: false, ev100: 15)
+        XCTAssertEqual(room, 1.63, accuracy: 1e-9)
+        XCTAssertLessThan(dim, 1.0, "a dim room isn't lifted to Chromagraph's +1.86")
+        XCTAssertGreaterThan(dim, 0.5)
+        XCTAssertEqual(sun, EditRecipe.brightestFilmExposure, "never brighter than Chromagraph")
+        XCTAssertLessThan(dim, room); XCTAssertLessThan(room, sun)
+        XCTAssertEqual(EditRecipe.filmRAWExposure(bayer: false, ev100: 30), sun, "clamped to the measured range")
+        XCTAssertEqual(EditRecipe.filmRAWExposure(bayer: false, ev100: nil), room, "no metadata: EV 10")
+        XCTAssertEqual(EditRecipe.filmRAWExposure(bayer: true, ev100: 10), room - EditRecipe.bayerScale, accuracy: 1e-9)
     }
 
-    /// A Bayer photo develops darker than a ProRAW one, and the preview follows it.
-    func testBayerRAWPreviewIsDarkerByTheMeasuredOffset() {
-        for ev in [4.0, 10.0, 15.0] {
-            XCTAssertEqual(ViewfinderMatch.correction(ev100: ev, bayer: true),
-                           ViewfinderMatch.correction(ev100: ev) + ViewfinderMatch.bayerOffset, accuracy: 1e-12)
+    func testFilmPhotoWithoutADevelopExposureGetsTheNaturalOne() {
+        var r = Look.named(CameraSettings.printLookID)!.recipe
+        r.rawFilmExposure = nil                       // as saved before 2026-11-14, or a fresh pick
+        XCTAssertEqual(r.withFilmDevelopExposure(hasRAW: true, bayer: false, ev100: 10).rawFilmExposure, 1.63)
+        XCTAssertEqual(r.withFilmDevelopExposure(hasRAW: true, bayer: true, ev100: 10).rawFilmExposure, 1.0)
+        XCTAssertNil(r.withFilmDevelopExposure(hasRAW: false, bayer: false, ev100: 10).rawFilmExposure, "no RAW, nothing to develop")
+        var processed = r
+        processed.useRAW = false
+        XCTAssertNil(processed.withFilmDevelopExposure(hasRAW: true, bayer: true, ev100: 10).rawFilmExposure)
+        var matched = r
+        matched.rawFilmExposure = 2.4                 // baked with a per-shot match (#22–#41)
+        XCTAssertEqual(matched.withFilmDevelopExposure(hasRAW: true, bayer: true, ev100: 10).rawFilmExposure, 2.4, "never replaced")
+        XCTAssertNil(EditRecipe().withFilmDevelopExposure(hasRAW: true, bayer: true, ev100: 10).rawFilmExposure, "not a film look")
+        // Earlier builds' automatic values (#42's +1.86, #52's Bayer +0.54) move to natural.
+        for earlier in EditRecipe.earlierFixedExposures {
+            var old = r
+            old.rawFilmExposure = earlier
+            XCTAssertEqual(old.withFilmDevelopExposure(hasRAW: true, bayer: false, ev100: 3.4).rawFilmExposure,
+                           (EditRecipe.filmRAWExposure(bayer: false, ev100: 3.4) * 100).rounded() / 100)
         }
-        XCTAssertLessThan(ViewfinderMatch.bayerOffset, -0.5)
     }
+
 }
