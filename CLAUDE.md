@@ -43,8 +43,17 @@ Git history: merged into `main` so far:
 | #16 | silent shutter |
 | #17 | the Print/Zero "Couldn't save" fix |
 | #18 | crash shooting zoomed in with Bayer RAW (zoom locks at 1×) |
+| #19, #23, #29, #30 | deletes in every state, diagnostics log |
 | #20 | grainy Print photos: noise reduction and grain |
+| #21 | film-look handoff notes (`docs/film-looks.md`) |
+| #22 | Print photos match the viewfinder's brightness |
+| #24–#26 | RAW pairs save; shots never stuck on "Developing…" |
+| #27 | unit, Photos integration and roll UI tests in CI |
+| #28 | photos keep the film tuning they were made with |
+| #31 | zoom like Photos in the viewer and editor |
 | #34 | Phromagraph: a filter fitted to Chromagraph's own renders |
+| #36, #38 | engine 2's measured un-render; Looks with structure and named sets |
+| #41 | brightness against Chromagraph: the editor matches unmatched photos, cap +4 EV |
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
@@ -536,11 +545,21 @@ is the only source of truth for what exists. Everything else reacts to it.
       (`FilmLUT.sceneKey`, on a 48 px sample).
     - The key rides along with the shot (`PhotoPlan.viewfinderKey`). The baker measures
       the same key on a small RAW develop and stores the difference as
-      `EditRecipe.rawFilmExposure`, clamped to −1.5…+2.5 EV. `EditPipeline.configure`
-      adds it to the RAW exposure under film looks, so the editor reproduces it, and
-      switching looks keeps it.
+      `EditRecipe.rawFilmExposure`, clamped to `EditRecipe.filmExposureRange` (−1.5…+4 EV).
+      `EditPipeline.configure` adds it to the RAW exposure under film looks, so the editor
+      reproduces it, and switching looks keeps it.
+    - An iPhone RAW develops ~2 stops under Apple's rendering (Chromagraph adds a fixed
+      +1.86 EV), so typical matches are +2…+3 EV. Until #41 the cap was +2.5, which
+      engine 2's brighter un-render made clip bright days.
     - Flash shots, and shots with no recent viewfinder key, match the processed photo
-      instead.
+      instead (for Print, the Zero develop).
+    - **Photos without a match** (shot before #22, or RAW photos given a film look in the
+      editor) used to develop ~1.9 EV dark: "a ton darker than chromagraph".
+      `EditSession` now measures one against the photo's original
+      (`filmExposureMatch`) and renders and saves through `renderedRecipe`. Such a photo
+      opens with unsaved changes; Save keeps the corrected brightness.
+    - Each match is logged in Diagnostics (`film exposure ±x EV: … key …, RAW key …`).
+      See `docs/film-looks.md` §5⅞.
 - **Photos keep the tuning they were made with.** `FilmRecipe.tuning` stores the whole
   `FilmStock` (~4.2 KB), pinned the moment a look is picked (`Look.film`) and kept through
   every save. Rendering uses `FilmStock.resolved(for:)`, so retuning a stock in code (or
@@ -591,7 +610,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 | Zero develop NR / sharpening | `ZeroDeveloper.configureNeutral` | chroma NR 0.3, sharpness 0.1 |
 | Storage reserve / auto-stop | `updateStorage` | 1 GB reserve / stop under 600 MB |
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
-| Print: brightness | `RecipeBaker.matchedExposure`, `FilmLUT.sceneKey` | each shot's RAW develop is matched to the viewfinder (geometric-mean scene luminance), −1.5…+2.5 EV. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
+| Print: brightness | `FilmPipeline.matchRAWExposure`, `FilmLUT.sceneKey`, `EditRecipe.filmExposureRange` | each shot's RAW develop is matched to the viewfinder (geometric-mean scene luminance), −1.5…+4 EV; photos without a match are matched to their original in the editor. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
@@ -860,8 +879,11 @@ to be wrong.
       LOOK. The format pill then reads "Print · RAW" when it's picked.
     - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ The saved
       photo should be about as bright as the viewfinder was (indoors, outdoors, at
-      night). If it's consistently off, check `rawFilmExposure` in the edit's recipe and
-      `FilmLUT.sceneKey`. If Print is too dark or bright everywhere, *including the
+      night), and about as bright as Chromagraph on the same scene. If it's consistently
+      off, read the Diagnostics log's `film exposure` lines, then `rawFilmExposure` in the
+      edit's recipe and `FilmLUT.sceneKey`.
+    - Open a Print photo from before 2026-11-14 in the editor: it shows brighter, with
+      Save enabled; saving keeps it. If Print is too dark or bright everywhere, *including the
       viewfinder*, change `exposure` in `print-stock.json`, then run export-swift.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.

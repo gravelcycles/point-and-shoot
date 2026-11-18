@@ -45,9 +45,14 @@ struct EditRecipe: Codable, Equatable {
     var rawLocalTone: Double = 50
     var rawBoost: Double = 100
     /// Stops added to the RAW develop under a film look so the shot matches the
-    /// viewfinder's brightness (measured when the look is baked at capture). nil = none;
-    /// optional so older edits decode.
+    /// viewfinder's brightness (measured when the look is baked at capture). nil = not
+    /// measured: the editor then matches the photo to its own processed version
+    /// (`EditSession.filmExposureMatch`). Optional so older edits decode.
     var rawFilmExposure: Double?
+    /// Limits of that match. An iPhone RAW develops about 2 stops under Apple's rendering
+    /// (Chromagraph adds a fixed +1.86 EV), so a typical match is +1.5…+3; the cap only
+    /// stops extreme cases (lens covered, a lamp-lit night that Apple's video lifts hard).
+    static let filmExposureRange: ClosedRange<Double> = -1.5...4.0
 
     // Color mixer: 8 bands × (hue, saturation, luminance), -100…100. Stored only when
     // used (nil = untouched), which also keeps older saved edits decoding fine.

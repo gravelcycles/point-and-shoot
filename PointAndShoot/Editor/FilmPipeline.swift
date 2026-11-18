@@ -272,6 +272,33 @@ enum FilmPipeline {
         return FilmLUT.sceneKey(rgba: px, displayReferred: source == .displayReferred)
     }
 
+    /// Stops that bring a RAW develop with scene key `rawKey` to the display-referred key
+    /// `target`, clamped to `EditRecipe.filmExposureRange` and rounded to 0.01. nil for
+    /// unusable keys.
+    static func matchedExposure(target: Double, rawKey: Double) -> Double? {
+        guard target > 0, rawKey > 0, target.isFinite, rawKey.isFinite else { return nil }
+        let range = EditRecipe.filmExposureRange
+        let ev = min(max(log2(target / rawKey), range.lowerBound), range.upperBound)
+        return (ev * 100).rounded() / 100
+    }
+
+    /// The exposure that makes a film look's RAW develop as bright as `target`: the
+    /// viewfinder's key at capture, or the key of the shot's processed photo (Apple's
+    /// rendering, or the Zero develop). `raw` must already be configured for the film look
+    /// without a matched exposure. Measured on a ≤256 px develop: the key is an average,
+    /// so resolution doesn't change it. Returns the clamped stops and the RAW's own key.
+    static func matchRAWExposure(_ raw: CIRAWFilter, target: Double,
+                                 context: CIContext) -> (ev: Double, rawKey: Double)? {
+        let native = raw.nativeSize
+        let full = raw.scaleFactor
+        raw.scaleFactor = Float(min(1, 256 / max(native.width, native.height, 1)))
+        defer { raw.scaleFactor = full }
+        guard let image = raw.outputImage,
+              let key = sceneKey(of: image, context: context, source: .sceneLinear),
+              let ev = matchedExposure(target: target, rawKey: key) else { return nil }
+        return (ev, key)
+    }
+
     // MARK: Grain
 
     /// Zero-mean noise in negative density (the cube stores density ÷ densityScale): a

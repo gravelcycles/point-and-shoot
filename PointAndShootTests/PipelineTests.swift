@@ -177,6 +177,18 @@ final class PipelineTests: XCTestCase {
         XCTAssertTrue(key.isFinite && key > 0)
     }
 
+    func testRAWExposureMatchClampsAndRounds() throws {
+        // Two stops: the usual gap between a neutral RAW develop and Apple's rendering.
+        XCTAssertEqual(FilmPipeline.matchedExposure(target: 0.16, rawKey: 0.04), 2)
+        XCTAssertEqual(try XCTUnwrap(FilmPipeline.matchedExposure(target: 0.1, rawKey: 0.03)), 1.74, accuracy: 1e-9)
+        // Chromagraph's fixed +1.86 EV and the bright days above it fit well inside the cap.
+        XCTAssertGreaterThanOrEqual(EditRecipe.filmExposureRange.upperBound, 3.5)
+        XCTAssertEqual(FilmPipeline.matchedExposure(target: 1, rawKey: 0.001), EditRecipe.filmExposureRange.upperBound)
+        XCTAssertEqual(FilmPipeline.matchedExposure(target: 0.001, rawKey: 1), EditRecipe.filmExposureRange.lowerBound)
+        XCTAssertNil(FilmPipeline.matchedExposure(target: 0, rawKey: 0.04))
+        XCTAssertNil(FilmPipeline.matchedExposure(target: 0.1, rawKey: .nan))
+    }
+
     func testBakeQueueRunsInOrder() async {
         // Each later bake is shorter, so if bakes overlapped they'd finish out of order.
         let log = OrderLog()
