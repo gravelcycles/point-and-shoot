@@ -1242,6 +1242,8 @@ final class CameraController: NSObject {
         capturesInFlight += 1
         haptic(burst ? .soft : .medium)
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
+        Diag.log(.capture, "orientation at the shutter: capture rotation \(Int(rotation))° (90 = portrait, 0/180 = landscape)"
+                 + (rotationCoordinator == nil ? ", no rotation coordinator" : ""))
         let place = s.saveLocation ? location.snapshot() : nil
         let look = s.startingGrade
         sessionQueue.async {
