@@ -31,6 +31,23 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.zoomLocked, "Video always zooms")
     }
 
+    func testPlainLiveViewOnlyWhereThePhotoComesFromTheRAW() {
+        var s = CameraSettings()
+        XCTAssertFalse(s.plainLiveView, "Experimental: off by default")
+        s.plainLiveView = true
+        XCTAssertFalse(s.wantsPlainLiveView, "Photo mode's processed photo keeps Apple's live view")
+        s.mode = .print
+        XCTAssertTrue(s.wantsPlainLiveView, "Print develops the RAW alone")
+        s.mode = .photo
+        s.processing = .zero
+        XCTAssertTrue(s.wantsPlainLiveView, "Zero develops the RAW alone")
+        s.mode = .video
+        XCTAssertFalse(s.wantsPlainLiveView, "Video never changes")
+        s.mode = .print
+        s.plainLiveView = false
+        XCTAssertFalse(s.wantsPlainLiveView)
+    }
+
     func testPrintAsFilterLeavesTheModePicker() {
         var s = CameraSettings()
         s.printPlacement = .filter

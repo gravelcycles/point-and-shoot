@@ -68,6 +68,9 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   - **Developed from the RAW alone:** every shot develops at the same fixed brightness
     (Chromagraph's, +1.86 stops over a neutral develop), whatever the viewfinder showed.
     Older photos keep theirs; picking the look again in the editor brings the current one.
+  - **Plain live view** (Settings → Photo, experimental): asks the camera for a plainer
+    feed in Print and Zero, with no video HDR and no local brightening, so the viewfinder
+    tracks the RAW photo more closely.
   - **How it works:** the camera shoots Bayer RAW and keeps the DNG, like Zero. Print runs
     the sensor data through a model of a Kodak Vision3 negative printed to print film:
     - dense blacks with a long, soft toe
