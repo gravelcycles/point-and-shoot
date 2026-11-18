@@ -598,6 +598,42 @@ against 0.125 for Chromagraph (2.6 stops), 95th percentile 0.11 against 0.53.
       built with Apple's local tone mapping on.
   - Viewfinder frames saved next to DNGs, to measure the drift per scene.
 
+**The viewfinder correction (2026-11-18, stacked on #42).** The owner's rule: the photo
+comes only from the RAW and its saved camera settings; the viewfinder may predict the
+photo, never feed it.
+- With engine 2's un-render and the fixed develop, the viewfinder's gap against the photo
+  (Apple's still render standing in for the video; + = viewfinder brighter) against the
+  scene's EV100 from each DNG's EXIF:
+
+  | Shot | EV100 | Gap | After correction |
+  |---|---|---|---|
+  | night alley (cgc_00143) | 4.7 | −0.96 | −0.28 |
+  | overcast parliament (00105) | 5.3 | −0.50 | +0.11 |
+  | overcast parliament (00098) | 5.6 | −0.58 | −0.01 |
+  | tram, dusk (00089) | 7.6 | −0.11 | +0.21 |
+  | playground (00120) | 10.6 | −0.60 | −0.65 |
+  | arches, dark frame (00132) | 10.6 | +0.61 | +0.56 |
+  | train window (1303DFCB) | 11.0 | +0.12 | +0.03 |
+  | street (00021) | 12.1 | +0.61 | +0.38 |
+  | trees (00011) | 13.3 | +0.30 | −0.07 |
+  | tram, crop (00009) | 13.7 | +0.05 | −0.38 |
+  | street (00016) | 14.0 | +0.64 | +0.18 |
+  | old town gate (00023) | 15.2 | +0.53 | −0.08 |
+
+- Gap = −0.03 + 0.122·(EV100 − 10), correlation 0.81; sd ±0.53 → ±0.32 EV after
+  correcting. The two shots at EV 10.6 going opposite ways are Apple's local tone mapping
+  (a dark frame around a bright view gets lifted), which no single number predicts.
+- `ViewfinderMatch` reads the scene's light from the meter, not the settings alone:
+  EV100 = log2(N²/t) − log2(ISO/100) + `exposureTargetOffset` + `exposureTargetBias`.
+  So a manual exposure a stop under (offset −1), or EV −1 in auto (bias −1, offset ≈ 0),
+  reads the same scene, and the correction stays put while the preview gets a stop darker,
+  exactly like the RAW. If iOS measures the offset in custom mode against the unbiased
+  target, a leftover bias shifts the reading by that bias: 0.12 EV per EV of bias.
+- Unknowns: the live video may render differently from CIRAWFilter's still render, and
+  the fit is 12 shots on one phone. Check on the device: viewfinder vs saved photo at
+  night, indoors, overcast and in sun, also with manual ISO/shutter and EV compensation.
+  Viewfinder frames saved next to DNGs would let us refit it exactly.
+
 ## 6. Grain and noise: what's known and what isn't
 
 **Known:**

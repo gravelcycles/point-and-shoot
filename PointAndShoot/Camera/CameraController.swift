@@ -107,6 +107,12 @@ final class CameraController: NSObject {
     @ObservationIgnored private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     @ObservationIgnored private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
     @ObservationIgnored private var meterTimer: Timer?
+    /// The viewfinder's exposure correction under a film look (`ViewfinderMatch`), stops.
+    @ObservationIgnored private var viewfinderExposure: Double = 0
+    /// The look id + correction whose table has been built off the render queue; until it
+    /// matches, the viewfinder shows the look uncorrected rather than stall on a build.
+    @ObservationIgnored private var viewfinderReady: String?
+    @ObservationIgnored private var viewfinderWarming: String?
     @ObservationIgnored private var subjectAreaObserver: NSObjectProtocol?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var isConfigured = false
@@ -339,7 +345,46 @@ final class CameraController: NSObject {
             c.logAssist = s.mode == .video && s.videoColor == .appleLog && s.logViewAssist
             c.mirrored = front
             c.computeHistogram = !hot && s.showHistogram
-            c.look = Look.named(s.activeLook)?.recipe
+            c.look = viewfinderLook(s)
+        }
+    }
+
+    /// The look the viewfinder renders: the capture look, plus the exposure correction that
+    /// makes it predict the RAW-developed photo (`ViewfinderMatch`). The corrected table is
+    /// built on a background queue first; meanwhile the look shows uncorrected.
+    private func viewfinderLook(_ s: CameraSettings) -> EditRecipe? {
+        guard let look = Look.named(s.activeLook)?.recipe else { return nil }
+        guard look.film != nil, viewfinderExposure != 0 else { return look }
+        let key = "\(s.activeLook ?? "")@\(viewfinderExposure)"
+        var corrected = look
+        corrected.exposure += viewfinderExposure * 50     // recipe exposure: 50 = 1 stop
+        if viewfinderReady == key { return corrected }
+        if viewfinderWarming != key {
+            viewfinderWarming = key
+            DispatchQueue.global(qos: .userInitiated).async {
+                FilmPipeline.prewarmViewfinder(corrected)
+                DispatchQueue.main.async {
+                    guard self.viewfinderWarming == key else { return }
+                    self.viewfinderWarming = nil
+                    self.viewfinderReady = key
+                    self.pushRendererConfig()
+                }
+            }
+        }
+        return look
+    }
+
+    /// Moves the viewfinder's correction to the scene's light, in steps (from the meter).
+    private func updateViewfinderMatch(_ m: MeterSample) {
+        guard let ev = ViewfinderMatch.meteredEV100(aperture: Double(m.aperture), seconds: m.duration,
+                                                    iso: Double(m.iso), targetOffset: Double(m.offset),
+                                                    targetBias: Double(m.bias)) else { return }
+        let next = ViewfinderMatch.stepped(ViewfinderMatch.correction(ev100: ev), current: viewfinderExposure)
+        guard next != viewfinderExposure else { return }
+        viewfinderExposure = next
+        if Look.named(settings.activeLook)?.recipe.film != nil {
+            Diag.log(.capture, String(format: "viewfinder match %+.2f EV (scene EV100 %.1f)", next, ev))
+            pushRendererConfig()
         }
     }
 
@@ -1060,6 +1105,8 @@ final class CameraController: NSObject {
         var kelvin: Float?
         var zoom: CGFloat
         var audio: Float?
+        var aperture: Float
+        var bias: Float
     }
 
     /// 15×/s readouts. The device is sampled on `sessionQueue`: AVCaptureDevice getters take
@@ -1093,7 +1140,9 @@ final class CameraController: NSObject {
                 lensPosition: d.lensPosition,
                 kelvin: kelvin,
                 zoom: d.videoZoomFactor,
-                audio: wantsAudio ? self.audioDataOutput.connection(with: .audio)?.audioChannels.first?.averagePowerLevel : nil)
+                audio: wantsAudio ? self.audioDataOutput.connection(with: .audio)?.audioChannels.first?.averagePowerLevel : nil,
+                aperture: d.lensAperture,
+                bias: d.exposureTargetBias)
             DispatchQueue.main.async {
                 self.meterSampling = false
                 self.apply(meter: sample)
@@ -1116,6 +1165,7 @@ final class CameraController: NSObject {
         if whiteBalance == .auto, let k = m.kelvin, abs(k - measuredKelvin) > 25 { measuredKelvin = k }
         if let level = m.audio { audioLevel = level }
         if !isSwitchingLens, abs(m.zoom - zoomFactor) > 0.01 { zoomFactor = m.zoom }
+        if !isSwitchingLens { updateViewfinderMatch(m) }
     }
 
     // MARK: - Storage & heat

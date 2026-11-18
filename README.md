@@ -56,7 +56,10 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   - **The live preview closely matches the saved photo.** The viewfinder undoes Apple's own
     rendering (its curve and extra saturation, measured on real shots) before applying
     the film, so the look you frame is the look you get. iPhones give apps only
-    Apple's processed video live, never the RAW, so it's a close preview, not an exact one. Photos edited before this
+    Apple's processed video live, never the RAW, so it's a close preview, not an exact one.
+    It also corrects for how Apple renders night scenes darker and sunny ones brighter,
+    using the camera's own light reading, so a night shot doesn't come out a stop brighter
+    than you framed it. Manual ISO, shutter and exposure compensation preview exactly. Photos edited before this
     keep their original rendering.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
