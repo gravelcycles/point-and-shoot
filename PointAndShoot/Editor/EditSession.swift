@@ -28,7 +28,7 @@ final class EditSession {
             // film develop's exposure is settled for this photo's RAW in one place: the
             // preview always renders exactly what Save will store. (Picking a look leaves it
             // nil; rendered as nil, the preview came out ~2 stops darker than the save.)
-            let settled = recipe.withFilmDevelopExposure(hasRAW: shot.isRAW, bayer: shot.kind == .bayerRAW)
+            let settled = recipe.withFilmDevelopExposure(for: shot)
             if settled != recipe { recipe = settled }
             if recipe != oldValue { recipeRevision &+= 1 }
         }
@@ -142,7 +142,7 @@ final class EditSession {
         // A film photo from before film looks had a develop exposure (shot before
         // 2026-11-14) developed its RAW ~1.9 EV dark. Develop it like every film photo now,
         // from the RAW at the fixed exposure; it opens as an unsaved change, so Save keeps it.
-        recipe = loaded.withFilmDevelopExposure(hasRAW: shot.isRAW, bayer: shot.kind == .bayerRAW)
+        recipe = loaded.withFilmDevelopExposure(for: shot)
         Diag.log(.editor, "editor open \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)\(hasRAW ? "" : ", no RAW")): "
                  + recipe.developSummary + (recipe != loaded ? " (settled from: \(loaded.developSummary))" : ""))
         isLoading = false
@@ -303,7 +303,7 @@ final class EditSession {
         r.quarterTurns = recipe.quarterTurns
         r.flipped = recipe.flipped
         // A film grade develops at the fixed film exposure for this photo's RAW type.
-        r = r.withFilmDevelopExposure(hasRAW: shot.isRAW, bayer: shot.kind == .bayerRAW)
+        r = r.withFilmDevelopExposure(for: shot)
         recipe = r
     }
 

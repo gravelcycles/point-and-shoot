@@ -63,6 +63,12 @@ struct Shot: Codable, Identifiable, Hashable {
     }
 
     var isRAW: Bool { kind != .processed }
+    /// The scene's light from the photo's own saved exposure: EV at ISO 100,
+    /// log2(N²/t) − log2(ISO/100). nil without exposure metadata.
+    var ev100: Double? {
+        guard let t = exposureTime, let n = fNumber, let iso, t > 0, n > 0, iso > 0 else { return nil }
+        return log2(n * n / t) - log2(Double(iso) / 100)
+    }
 
     /// When its 30 days started: taken, added to the library (imports of older RAWs) or put
     /// back from the Trash, whichever is latest.
@@ -163,5 +169,12 @@ enum ShotRetention {
         guard !storeForever, !shot.keep, shot.trashedAt == nil else { return nil }
         let due = shot.retentionStart.addingTimeInterval(Double(keepDays) * 86_400)
         return max(0, Int(ceil(due.timeIntervalSince(now) / 86_400)))
+    }
+}
+
+extension EditRecipe {
+    /// `withFilmDevelopExposure` for this shot: its RAW type and its scene light.
+    func withFilmDevelopExposure(for shot: Shot) -> EditRecipe {
+        withFilmDevelopExposure(hasRAW: shot.isRAW, bayer: shot.kind == .bayerRAW, ev100: shot.ev100)
     }
 }

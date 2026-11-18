@@ -40,7 +40,7 @@ enum RecipeBaker {
             recipe.rawBoost = Double(defaults.boost * 100)
             // The photo comes from the RAW alone: developed at the look's fixed exposure
             // (picking the look sets it; pinned here too, so it's always in the saved edit).
-            if recipe.rawFilmExposure == nil { recipe.rawFilmExposure = EditRecipe.filmRAWExposure }
+            if recipe.rawFilmExposure == nil { recipe.rawFilmExposure = EditRecipe.filmRAWExposure(bayer: false, ev100: nil) }
             EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
             // The processed photo is the same capture: same exposure in its EXIF.
             Diag.log(.bake, "RAW develop: " + EditPipeline.developReport(raw, recipe: recipe,
