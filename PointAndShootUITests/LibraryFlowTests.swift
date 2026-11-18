@@ -31,6 +31,13 @@ final class LibraryFlowTests: XCTestCase {
         return rollCount() == expected
     }
 
+    /// Deletes ask first ("are you sure?"): confirm.
+    private func confirmMoveToTrash() {
+        let confirm = app.buttons["Move to Trash"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "deleting didn't ask first")
+        confirm.tap()
+    }
+
     private func openViewer() {
         app.buttons["camera.thumbnail"].tap()
         XCTAssertTrue(app.buttons["viewer.delete"].waitForExistence(timeout: 6), "viewer didn't open")
@@ -71,6 +78,7 @@ final class LibraryFlowTests: XCTestCase {
         openViewer()
         let before = rollCount()
         app.buttons["viewer.delete"].tap()
+        confirmMoveToTrash()
         XCTAssertTrue(waitForRollCount(before - 1), "The photo wasn't trashed (\(before) → \(rollCount()))")
         // The viewer stays usable, on a neighbouring photo.
         XCTAssertTrue(app.buttons["viewer.delete"].isEnabled)
@@ -84,6 +92,7 @@ final class LibraryFlowTests: XCTestCase {
         openViewer()
         for _ in 0..<3 {
             app.buttons["viewer.delete"].tap()
+            confirmMoveToTrash()
             Thread.sleep(forTimeInterval: 0.4)
         }
         XCTAssertTrue(waitForRollCount(0))
@@ -212,6 +221,7 @@ final class LibraryFlowTests: XCTestCase {
         cells.element(boundBy: 0).tap()
         cells.element(boundBy: 1).tap()
         app.buttons["grid.delete"].tap()
+        confirmMoveToTrash()
         XCTAssertTrue(waitForRollCount(before - 2), "Batch trash didn't remove both (\(before) → \(rollCount()))")
         app.buttons["grid.trash"].tap()
         let trashed = app.descendants(matching: .any).matching(identifier: "trash.cell")
