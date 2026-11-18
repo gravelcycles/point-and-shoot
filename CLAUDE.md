@@ -495,8 +495,10 @@ is the only source of truth for what exists. Everything else reacts to it.
   - The interpolation error of the two-table path vs. direct math is < 0.007 ΔE (Oklab)
     on the grey scale.
 - **Sources:**
-  - `.sceneLinear` is a RAW develop with `boostAmount = 0`, no local tone mapping and no
-    sharpening (`EditPipeline.configure` does this whenever `recipe.film != nil`).
+  - `.sceneLinear` is a RAW develop with `boostAmount = 0`, no local tone mapping, no
+    sharpening and `extendedDynamicRangeAmount = 0` (SDR, as `scripts/raw-develop.swift`
+    fitted it; the app used to leave iOS's default) — `EditPipeline.configure` does this
+    whenever `recipe.film != nil`.
   - `.displayReferred` (viewfinder, processed HEIFs) is un-rendered first, inside the
     negative cube, **on luminance** (`FilmLUT.sceneFromDisplay(rgb:engine:)`). Inverting
     per channel read saturated display reds as stops over: they turned orange and faces
@@ -808,6 +810,11 @@ is the only source of truth for what exists. Everything else reacts to it.
     `Application Support/diagnostics.log`, so the run before a crash survives.
   - Uncaught ObjC exceptions (AVFoundation's instant crashes) are written synchronously
     before the app dies; MetricKit crash/hang reports are added on a later launch.
+  - **Brightness reports:** every shot logs the camera's exposure at the shutter (ISO,
+    shutter, aperture, meter offset, EV bias, scene EV100, video HDR and global tone
+    mapping state), and every RAW develop logs its EXIF exposure, the DNG's baseline
+    exposure and the develop exposure (`EditPipeline.developReport`). Compare with another
+    app's RAW of the same scene to tell a capture difference from a develop difference.
   - Already logged: launch (build, device, permissions), foreground/background, memory
     and thermal, session errors and interruptions, each shot's capture plan, capture and
     save results (incl. the RAW-pair fallback), Zero develop time, every bake with timing
