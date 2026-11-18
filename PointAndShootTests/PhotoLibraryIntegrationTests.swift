@@ -2,6 +2,7 @@ import CoreImage
 import ImageIO
 import Photos
 import UIKit
+import UniformTypeIdentifiers
 import XCTest
 @testable import PointAndShoot
 
@@ -69,6 +70,30 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
         XCTAssertTrue(types.contains(.alternatePhoto), "The DNG wasn't paired: \(types.map(\.rawValue))")
         let utis = PHAssetResource.assetResources(for: a).map(\.uniformTypeIdentifier)
         XCTAssertTrue(PhotoLibrary.hasRAW(a), "RAW not recognised; resource types: \(utis)")
+    }
+
+    /// Archive RAW: the DNG lands in Photos typed as a RAW with a camera-style name, so RAW
+    /// importers (Chromagraph's "Import RAW", our own) find it. Saved as untyped bytes,
+    /// Chromagraph reported "Import failed".
+    func testArchivedRAWIsTypedAsARAW() async throws {
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        let id: String?
+        do {
+            id = try await PhotoLibrary.saveRAW(TestDNG.make(bayer: true), name: "PS_test", created: when)
+        } catch {
+            // The simulator can't decode RAW; if its Photos refuses a RAW-only asset for
+            // that reason, only the device can check this.
+            try skipUnlessRAWDecodes()
+            throw error
+        }
+        let a = try asset(id)
+        let resources = PHAssetResource.assetResources(for: a)
+        let photo = try XCTUnwrap(resources.first { $0.type == .photo }, "no photo resource: \(resources.map(\.type.rawValue))")
+        XCTAssertTrue(UTType(photo.uniformTypeIdentifier)?.conforms(to: .rawImage) == true,
+                      "Photos typed the archived DNG as \(photo.uniformTypeIdentifier), not a RAW")
+        XCTAssertEqual(photo.originalFilename, "PS_test.DNG")
+        XCTAssertTrue(PhotoLibrary.hasRAW(a))
+        XCTAssertEqual(a.creationDate?.timeIntervalSince1970 ?? 0, when.timeIntervalSince1970, accuracy: 1)
     }
 
     /// Pinpoints which step of the Zero develop fails, for each kind of DNG.
