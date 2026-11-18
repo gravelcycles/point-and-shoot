@@ -59,25 +59,24 @@ Git history: merged into `main` so far:
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
-**Redesign branch (`claude/raw-studio`).** A Chromagraph-style rework lives on this
-integration branch until the owner has compared it with `main` on device. Reference for
-what was copied: `docs/chromagraph-reference.md`.
+| #44 | the viewfinder predicts the RAW photo (`ViewfinderMatch`) |
+| #48 | per-shot exposure in Diagnostics; film looks develop in SDR |
+| this merge | **the redesign becomes the app** (was `claude/raw-studio`, "P&S Studio") |
+
+**The redesign is the app (2026-11-18).** The Chromagraph-style rework built on
+`claude/raw-studio` (#32 library, #33 editor, #35/#37 looks, #39 Preferences, #40
+import/archive, #45–#47 and #49 device-testing fixes) merged into `main` at the owner's
+call: "let's make that the default now. no more 2 apps". Reference for what was copied:
+`docs/chromagraph-reference.md`.
 - **What it is:** RAW-only capture, an in-app library with Keep/Trash/30-day retention,
-  export to Photos, a Tone/Color/Texture editor, three-tab Preferences, RAW import and zip
-  archives, and the cinematic looks.
-- **Merged into it so far:** #32 library, #33 editor, #39 Preferences, #40 import/archive,
-  #35 + #37 looks, plus everything on `main`.
-- **CI state:** green. The full stack passed build + 119 tests (run 44161283672), and #37 on
-  top passed 137 (run 44164624577). Three independent review passes found ~45 issues, all
-  fixed.
-- **Not tested on the phone yet.**
-- **Sub-PRs merge into it, not into `main`.**
-- **Side-by-side install:** it builds as **"P&S Studio"**,
-  `APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot.studio`, with a tan icon, so both
-  apps can be on the phone. `scripts/deploy-iphone.sh` reads the bundle ID from the project.
-  **Revert those three (bundle ID, display name, icon) when the branch merges to `main`.**
-- **On this branch, §3–§5 and §8 describe the redesign.** `main` still has the Photos-based
-  roll.
+  export to Photos, a Looks/Tone/Color/Texture/Crop editor, three-tab Preferences, RAW
+  import and zip archives, and the cinematic looks. The Photos-based roll (`RollStore`)
+  is gone.
+- **Identity:** the Studio-only bundle ID (`….pointandshoot.studio`), name ("P&S Studio")
+  and tan icon were reverted, so it installs over the old Point & Shoot. Photos still in
+  the separate P&S Studio app stay there: Archive RAW → zip from Studio, then Import
+  Archive here. `scripts/deploy-iphone.sh` reads the bundle ID from the project.
+- **Branches:** work on `claude/*` from `main` again; `claude/raw-studio` is retired.
 
 ---
 
@@ -559,7 +558,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       under the film's), and exposure applied *before* un-rendering (+1 EV clipped
       everything above display 0.5). Kept bit-exact for older edits.
 - **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
-  "Print film look". **P&S Studio: Print is both** (the owner, 2026-11-18): always a mode
+  "Print film look". **Print is both** (the owner, 2026-11-18): always a mode
   ("the simple mode") and always one of Photo's looks. `printPlacement` is ignored and its
   setting hidden (kept so settings round-trip with `main`).
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
@@ -891,7 +890,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 
 ## 8. Device test plan (do this first)
 
-**On `claude/raw-studio` (P&S Studio), check these first.** ⚠️ = most likely to be wrong.
+**The library, editor and Preferences (the redesign), check these first.** ⚠️ = most likely
+to be wrong.
 
 1. **Capture.** ProRAW is the default and zoom works. Bayer RAW (Preferences → Camera)
    locks zoom at 1×. ⚠️ The first shots after launch show the camera's preview, then the

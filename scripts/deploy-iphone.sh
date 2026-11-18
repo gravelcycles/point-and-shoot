@@ -18,8 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-Release}"
-# Default: the project's own APP_BUNDLE_ID (the redesign branch uses its own, so both
-# versions install side by side).
+# Default: the project's own APP_BUNDLE_ID.
 PROJECT_BUNDLE_ID=$(sed -n 's/.*APP_BUNDLE_ID = \([^;]*\);.*/\1/p' PointAndShoot.xcodeproj/project.pbxproj | head -1)
 BUNDLE_ID="${BUNDLE_ID:-${PROJECT_BUNDLE_ID:-io.github.gravelcycles.pointandshoot}}"
 DERIVED="build/device"

@@ -77,7 +77,7 @@ final class SettingsTests: XCTestCase {
         var s = CameraSettings()
         XCTAssertFalse(s.plainLiveView, "Experimental: off by default")
         s.plainLiveView = true
-        XCTAssertTrue(s.wantsPlainLiveView, "every P&S Studio photo develops the RAW alone")
+        XCTAssertTrue(s.wantsPlainLiveView, "every photo develops the RAW alone")
         s.mode = .print
         XCTAssertTrue(s.wantsPlainLiveView)
         s.rawMode = .bayer
@@ -89,7 +89,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.wantsPlainLiveView)
     }
 
-    /// P&S Studio: Print is both a mode (the simple one) and one of Photo's looks.
+    /// Print is both a mode (the simple one) and one of Photo's looks.
     func testPrintIsAModeAndALook() {
         var s = CameraSettings()
         for placement in PrintPlacement.allCases {

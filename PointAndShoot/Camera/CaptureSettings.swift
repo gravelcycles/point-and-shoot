@@ -261,7 +261,7 @@ struct CameraSettings: Codable, Equatable {
     var captureLook: String?
     /// The named set of looks the LOOK picker shows (`LookSet` id); nil = all looks.
     var lookSet: String?
-    /// Print as its own mode next to Photo and Video, or as one of the looks. P&S Studio
+    /// Print as its own mode next to Photo and Video, or as one of the looks. The app
     /// ignores it: Print is both (the owner, 2026-11-18: the mode is "the simple mode", and
     /// Photo's LOOK list has it too). Kept so settings round-trip with `main`.
     var printPlacement: PrintPlacement = .mode
@@ -443,7 +443,7 @@ enum Stops {
 extension CameraSettings {
     static let printLookID = "print"
 
-    /// The modes the mode picker offers. P&S Studio: Print is always a mode (the simple
+    /// The modes the mode picker offers. Print is always a mode (the simple
     /// one: no format pill, no LOOK cell) and also one of Photo's looks.
     var availableModes: [CaptureMode] { [.photo, .print, .video] }
 
@@ -500,7 +500,7 @@ extension CameraSettings {
 
     /// The plain live view applies now: the option is on and the photo comes from the RAW
     /// alone (Print, Zero, a RAW-capturing look) in a still mode.
-    /// Every P&S Studio photo develops from the RAW alone (ProRAW or Bayer), so it applies
+    /// Every photo develops from the RAW alone (ProRAW or Bayer), so it applies
     /// in every still mode.
     var wantsPlainLiveView: Bool { plainLiveView && mode.isStill }
 

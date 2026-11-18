@@ -457,7 +457,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot.studio;
+				APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -485,7 +485,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot.studio;
+				APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
@@ -503,7 +503,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "P&S Studio";
+				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos and record video.";
@@ -544,7 +544,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "P&S Studio";
+				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos and record video.";
@@ -582,7 +582,7 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Widgets-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "P&S Studio";
+				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -610,7 +610,7 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Widgets-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "P&S Studio";
+				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -638,7 +638,7 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/LockedCapture-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "P&S Studio";
+				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos from the Lock Screen.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Point & Shoot saves Lock Screen photos to your library.";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -668,7 +668,7 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/LockedCapture-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "P&S Studio";
+				INFOPLIST_KEY_CFBundleDisplayName = "Point & Shoot";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Point & Shoot uses the camera to take photos from the Lock Screen.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Point & Shoot saves Lock Screen photos to your library.";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
