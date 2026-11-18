@@ -266,6 +266,9 @@ struct MetalImageView: UIViewRepresentable {
 
         // MARK: Bitmap
 
+        /// This canvas's newest bitmap job, readable from the render queue.
+        private let latestRaster = LatestGeneration()
+
         /// The image changed: render it to a bitmap once it settles (slider drags change it
         /// every frame, and those frames render the graph directly, as before).
         func scheduleRaster() {
@@ -275,16 +278,24 @@ struct MetalImageView: UIViewRepresentable {
                 raster = nil
                 rasterKey = nil
             }
+            let sourceUpgrade = rasterKey == contentKey      // same edit, sharper source
             rasterJob?.cancel()
             rasterGeneration += 1
+            latestRaster.set(rasterGeneration)
             guard let image else { return }
             let e = image.extent
             guard !e.isInfinite, e.width >= 1, e.height >= 1,
                   max(e.width, e.height) <= Self.rasterMaxSide else { return }
             let generation = rasterGeneration
             let key = contentKey
+            let latest = latestRaster
             let job = DispatchWorkItem { [weak self] in
                 Self.rasterQueue.async {
+                    // A newer image arrived while this waited: skip it. Each render is the
+                    // whole photo (4096 px from the RAW when zoomed in), and once started it
+                    // can't be stopped, so stale ones queued behind each other and stalled
+                    // the GPU during slider drags.
+                    guard latest.get() == generation else { return }
                     let start = CACurrentMediaTime()
                     guard let cg = EditPipeline.context.createCGImage(image, from: e, format: .RGBA8,
                                                                       colorSpace: EditPipeline.displayColorSpace)
@@ -301,10 +312,11 @@ struct MetalImageView: UIViewRepresentable {
                 }
             }
             rasterJob = job
-            // Soon while zooming (the sharper source just arrived); otherwise after a
-            // pause, so a slider drag doesn't queue a render per step.
-            let busy = zoom.isZoomed || activeGestures > 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + (busy ? 0.02 : 0.25), execute: job)
+            // Soon when the sharper source arrives while zoomed in (same edit); otherwise
+            // only after the edit pauses, zoomed in or not, so a slider drag doesn't queue
+            // a full-photo render per step (it lagged badly zoomed in, on device).
+            let soon = sourceUpgrade && (zoom.isZoomed || activeGestures > 0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + (soon ? 0.02 : 0.3), execute: job)
         }
 
         /// What to draw: the bitmap when it shows the current edit, else the live graph.
@@ -355,4 +367,12 @@ func aspectFitRect(_ imageSize: CGSize, in container: CGSize) -> CGRect {
     let scale = min(container.width / imageSize.width, container.height / imageSize.height)
     let w = imageSize.width * scale, h = imageSize.height * scale
     return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
+}
+
+/// A generation counter shared between the main thread and a background queue.
+final class LatestGeneration: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func set(_ v: Int) { lock.lock(); value = v; lock.unlock() }
+    func get() -> Int { lock.lock(); defer { lock.unlock() }; return value }
 }
