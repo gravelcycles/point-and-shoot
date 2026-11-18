@@ -314,13 +314,65 @@ final class FrozenTuningTests: XCTestCase {
         XCTAssertEqual(saved.film?.tuning, r.film?.tuning)
     }
 
+    /// Engine 4 changes only how far Highlights and Shadows go: at 0 it renders exactly like
+    /// engine 3; with them moved it goes about twice as far; engine 3 photos keep theirs.
+    func testEngineFourMakesHighlightsAndShadowsGoFurther() {
+        XCTAssertEqual(FilmRecipe.currentEngine, 4)
+        var r = printRecipe
+        XCTAssertEqual(r.film?.engine, 4, "new looks pin engine 4")
+        var engine3 = r
+        engine3.film?.engine = 3
+        XCTAssertLessThan(maxDiff(pixels(engine3), pixels(r)), 1e-4, "engine 4 must render like engine 3 at 0")
+        func mean(_ recipe: EditRecipe) -> Float {
+            let p = pixels(recipe); var sum: Float = 0
+            for i in stride(from: 0, to: p.count, by: 4) { sum += 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2] }
+            return sum / Float(p.count / 4)
+        }
+        let base = mean(r)
+        for (h, s) in [(100.0, 0.0), (-100.0, 0.0), (0.0, 100.0), (0.0, -100.0)] {
+            var a = r, b = engine3
+            a.highlights = h; a.shadows = s; b.highlights = h; b.shadows = s
+            let four = mean(a) - base, three = mean(b) - base
+            XCTAssertEqual(four.sign, three.sign, "same direction (h \(h), s \(s))")
+            XCTAssertGreaterThan(abs(four), abs(three) * 1.3, "engine 4 goes further (h \(h), s \(s)): \(four) vs \(three)")
+        }
+    }
+
+    /// Stronger Highlights/Shadows must never fold the tone curve back into visible halos or
+    /// banding: every look's grey ramp, at the sliders' extremes, never dips by more than
+    /// 0.5% (a fraction of one 8-bit step) wherever it's visible (above 1/255).
+    /// Where one dye hits its floor before the others (Pastel's blue, in the deep shadows)
+    /// the lift, keyed on mean density, can outpace the others for a moment: at most 0.16%
+    /// there, ~1/20 of an 8-bit step, and engine 3 has the same shape, smaller.
+    func testStrongToneKeepsEveryGreyRampMonotonic() {
+        var worst = 1.0, worstAt = ""
+        defer { print("strong tone: worst grey-ramp step ratio \(worst) (\(worstAt))") }
+        for stock in FilmStock.all.values {
+            for h in [-1.0, 0, 1] {
+                for s in [-1.0, 0, 1] {
+                    let c = FilmControls(highlights: h, shadows: s, subtractiveSaturation: true, strongTone: true)
+                    var last = -1.0
+                    for i in 0...600 {
+                        let v = FilmLUT.neutralResponse(stops: -8 + Double(i) * 0.025, stock: stock, controls: c)
+                        let y = 0.2290 * v.0 + 0.6917 * v.1 + 0.0793 * v.2
+                        if y > 1.0 / 255 && last > 1.0 / 255 {
+                            if y / last < worst { worst = y / last; worstAt = "\(stock.id) h \(h) s \(s)" }
+                            XCTAssertGreaterThanOrEqual(y, last * (1 - 0.005), "\(stock.id) h \(h) s \(s) at \(-8 + Double(i) * 0.025) stops")
+                        }
+                        last = y
+                    }
+                }
+            }
+        }
+    }
+
     /// Engine 3 changes only the Saturation slider: with it at 0, an engine-3 edit renders
     /// exactly like engine 2 (same un-render, same tables), and engine 2's slider keeps
     /// working as it did. Only edits from engine 3 get the subtractive slider.
     func testEngineThreeChangesOnlyTheSaturationSlider() {
         var r = printRecipe
         XCTAssertEqual(r.film?.engine, FilmRecipe.currentEngine)
-        XCTAssertEqual(FilmRecipe.currentEngine, 3)
+        r.film?.engine = 3
         var engine2 = r
         engine2.film?.engine = 2
         XCTAssertLessThan(maxDiff(pixels(engine2), pixels(r)), 1e-4, "engine 3 must render like engine 2 at Saturation 0")

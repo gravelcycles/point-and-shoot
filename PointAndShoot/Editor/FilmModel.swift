@@ -266,9 +266,19 @@ struct FilmControls: Hashable {
     /// channel, so richer is darker). Engines 1 and 2 spread about the mean, which
     /// brightens saturated colors; photos pinned with them keep that (`FilmRecipe.engine`).
     var subtractiveSaturation = false
+    /// Film engine 4+: Highlights and Shadows go further (the owner: "do more, go further").
+    /// Engines 1–3 keep their range (`FilmRecipe.engine`).
+    var strongTone = false
 
     /// The user's saturation goes about each color's least dense channel.
     var saturatesSubtractively: Bool { subtractiveSaturation && saturation > 0 }
+
+    /// How far Highlights and Shadows move print density at ±1. Engine 4 roughly doubles
+    /// both (0.42 D ≈ 1.4 stops in the highlights, 0.75 D ≈ 2.5 stops in the shadows), as
+    /// far as the tone curve stays monotonic: with both sliders at opposite extremes its
+    /// slope stays above ~0.2, so nothing folds back into halos or banding.
+    var highlightGain: Double { strongTone ? 0.42 : 0.22 }
+    var shadowGain: Double { strongTone ? 0.75 : 0.45 }
 
     /// The same controls with the engine flag cleared where it changes nothing (Saturation
     /// ≤ 0), so table caches see one key: engine-2 and engine-3 edits share tables, and
@@ -276,6 +286,7 @@ struct FilmControls: Hashable {
     var canonical: FilmControls {
         var c = self
         if !c.saturatesSubtractively { c.subtractiveSaturation = false }
+        if c.highlights == 0 && c.shadows == 0 { c.strongTone = false }
         return c
     }
 }
@@ -291,8 +302,9 @@ enum FilmLUT {
     ///    and exposed after.
     /// 3: the Saturation slider adds saturation subtractively, like the dyes (richer is
     ///    darker); the un-render is engine 2's.
+    /// 4: Highlights and Shadows go about twice as far (`FilmControls.strongTone`).
     /// Hue twists and dye saturation need no engine: they're stock fields, off when absent.
-    static let currentEngine = 3
+    static let currentEngine = 4
 
     /// The un-render a given engine uses (1 or 2): engines 2 and up share engine 2's, so
     /// their display-referred tables are the same and share a cache entry.
@@ -601,7 +613,7 @@ enum FilmLUT {
         if c.highlights != 0 || c.shadows != 0 {
             let wh = exp(-pow((neutral - 0.25) / 0.45, 2))
             let ws = FilmMath.smoothstep(0.9, 2.4, neutral)
-            let shift = -0.22 * c.highlights * wh - 0.45 * c.shadows * ws
+            let shift = -c.highlightGain * c.highlights * wh - c.shadowGain * c.shadows * ws
             dm = (dm.0 + shift, dm.1 + shift, dm.2 + shift)
         }
         let ln10 = log(10.0)
@@ -692,7 +704,7 @@ enum FilmLUT {
                 let neutral = lo + Double(i) / toneScale
                 let wh = exp(-pow((neutral - 0.25) / 0.45, 2))
                 let ws = FilmMath.smoothstep(0.9, 2.4, neutral)
-                return exp((0.22 * c.highlights * wh + 0.45 * c.shadows * ws) * ln10)
+                return exp((c.highlightGain * c.highlights * wh + c.shadowGain * c.shadows * ws) * ln10)
             }
         }
         let d = stock.display

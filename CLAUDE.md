@@ -408,10 +408,15 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     `renderEngine` reads nil as 1):
     - 1: the original.
     - 2 (#36): the measured un-render of processed and viewfinder input.
-    - 3 (now): adds the subtractive Saturation slider (`FilmControls.subtractiveSaturation`).
+    - 3: adds the subtractive Saturation slider (`FilmControls.subtractiveSaturation`).
       More saturation pivots on each colour's least dense channel, as dye saturation does.
       Engines 1–2 spread about the mean and *brightened* rich colours: a yellow at +50
       went from 0.34 to 0.57 luminance.
+    - 4 (now): Highlights and Shadows go about twice as far (`FilmControls.strongTone`:
+      0.42 D ≈ 1.4 stops at the bright end, 0.75 D ≈ 2.5 stops at the dark end, from
+      0.22 / 0.45), the owner's "do more, go further". At 0 it renders exactly like engine 3.
+      The grey ramp stays monotonic at every slider extreme for every look, except a 0.16%
+      dip on Pastel where its blue hits the floor first (`testStrongToneKeepsEveryGreyRampMonotonic`).
     - Engines 2+ share engine 2's un-render and its tables (`FilmLUT.unrenderEngine`). At
       Saturation 0, engine 3 renders exactly like engine 2.
     - `freezeFilmTuning` pins engine 1 on unversioned edits, never the current engine.
@@ -672,7 +677,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
-  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 3;
+  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 4;
     `renderEngine` treats nil as 1, and `freezeFilmTuning` pins nil as 1). Pinning
     freezes a stock's numbers, not the code: a change to the math that would alter older
     photos must keep the old behaviour for older engines (engines 2 and 3 did: see

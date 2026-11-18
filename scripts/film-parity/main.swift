@@ -11,6 +11,8 @@ var ctl = FilmControls()
 ctl.contrast = 0.4; ctl.saturation = 0.5; ctl.crossover = -0.5; ctl.highlights = 0.3; ctl.shadows = -0.4
 var ctl2 = ctl      // engine 3: the Saturation slider adds saturation subtractively
 ctl2.subtractiveSaturation = true
+var ctl4 = ctl2     // engine 4: Highlights and Shadows go further
+ctl4.strongTone = true
 
 var out: [String: Any] = [:]
 var timing: [String: [Double]] = [:]
@@ -43,6 +45,7 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
     let pcCtl = FilmLUT.printCube(stock: s, controls: ctl)
     let t4 = Date()
     let pcCtl2 = FilmLUT.printCube(stock: s, controls: ctl2)
+    let pcCtl4 = FilmLUT.printCube(stock: s, controls: ctl4)
     timing[id] = [t1, t2, t3, t4].enumerated().map { i, t in t.timeIntervalSince([t0, t1, t2, t3][i]) * 1000 }
     out[id] = [
         "neutral": neutral, "neutral_ctl": neutralCtl, "colors": colors,
@@ -53,6 +56,9 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
         "print": sample(pc, FilmLUT.printDimension, idxPrint),
         "print_ctl": sample(pcCtl, FilmLUT.printDimension, idxPrint),
         "print_ctl2": sample(pcCtl2, FilmLUT.printDimension, idxPrint),
+        "print_ctl4": sample(pcCtl4, FilmLUT.printDimension, idxPrint),
+        "neutral_ctl4": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
+            let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl4); return [v.0, v.1, v.2] },
         "colors_ctl2": colors2,
     ]
 }

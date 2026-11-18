@@ -169,7 +169,8 @@ enum EditPipeline {
             fs.controls = FilmControls(contrast: r.contrast / 100, saturation: r.saturation / 100,
                                        crossover: film.crossover / 100,
                                        highlights: r.highlights / 100, shadows: r.shadows / 100,
-                                       subtractiveSaturation: film.renderEngine >= 3)
+                                       subtractiveSaturation: film.renderEngine >= 3,
+                                       strongTone: film.renderEngine >= 4)
             fs.animateGrain = animateGrain
             image = FilmPipeline.apply(image, settings: fs, unit: unit)
             // Whites, blacks and fade still apply on top, as a curve.

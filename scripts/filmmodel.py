@@ -98,7 +98,7 @@ def scene_from_display(x):
 LUM2020 = np.array([0.2627, 0.6780, 0.0593])
 
 
-CURRENT_ENGINE = 3   # FilmLUT.currentEngine (3: subtractive Saturation slider; the un-render is engine 2's)
+CURRENT_ENGINE = 4   # FilmLUT.currentEngine (3: subtractive Saturation slider; 4: stronger Highlights/Shadows; the un-render is engine 2's)
 
 # Engine 2: the inverse of Apple's rendering, measured (FilmLUT.unrender*; docs/film-looks.md §5¾).
 UNRENDER_DISPLAY_Y = np.array([0.0025, 0.004, 0.006, 0.01, 0.016, 0.025, 0.04, 0.06, 0.09, 0.13, 0.2,
@@ -285,7 +285,8 @@ def _display_core(dn, stock, controls):
         wh = np.exp(-((neutral - 0.25) / 0.45) ** 2)
         t = np.clip((neutral - 0.9) / (2.4 - 0.9), 0, 1)
         ws = t * t * (3 - 2 * t)
-        dm = dm + (-0.22 * h * wh - 0.45 * s * ws)
+        strong = controls.get("strongTone", False)       # engine 4 (FilmControls.strongTone)
+        dm = dm + (-(0.42 if strong else 0.22) * h * wh - (0.75 if strong else 0.45) * s * ws)
     t = 10.0 ** (-(dm - base))
     return t @ np.array(stock["display"]).reshape(3, 3).T
 
@@ -391,6 +392,7 @@ def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0,
     """Scene-linear (or display-referred) sRGB-primaries image -> Display P3 linear image."""
     controls = dict(controls or {})
     controls.setdefault("subtractive", engine >= 3)      # engine 3's Saturation slider, like the app
+    controls.setdefault("strongTone", engine >= 4)       # engine 4's Highlights/Shadows
     ev = exposure_ev + stock.get("exposure", 0.0)
     after = source != "sceneLinear" and engine >= 2      # engine 2: expose after un-rendering
     x = lin_srgb * (1.0 if after else 2.0 ** ev)
