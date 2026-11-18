@@ -102,13 +102,25 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping VIDEO didn't switch to video mode")
     }
 
-    /// P&S Studio: Print is one of Photo's looks, not a mode.
-    func testPrintIsALookNotAMode() {
-        XCTAssertTrue(app.buttons["mode.photo"].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons["mode.print"].exists, "Print should no longer be a mode")
-        tapOffLabel(app.buttons["strip.look"], dx: 0.1)
-        let print = app.buttons["filter.print"]
-        XCTAssertTrue(print.waitForExistence(timeout: 3), "Print should be one of the looks")
+    /// Print mode is the simple mode: it always shoots RAW and *is* the look, so the format
+    /// pill and the LOOK cell go away; the photo controls stay. Back in Photo they return,
+    /// and Print is one of Photo's looks too.
+    func testPrintModeDropsFormatAndFilterControls() {
+        tapOffLabel(app.buttons["mode.print"], dx: 0.5, dy: 0.95)
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.buttons["topbar.format"])
+        expectation(for: gone, evaluatedWith: app.buttons["strip.look"])
+        waitForExpectations(timeout: 3)
+        XCTAssertTrue(app.buttons["topbar.timer"].exists, "Print mode should keep the self-timer")
+        XCTAssertTrue(app.buttons["strip.ev"].exists, "Print mode should keep exposure controls")
+
+        tapOffLabel(app.buttons["mode.photo"], dx: 0.5, dy: 0.95)
+        XCTAssertTrue(app.buttons["topbar.format"].waitForExistence(timeout: 3),
+                      "Back in Photo, the format pill should return")
+        let strip = app.buttons["strip.look"]
+        XCTAssertTrue(strip.exists, "Back in Photo, LOOK should return")
+        tapOffLabel(strip, dx: 0.1)
+        XCTAssertTrue(app.buttons["filter.print"].waitForExistence(timeout: 3), "Print should be one of Photo's looks too")
     }
 
     func testFilterCardsSelectAndDoubleTapResets() {

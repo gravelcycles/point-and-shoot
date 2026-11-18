@@ -261,10 +261,10 @@ struct CameraSettings: Codable, Equatable {
     var captureLook: String?
     /// The named set of looks the LOOK picker shows (`LookSet` id); nil = all looks.
     var lookSet: String?
-    /// Print as its own mode next to Photo and Video, or as one of the looks. P&S Studio:
-    /// always one of the looks in Photo (the owner, 2026-11-18); `decodeSaved` moves older
-    /// setups over.
-    var printPlacement: PrintPlacement = .filter
+    /// Print as its own mode next to Photo and Video, or as one of the looks. P&S Studio
+    /// ignores it: Print is both (the owner, 2026-11-18: the mode is "the simple mode", and
+    /// Photo's LOOK list has it too). Kept so settings round-trip with `main`.
+    var printPlacement: PrintPlacement = .mode
     /// Print and Zero: ask the camera for a plainer live view (no video HDR, one tone curve
     /// for the whole frame instead of Apple's local brightening), so the viewfinder tracks
     /// the photo, which comes from the RAW alone. Experimental: off until tried on device.
@@ -340,13 +340,6 @@ struct CameraSettings: Codable, Equatable {
             } else if saved["defaultGrade"] != nil {
                 // Unreadable: drop just the grade, never the whole setup.
                 saved.removeValue(forKey: "defaultGrade")
-            }
-            // P&S Studio has no Print mode: Print is one of Photo's looks. A camera left in
-            // Print mode opens in Photo with the Print look.
-            saved["printPlacement"] = PrintPlacement.filter.rawValue
-            if saved["mode"] as? String == CaptureMode.print.rawValue {
-                saved["mode"] = CaptureMode.photo.rawValue
-                saved["captureLook"] = Self.printLookID
             }
             // A look that's no longer offered moves to its successor, or to Original, so
             // the camera never applies (or shows) a look the pickers can't select.
@@ -450,11 +443,12 @@ enum Stops {
 extension CameraSettings {
     static let printLookID = "print"
 
-    /// The modes the mode picker offers.
-    var availableModes: [CaptureMode] { printPlacement == .mode ? [.photo, .print, .video] : [.photo, .video] }
+    /// The modes the mode picker offers. P&S Studio: Print is always a mode (the simple
+    /// one: no format pill, no LOOK cell) and also one of Photo's looks.
+    var availableModes: [CaptureMode] { [.photo, .print, .video] }
 
-    /// The looks the camera's LOOK picker offers (Print only when it isn't a mode), from
-    /// the chosen set (`lookSet`) or all of them.
+    /// The looks the camera's LOOK picker offers (Print included), from the chosen set
+    /// (`lookSet`) or all of them.
     var filterLooks: [Look] {
         let set = LookSet.named(lookSet)
         return Look.all.filter { offersInStrip($0) && (set == nil || $0.set == set) }
@@ -470,20 +464,18 @@ extension CameraSettings {
         return looks
     }
 
-    /// How many cards a set puts in the strip (Print is left out while it's a mode).
+    /// How many cards a set puts in the strip.
     func stripCount(of set: LookSet) -> Int { set.looks.filter(offersInStrip).count }
 
-    private func offersInStrip(_ look: Look) -> Bool {
-        look.id != "none" && (printPlacement == .filter || look.id != Self.printLookID)
-    }
+    private func offersInStrip(_ look: Look) -> Bool { look.id != "none" }
 
     /// The look applied to stills right now: Print in Print mode, otherwise the chosen
-    /// look (Print counts as one of the looks only while it isn't a mode).
+    /// look (which can be Print too).
     var activeLook: String? {
         switch mode {
         case .video: nil
         case .print: Self.printLookID
-        case .photo: printPlacement == .mode && captureLook == Self.printLookID ? nil : captureLook
+        case .photo: captureLook
         }
     }
 

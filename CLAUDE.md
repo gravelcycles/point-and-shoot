@@ -557,9 +557,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       under the film's), and exposure applied *before* un-rendering (+1 EV clipped
       everything above display 0.5). Kept bit-exact for older edits.
 - **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
-  "Print film look". **P&S Studio has no Print mode** (the owner, 2026-11-18): Print is
-  always one of Photo's looks. The default is `.filter`, the setting is hidden, and
-  `decodeSaved` moves a saved Print mode to Photo with the Print look.
+  "Print film look". **P&S Studio: Print is both** (the owner, 2026-11-18): always a mode
+  ("the simple mode") and always one of Photo's looks. `printPlacement` is ignored and its
+  setting hidden (kept so settings round-trip with `main`).
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
     (`isStill`), so it uses the photo pipeline.
     - It drops the controls that don't apply: no format pill (always RAW), no LOOK
