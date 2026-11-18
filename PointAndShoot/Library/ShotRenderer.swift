@@ -84,6 +84,10 @@ enum ShotRenderer {
             return r
         }
         if !r.rawInitialized {
+            // Brightness reports: how this RAW was exposed and is developed (first develop only).
+            Diag.log(.bake, "RAW develop \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)): "
+                     + EditPipeline.developReport(raw, recipe: r,
+                                                  properties: originalData(shot, in: dir).flatMap { CIImage(data: $0)?.properties }))
             let defaults = EditPipeline.readDefaults(raw)
             let nr = Double(defaults.noiseReduction * 100)
             r.rawNoiseReduction = r.film != nil ? max(nr, EditRecipe.filmMinimumNoiseReduction) : nr
