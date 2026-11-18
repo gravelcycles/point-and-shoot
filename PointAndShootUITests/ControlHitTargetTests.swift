@@ -58,9 +58,12 @@ final class ControlHitTargetTests: XCTestCase {
     }
 
     func testTopBarIconRespondsAwayFromGlyph() {
+        // The self-timer is a dropdown: its edge opens it, and a choice sets it.
         tapOffLabel(app.buttons["topbar.timer"], dx: 0.95, dy: 0.9)
-        XCTAssertTrue(app.staticTexts["3s"].waitForExistence(timeout: 3),
-                      "Tapping the timer button's edge didn't change the self-timer")
+        let three = app.buttons["3 Seconds"]
+        XCTAssertTrue(three.waitForExistence(timeout: 3), "Tapping the timer button's edge didn't open its menu")
+        three.tap()
+        XCTAssertTrue(app.staticTexts["3s"].waitForExistence(timeout: 3), "Choosing 3 Seconds didn't set the self-timer")
     }
 
     func testSettingsOpensFromIconEdgeAndTogglesWork() {
@@ -99,23 +102,13 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping VIDEO didn't switch to video mode")
     }
 
-    /// Print mode always shoots RAW and *is* the look, so the format pill and the LOOK
-    /// cell go away; the photo controls stay. Back in Photo they return.
-    func testPrintModeDropsFormatAndFilterControls() {
-        // Bayer RAW is what locks zoom (ProRAW, the default, zooms).
-        switchToBayerRAW()
-        tapOffLabel(app.buttons["mode.print"], dx: 0.5, dy: 0.95)
-        let gone = NSPredicate(format: "exists == false")
-        expectation(for: gone, evaluatedWith: app.buttons["topbar.format"])
-        expectation(for: gone, evaluatedWith: app.buttons["strip.look"])
-        waitForExpectations(timeout: 3)
-        XCTAssertTrue(app.buttons["topbar.timer"].exists, "Print mode should keep the self-timer")
-        XCTAssertTrue(app.buttons["strip.ev"].exists, "Print mode should keep exposure controls")
-
-        tapOffLabel(app.buttons["mode.photo"], dx: 0.5, dy: 0.95)
-        XCTAssertTrue(app.buttons["topbar.format"].waitForExistence(timeout: 3),
-                      "Back in Photo, the format pill should return")
-        XCTAssertTrue(app.buttons["strip.look"].exists, "Back in Photo, LOOK should return")
+    /// P&S Studio: Print is one of Photo's looks, not a mode.
+    func testPrintIsALookNotAMode() {
+        XCTAssertTrue(app.buttons["mode.photo"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["mode.print"].exists, "Print should no longer be a mode")
+        tapOffLabel(app.buttons["strip.look"], dx: 0.1)
+        let print = app.buttons["filter.print"]
+        XCTAssertTrue(print.waitForExistence(timeout: 3), "Print should be one of the looks")
     }
 
     func testFilterCardsSelectAndDoubleTapResets() {
@@ -180,17 +173,16 @@ final class ControlHitTargetTests: XCTestCase {
         }
     }
 
-    /// Print shoots Bayer RAW, which crashes AVFoundation when zoomed (#18): pinching in
-    /// Print must not zoom, and must say why.
-    func testPinchInPrintIsLockedAndExplained() {
+    /// Bayer RAW crashes AVFoundation when zoomed (#18): pinching with Bayer RAW must not
+    /// zoom, and must say why.
+    func testPinchWithBayerRAWIsLockedAndExplained() {
         // Bayer RAW is what locks zoom (ProRAW, the default, zooms).
         switchToBayerRAW()
-        app.buttons["mode.print"].tap()
         let viewfinder = app.otherElements["viewfinder"]
         XCTAssertTrue(viewfinder.waitForExistence(timeout: 3))
         viewfinder.pinch(withScale: 2.5, velocity: 2)
-        let toast = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'No zoom in Print'")).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 3), "Pinching in Print showed no zoom-lock message")
+        let toast = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'No zoom in Bayer RAW'")).firstMatch
+        XCTAssertTrue(toast.waitForExistence(timeout: 3), "Pinching with Bayer RAW showed no zoom-lock message")
     }
 
     /// The silent-shutter option exists and can be turned on.

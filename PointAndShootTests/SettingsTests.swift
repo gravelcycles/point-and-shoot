@@ -46,6 +46,18 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.storeForever)
         XCTAssertFalse(s.autoExport)
         XCTAssertEqual(s.exportMaxSide, 2880)
+        XCTAssertEqual(s.printPlacement, .filter, "Studio has no Print mode")
+        XCTAssertEqual(s.availableModes, [.photo, .video])
+    }
+
+    /// A camera left in Print mode opens in Photo with the Print look.
+    func testPrintModeMovesToThePrintLook() throws {
+        let json = #"{"mode":"print","printPlacement":"mode","captureLook":"punch"}"#
+        let s = try XCTUnwrap(CameraSettings.decodeSaved(Data(json.utf8)))
+        XCTAssertEqual(s.mode, .photo)
+        XCTAssertEqual(s.captureLook, CameraSettings.printLookID)
+        XCTAssertEqual(s.activeLook, CameraSettings.printLookID)
+        XCTAssertEqual(s.printPlacement, .filter)
     }
 
     func testStartingGrade() {
@@ -181,11 +193,11 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.stripLooks.count, s.filterLooks.count + 1)
         s.captureLook = "blockbuster"       // already in the set: not doubled
         XCTAssertEqual(s.stripLooks.map(\.id), s.filterLooks.map(\.id))
-        XCTAssertEqual(s.printPlacement, .mode)
-        XCTAssertEqual(s.stripCount(of: .essentials), 3, "Print is a mode, not a card")
-        s.printPlacement = .filter
+        XCTAssertEqual(s.printPlacement, .filter, "P&S Studio: Print is one of Photo's looks")
         XCTAssertEqual(s.stripCount(of: .essentials), 4)
         XCTAssertEqual(s.stripCount(of: .movie), 4)
+        s.printPlacement = .mode
+        XCTAssertEqual(s.stripCount(of: .essentials), 3, "Print is a mode, not a card")
     }
 
     /// A look that's no longer offered never stays the camera's choice: it moves to its

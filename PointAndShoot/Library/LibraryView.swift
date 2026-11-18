@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// The whole library, by day. Tap a photo to jump the viewer to it, or Select to pick
-/// several and export, share, keep, paste a grade onto or trash them together. The Trash
-/// (shots deleted, or past their 30 days) is one tap away.
+/// The whole library, by day, as its own screen (the viewer swaps it in). Tap a photo to
+/// open it, the camera button to go straight back to shooting, or Select to pick several
+/// and export, share, keep, paste a grade onto or trash them together. The Trash (shots
+/// deleted, or past their 30 days) is one tap away.
 struct RollGrid: View {
     let store: ShotStore
     let camera: CameraController
     let onSelect: (Shot) -> Void
-    @Environment(\.dismiss) private var dismiss
+    /// Back to the camera.
+    let onCamera: () -> Void
 
     @State private var selecting = false
     @State private var selected: Set<UUID> = []
@@ -152,7 +154,15 @@ struct RollGrid: View {
                     Button("Select") { selecting = true }
                         .disabled(store.shots.isEmpty)
                         .accessibilityIdentifier("grid.select")
-                    Button("Done") { dismiss() }.fontWeight(.semibold)
+                    Button(action: onCamera) {
+                        Image(systemName: "camera")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .accessibilityIdentifier("grid.camera")
+                    .accessibilityLabel("Camera")
                 }
             }
         }

@@ -16,10 +16,13 @@ struct TopBar: View {
         let haptics = s.haptics
         HStack(spacing: 8) {
             if s.mode.isStill {
-                TopBarButton(symbol: s.flash.symbol, active: s.flash != .off, enabled: camera.supportsFlash,
-                             rotation: rotation, haptics: haptics, label: "Flash \(s.flash.rawValue)") {
-                    camera.update { $0.flash = cycled(s.flash, in: FlashSetting.allCases) }
-                }
+                // Dropdowns (Chromagraph's): every choice visible, nothing cycles blindly.
+                TopBarMenu(symbol: s.flash.symbol, active: s.flash != .off, enabled: camera.supportsFlash,
+                           rotation: rotation, haptics: haptics, label: "Flash \(s.flash.rawValue)",
+                           title: "Flash",
+                           selection: Binding(get: { camera.settings.flash },
+                                              set: { v in camera.update { $0.flash = v } }),
+                           options: FlashSetting.allCases.map { ($0, $0.menuLabel, $0.symbol) })
                 .accessibilityIdentifier("topbar.flash")
             } else {
                 Color.clear.frame(width: 44, height: 44)
@@ -50,10 +53,12 @@ struct TopBar: View {
             Spacer(minLength: 4)
 
             if s.mode.isStill {
-                TopBarButton(symbol: "timer", caption: s.selfTimer == .off ? nil : s.selfTimer.label,
-                             active: s.selfTimer != .off, rotation: rotation, haptics: haptics, label: "Self-timer") {
-                    camera.update { $0.selfTimer = cycled(s.selfTimer, in: SelfTimer.allCases) }
-                }
+                TopBarMenu(symbol: "timer", caption: s.selfTimer == .off ? nil : s.selfTimer.label,
+                           active: s.selfTimer != .off, rotation: rotation, haptics: haptics, label: "Self-timer",
+                           title: "Self-Timer",
+                           selection: Binding(get: { camera.settings.selfTimer },
+                                              set: { v in camera.update { $0.selfTimer = v } }),
+                           options: SelfTimer.allCases.map { ($0, $0.menuLabel, $0 == .off ? "timer" : "\($0.rawValue).circle") })
                 .accessibilityIdentifier("topbar.timer")
             }
             GPSIndicator(tagger: camera.location, rotation: rotation) {
@@ -113,6 +118,51 @@ struct TopBarButton: View {
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.3)
         .sensoryFeedback(.impact(weight: .light), trigger: taps) { _, _ in haptics }
+        .accessibilityLabel(label)
+    }
+}
+
+/// A top-bar button that drops down its choices (flash, self-timer), with the current one
+/// ticked. Looks like `TopBarButton`; the whole 44 pt square opens it.
+struct TopBarMenu<Value: Hashable>: View {
+    let symbol: String
+    var caption: String? = nil
+    var active = false
+    var enabled = true
+    let rotation: Angle
+    var haptics = true
+    let label: String
+    let title: String
+    @Binding var selection: Value
+    let options: [(Value, String, String)]
+
+    var body: some View {
+        Menu {
+            Picker(title, selection: $selection) {
+                ForEach(options.indices, id: \.self) { i in
+                    Label(options[i].1, systemImage: options[i].2).tag(options[i].0)
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                if let caption {
+                    Text(caption).font(.system(size: 12, weight: .bold, design: .rounded))
+                }
+            }
+            .foregroundStyle(active ? Color.black : Color.white)
+            .padding(.horizontal, caption == nil ? 0 : 10)
+            .frame(minWidth: 38, minHeight: 38)
+            .background(Capsule().fill(active ? Color.yellow : Color.white.opacity(0.16)))
+            .rotationEffect(rotation)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .menuOrder(.fixed)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.3)
+        .sensoryFeedback(.selection, trigger: selection) { _, _ in haptics }
         .accessibilityLabel(label)
     }
 }

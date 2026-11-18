@@ -97,6 +97,8 @@ enum ProcessingLevel: String, Codable, CaseIterable, Identifiable {
 enum FlashSetting: String, Codable, CaseIterable, Identifiable {
     case off, auto, on
     var id: String { rawValue }
+    /// In the top bar's dropdown.
+    var menuLabel: String { rawValue.capitalized }
     var avMode: AVCaptureDevice.FlashMode {
         switch self {
         case .off: .off
@@ -123,6 +125,8 @@ enum SelfTimer: Int, Codable, CaseIterable, Identifiable {
     case off = 0, three = 3, ten = 10
     var id: Int { rawValue }
     var label: String { self == .off ? "Off" : "\(rawValue)s" }
+    /// In the top bar's dropdown.
+    var menuLabel: String { self == .off ? "Off" : "\(rawValue) Seconds" }
 }
 
 // MARK: - Video
@@ -259,8 +263,10 @@ struct CameraSettings: Codable, Equatable {
     var captureLook: String?
     /// The named set of looks the LOOK picker shows (`LookSet` id); nil = all looks.
     var lookSet: String?
-    /// Print as its own mode next to Photo and Video, or as one of the looks.
-    var printPlacement: PrintPlacement = .mode
+    /// Print as its own mode next to Photo and Video, or as one of the looks. P&S Studio:
+    /// always one of the looks in Photo (the owner, 2026-11-18); `decodeSaved` moves older
+    /// setups over.
+    var printPlacement: PrintPlacement = .filter
     /// Print and Zero: ask the camera for a plainer live view (no video HDR, one tone curve
     /// for the whole frame instead of Apple's local brightening), so the viewfinder tracks
     /// the photo, which comes from the RAW alone. Experimental: off until tried on device.
@@ -336,6 +342,13 @@ struct CameraSettings: Codable, Equatable {
             } else if saved["defaultGrade"] != nil {
                 // Unreadable: drop just the grade, never the whole setup.
                 saved.removeValue(forKey: "defaultGrade")
+            }
+            // P&S Studio has no Print mode: Print is one of Photo's looks. A camera left in
+            // Print mode opens in Photo with the Print look.
+            saved["printPlacement"] = PrintPlacement.filter.rawValue
+            if saved["mode"] as? String == CaptureMode.print.rawValue {
+                saved["mode"] = CaptureMode.photo.rawValue
+                saved["captureLook"] = Self.printLookID
             }
             // A look that's no longer offered moves to its successor, or to Original, so
             // the camera never applies (or shows) a look the pickers can't select.
