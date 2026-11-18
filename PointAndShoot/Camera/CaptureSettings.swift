@@ -125,8 +125,6 @@ enum SelfTimer: Int, Codable, CaseIterable, Identifiable {
     case off = 0, three = 3, ten = 10
     var id: Int { rawValue }
     var label: String { self == .off ? "Off" : "\(rawValue)s" }
-    /// In the top bar's dropdown.
-    var menuLabel: String { self == .off ? "Off" : "\(rawValue) Seconds" }
 }
 
 // MARK: - Video

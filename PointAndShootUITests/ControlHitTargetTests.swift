@@ -60,8 +60,8 @@ final class ControlHitTargetTests: XCTestCase {
     func testTopBarIconRespondsAwayFromGlyph() {
         // The self-timer is a dropdown: its edge opens it, and a choice sets it.
         tapOffLabel(app.buttons["topbar.timer"], dx: 0.95, dy: 0.9)
-        let three = app.buttons["3 Seconds"]
-        XCTAssertTrue(three.waitForExistence(timeout: 3), "Tapping the timer button's edge didn't open its menu")
+        let three = app.buttons["timer.1"]
+        XCTAssertTrue(three.waitForExistence(timeout: 3), "Tapping the timer button's edge didn't open its dropdown")
         three.tap()
         XCTAssertTrue(app.staticTexts["3s"].waitForExistence(timeout: 3), "Choosing 3 Seconds didn't set the self-timer")
     }

@@ -88,6 +88,8 @@ struct CameraView: View {
             TopBar(camera: camera, rotation: motion.iconRotation, showSettings: $showSettings, showFormat: $showFormat)
                 .padding(.horizontal, 12)
                 .frame(height: 50)
+                // Above the viewfinder, so its dropdowns can hang over it.
+                .zIndex(1)
                 .sheet(isPresented: $showFormat) {
                     Group {
                         if camera.settings.mode.isStill {
