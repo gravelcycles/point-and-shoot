@@ -324,7 +324,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Where / when | What happens |
 |---|---|
 | Capture | `ShotStore.add` writes the files and inserts the shot at once (the camera's preview shows), then develops it. A failed write removes the folder. A failed save clears `lastSavedShotID`, so the viewer never sticks on "Saving…". |
-| Viewer / grid trash | `moveToTrash` (no iOS prompt). The viewer lands on the neighbour, and a banner offers Undo. |
+| Viewer / grid trash | Asks first ("Delete this photo?" → Move to Trash; the owner wants the "are you sure"), then `moveToTrash`. The viewer lands on the neighbour, and a banner offers Undo. |
 | Trash view (grid → Trash) | Tap to put back; Empty deletes the files for good (with a confirmation). |
 | Retention | Each shot's 30 days run from `retentionStart` = the latest of taken, added (imports) and restored from the Trash past due. Then, unless tagged Keep or Store New Photos Forever is on, `applyRetention` (at launch and every return to the app) moves it to the Trash. Trash older than 30 days is deleted. An Undo keeps a shot's remaining days. |
 | Store Forever | Turning it off asks first if photos would move to the Trash right away. Reset General Settings leaves it alone. |
