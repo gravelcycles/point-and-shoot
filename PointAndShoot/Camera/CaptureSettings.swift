@@ -261,6 +261,10 @@ struct CameraSettings: Codable, Equatable {
     var lookSet: String?
     /// Print as its own mode next to Photo and Video, or as one of the looks.
     var printPlacement: PrintPlacement = .mode
+    /// Print and Zero: ask the camera for a plainer live view (no video HDR, one tone curve
+    /// for the whole frame instead of Apple's local brightening), so the viewfinder tracks
+    /// the photo, which comes from the RAW alone. Experimental: off until tried on device.
+    var plainLiveView: Bool = false
     /// Lens to reopen on next launch.
     var lastLensID: String?
 
@@ -452,6 +456,10 @@ extension CameraSettings {
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
     /// We capture Bayer RAW and develop it ourselves: Zero processing, or a film look.
     var developsBayerRAW: Bool { processing == .zero || captureLookNeedsRAW }
+
+    /// The plain live view applies now: the option is on and the photo comes from the RAW
+    /// alone (Print, Zero, a RAW-capturing look) in a still mode.
+    var wantsPlainLiveView: Bool { plainLiveView && mode.isStill && developsBayerRAW }
 
     /// Bayer RAW is the sensor's full frame, and AVFoundation throws (an instant crash) if
     /// it's captured while digitally zoomed. Modes that shoot it lock zoom at 1×.

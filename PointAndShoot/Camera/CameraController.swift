@@ -294,6 +294,9 @@ final class CameraController: NSObject {
                 self.installCameraControls(device: device, zoom: zoomAllowed)
             }
         }
+        if s.wantsPlainLiveView != old.wantsPlainLiveView {
+            sessionQueue.async { self.applyPlainLiveView(s) }
+        }
         updateStorage()
         if old.saveLocation != s.saveLocation {
             if s.saveLocation { location.start() } else { location.stop(disabled: true) }
@@ -535,6 +538,8 @@ final class CameraController: NSObject {
                 if d.isSmoothAutoFocusSupported { d.isSmoothAutoFocusEnabled = s.mode == .video }
                 if d.isLowLightBoostSupported { d.automaticallyEnablesLowLightBoostWhenAvailable = false }
             }
+            // A new format resets global tone mapping, so set it again.
+            self.applyPlainLiveView(s)
             self.applyExposure(mode: exposureState.0, iso: exposureState.1, shutter: exposureState.2, bias: exposureState.3)
             self.applyWhiteBalance(wb)
             self.applyFocus(mode: focus.0, lensPosition: focus.1)
@@ -750,6 +755,25 @@ final class CameraController: NSObject {
         supportsMaxResolution = c.maxRes
         isoRange = c.isoRange
         shutterRange = c.shutterRange
+    }
+
+    /// The live view is Apple's processed video, never the RAW. Where the photo comes from
+    /// the RAW alone, a plainer feed (video HDR off, global instead of local tone mapping)
+    /// lets the film's un-render track it more closely. Elsewhere Apple's defaults return.
+    /// sessionQueue only.
+    private func applyPlainLiveView(_ s: CameraSettings) {
+        let plain = s.wantsPlainLiveView
+        withLockedDevice { d in
+            let format = d.activeFormat
+            if d.automaticallyAdjustsVideoHDREnabled == plain { d.automaticallyAdjustsVideoHDREnabled = !plain }
+            if plain, format.isVideoHDRSupported, d.isVideoHDREnabled { d.isVideoHDREnabled = false }
+            let global = plain && format.isGlobalToneMappingSupported
+            if d.isGlobalToneMappingEnabled != global { d.isGlobalToneMappingEnabled = global }
+            if plain {
+                Diag.log(.session, "plain live view: video HDR \(format.isVideoHDRSupported ? "off" : "unsupported"), "
+                         + "global tone mapping \(format.isGlobalToneMappingSupported ? "on" : "unsupported")")
+            }
+        }
     }
 
     private func withLockedDevice(_ body: (AVCaptureDevice) -> Void) {

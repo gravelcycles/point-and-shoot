@@ -55,6 +55,7 @@ Git history: merged into `main` so far:
 | #36, #38 | engine 2's measured un-render; Looks with structure and named sets |
 | #41 | brightness against Chromagraph: editor matching (superseded by #42) |
 | #42 | film looks develop from the RAW alone, at a fixed +1.86 EV |
+| #43 | Plain live view: video HDR off, global tone mapping in Print/Zero (experimental) |
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
@@ -578,6 +579,20 @@ is the only source of truth for what exists. Everything else reacts to it.
         render queue never builds one. LOOK-strip thumbnails stay uncorrected.
       - Measured with CIRAWFilter's default render standing in for the live video: check
         on the device (`docs/film-looks.md` §5⅞).
+    - **Plain live view** (Settings → Photo, `CameraSettings.plainLiveView`, off by
+      default, experimental). Where the photo comes from the RAW alone (Print, Zero,
+      `wantsPlainLiveView`), `CameraController.applyPlainLiveView` turns video HDR off and
+      global tone mapping on (`isGlobalToneMappingEnabled`, where the format supports it).
+      That's one tone curve for the whole frame instead of Apple's local brightening.
+      - It's re-applied after every reconfigure, because a format change resets it.
+      - Apple's defaults return elsewhere, and the state is logged in Diagnostics.
+      - Its global curve still adapts to each scene, so it narrows the per-region drift,
+        not the per-scene one.
+      - The engine-2 table was measured with Apple's local tone mapping on, so it may need
+        re-measuring for this mode.
+      - The `ViewfinderMatch` correction was fitted the same way (local tone mapping on).
+        Plain live view narrows the drift within a frame; the correction handles the drift
+        between scenes. Re-measure both if the owner keeps Plain live view on.
 - **Photos keep the tuning they were made with.** `FilmRecipe.tuning` stores the whole
   `FilmStock` (~4.2 KB), pinned the moment a look is picked (`Look.film`) and kept through
   every save. Rendering uses `FilmStock.resolved(for:)`, so retuning a stock in code (or
@@ -909,6 +924,9 @@ to be wrong.
       move the 0.03 offset.
     - Open a Print photo from before 2026-11-14 in the editor: it opens ~2 stops brighter
       with Save enabled (no need to tap Print); Save keeps it.
+    - ⚠️ Settings → Photo → Plain live view: the viewfinder should track the saved photo
+      more closely in Print, especially in contrasty and dim scenes, with no hitch when
+      switching Photo ↔ Print. The Diagnostics log says whether the phone supports it.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.
     - Indoors at night, the shot shouldn't look noisy. Fine grain should be visible

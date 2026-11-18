@@ -20,7 +20,8 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #36 | Engine 2: the viewfinder un-render, measured (§5¾) | merged |
 | #38 | Looks with structure (hue twists, dye saturation), named look sets, engine 3's subtractive Saturation slider (§1¾); #37 is the same for P&S Studio | merged |
 | #41 | Brightness against Chromagraph: editor matching, cap +4 EV (§5⅞) | merged, superseded by #42 |
-| #42 | Film looks develop from the RAW alone at a fixed +1.86 EV; the viewfinder match is gone (§5⅞) | this PR |
+| #42 | Film looks develop from the RAW alone at a fixed +1.86 EV; the viewfinder match is gone (§5⅞) | merged |
+| #43 | Plain live view: video HDR off and global tone mapping in Print/Zero (§5⅞) | this PR |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
@@ -588,9 +589,14 @@ against 0.125 for Chromagraph (2.6 stops), 95th percentile 0.11 against 0.53.
 - Engine 2 reads shadows brighter than engine 1, so dim scenes should look closer than
   those engine-1 numbers.
 - Not measured on the device. Levers if it matters:
-  - `AVCaptureDevice.isGlobalToneMappingEnabled` (iOS 16+, where the format supports
-    it), to take Apple's local tone mapping out of the feed;
-  - viewfinder frames saved next to DNGs, to measure the drift per scene.
+  - **#43's Plain live view** (Settings, off by default). In Print and Zero it turns
+    video HDR off and `AVCaptureDevice.isGlobalToneMappingEnabled` on (iOS 13+, where
+    the format supports it).
+    - Apple documents that global tone map as still adapting to each scene, so it should
+      narrow the per-region drift more than the per-scene one.
+    - If the owner likes it, re-measure the un-render for it: the engine-2 table was
+      built with Apple's local tone mapping on.
+  - Viewfinder frames saved next to DNGs, to measure the drift per scene.
 
 **The viewfinder correction (2026-11-18, stacked on #42).** The owner's rule: the photo
 comes only from the RAW and its saved camera settings; the viewfinder may predict the

@@ -80,6 +80,11 @@ struct SettingsView: View {
                  : "Print is one of the looks under LOOK, in the Essentials set.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            Toggle("Plain live view", isOn: camera.binding(\.plainLiveView))
+                .accessibilityIdentifier("settings.plainLiveView")
+            Text("Print and Zero develop the photo from the RAW alone, but iPhones only give the viewfinder Apple's processed video. This asks for a plainer feed (no video HDR, no local brightening) so the viewfinder tracks the photo more closely. Experimental.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             Picker("Self-timer", selection: camera.binding(\.selfTimer)) {
                 ForEach(SelfTimer.allCases) { Text($0.label).tag($0) }
             }
