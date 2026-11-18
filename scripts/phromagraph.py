@@ -10,7 +10,7 @@ which print-look.py export-swift writes into FilmStock+Stocks.swift.
 
   phromagraph.py prep DIR [--work W]      develop, align, sample (cached in W)
   phromagraph.py fit [--work W]           fit, write scripts/phromagraph-stock.json
-  phromagraph.py measure DIR [--work W]   exposure vs the viewfinder match; grain
+  phromagraph.py measure DIR [--work W]   viewfinder vs the fixed develop exposure; grain
   phromagraph.py sheet OUT.jpg [--work W] [--only a,b]
                                           neutral develop | Print | Phromagraph | Chromagraph
 
@@ -248,9 +248,9 @@ def fit(out_path):
     st = stock_from(r.x, base)
     after = report(st, data, "Phromagraph")
     ev = st["exposure"]
-    # The app exposes each RAW to match the viewfinder (rawFilmExposure), which supplies the
-    # develop exposure on its own (median within 0.1 EV here; `measure`); a stock exposure
-    # would also scale the viewfinder's display-referred input and clip it.
+    # The app develops a film look's RAW at a fixed EditRecipe.filmRAWExposure (+1.86, this
+    # fit's develop exposure) rather than a stock exposure, which would also scale the
+    # viewfinder's display-referred input and clip it.
     st["exposure"] = 0.0
     st["huePreserve"] = round(st["huePreserve"], 3) if st["huePreserve"] > 0.01 else 0.0
     st.update(halation=HALATION, halation_spread=HALATION_SPREAD, **GRAIN)
@@ -259,7 +259,7 @@ def fit(out_path):
                    f"Chromagraph 1.6.1): mean ΔE (Oklab) {after:.4f}, against {before:.4f} for Print. Vision3 5219 "
                    f"negative; tone, printer lights, crossover, layer sensitivity, dye crosstalk and split toning fitted "
                    f"(scripts/phromagraph.py). Chromagraph develops {ev:+.2f} EV over a neutral CIRAWFilter develop; "
-                   f"the app's viewfinder match supplies that, so the stock's exposure is 0. Halation and grain measured "
+                   f"the app develops film looks' RAWs at that (EditRecipe.filmRAWExposure), so the stock's exposure is 0. Halation and grain measured "
                    f"separately (grain = Chromagraph grain 1.25 at slider 50).")
     st = json.loads(json.dumps(st, default=float))
     for c in st["print"]:
@@ -275,7 +275,8 @@ def fit(out_path):
 # --- measure ---------------------------------------------------------------------------
 
 def measure(d):
-    """How far the app's viewfinder match lands from Chromagraph's exposure, and the grain
+    """How far the viewfinder (Apple's rendering, un-rendered) lands from the fixed develop
+    exposure (Chromagraph's, EditRecipe.filmRAWExposure) per shot, and the grain
     Chromagraph adds (high-pass σ of encoded luminance in flat areas, /255)."""
     import cv2
     st = F.load_stock(OUT) if os.path.exists(OUT) else None
@@ -297,11 +298,11 @@ def measure(d):
     for name, dng, ref, s in list_pairs(d):
         vf = key(np.clip(read_f32(os.path.join(WORK_DIR, "apple", name + ".f32")), 0, 1), True)
         raw = key(read_f32(os.path.join(WORK_DIR, "dev", name + ".f32")), False)
-        rfe = min(max(np.log2(vf / raw), -1.5), 2.5)
-        line = f"  {name[:12]:12s} rawFilmExposure {rfe:+.2f}"
+        rfe = np.log2(vf / raw)        # the develop exposure that would match the viewfinder
+        line = f"  {name[:12]:12s} viewfinder ≙ develop {rfe:+.2f} EV"
         if ev_dev is not None:
             gap = rfe - (ev_dev + s["exposureStops"])
-            line += f"   app vs Chromagraph {gap:+.2f} EV"
+            line += f"   viewfinder vs photo {gap:+.2f} EV"
             if s["exposureStops"] == 0:
                 gaps.append(gap)
         print(line)

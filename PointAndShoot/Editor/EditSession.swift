@@ -31,10 +31,6 @@ final class EditSession {
     private(set) var hasRAW = false
     private(set) var isSaving = false
     private(set) var lookThumbnails: [String: UIImage] = [:]
-    /// The exposure that develops this photo's RAW as bright as its processed version, for
-    /// film looks on photos whose recipe carries no match from capture: shot before the
-    /// match existed, or given a film look here. Without it they develop ~2 stops dark.
-    private(set) var filmExposureMatch: Double?
     var errorMessage: String?
     /// The photo was deleted (here, in Photos or on another device) while it was open.
     /// Saving onto it is impossible; the editor offers Save as New Photo instead.
@@ -61,19 +57,7 @@ final class EditSession {
     }
 
     var developsFromRAW: Bool { hasRAW && recipe.useRAW }
-    var hasChanges: Bool { !isLoading && renderedRecipe != savedRecipe }
-
-    /// The recipe as rendered and saved: `recipe`, plus this photo's brightness match when
-    /// a film look develops from RAW with none (`filmExposureMatch`). Kept out of `recipe`
-    /// so undo, copy and paste never carry one photo's match to another. An older photo
-    /// that gains a match opens with unsaved changes: Save keeps the corrected brightness.
-    var renderedRecipe: EditRecipe {
-        var r = recipe
-        if r.film != nil, r.rawFilmExposure == nil, developsFromRAW, let match = filmExposureMatch {
-            r.rawFilmExposure = match
-        }
-        return r
-    }
+    var hasChanges: Bool { !isLoading && recipe != savedRecipe }
     var canRevert: Bool { asset.hasAdjustments }
 
     // MARK: Loading
@@ -135,48 +119,8 @@ final class EditSession {
 
         recipe = loaded
         savedRecipe = loaded
-        if hasRAW, loaded.rawFilmExposure == nil, let rawData {
-            let defaults = rawDefaults, opened = loaded
-            let match = Task.detached(priority: .userInitiated) {
-                Self.matchFilmExposure(rawData: rawData, defaults: defaults, recipe: opened, target: base)
-            }
-            // A film look that was never matched: wait, so the first render is already right.
-            // Otherwise it's only needed if a film look gets picked.
-            if loaded.film != nil {
-                let ev = await match.value
-                setFilmExposureMatch(ev)
-            } else {
-                Task {
-                    let ev = await match.value
-                    self.setFilmExposureMatch(ev)
-                }
-            }
-        }
         isLoading = false
         Task { await renderLookThumbnails() }
-    }
-
-    private func setFilmExposureMatch(_ ev: Double?) {
-        filmExposureMatch = ev
-        let id = asset.localIdentifier.prefix(8)
-        Diag.log(.editor, ev.map { "film exposure for \(id): " + String(format: "%+.2f EV", $0) + " (matched to the photo)" }
-                 ?? "film exposure for \(id): couldn't measure")
-    }
-
-    /// `FilmPipeline.matchRAWExposure` for the editor: the RAW developed as a film look
-    /// with no exposure of its own, against the photo Photos holds as the original (the
-    /// processed HEIF, or the Zero develop of a Print shot).
-    nonisolated private static func matchFilmExposure(rawData: Data, defaults: RAWDefaults,
-                                                      recipe: EditRecipe, target base: CIImage) -> Double? {
-        guard let raw = CIRAWFilter(imageData: rawData, identifierHint: nil),
-              let target = FilmPipeline.sceneKey(of: base, context: EditPipeline.context, source: .displayReferred)
-        else { return nil }
-        var probe = recipe
-        probe.exposure = 0
-        probe.rawFilmExposure = nil
-        if probe.film == nil { probe.film = FilmRecipe() }
-        EditPipeline.configure(raw, recipe: probe, defaults: defaults)
-        return FilmPipeline.matchRAWExposure(raw, target: target, context: EditPipeline.context)?.ev
     }
 
     /// The photo, downsampled to `maxPixels` on its long side and baked into memory once so
@@ -251,19 +195,19 @@ final class EditSession {
     /// Source with geometry but no crop — what the crop tool draws on.
     func uncroppedPreview() -> CIImage? {
         guard let base = sourcePreview() else { return nil }
-        var r = renderedRecipe
+        var r = recipe
         r.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
         return EditPipeline.apply(r, to: base, developedFromRAW: developsFromRAW, applyCrop: false)
     }
 
     func editedPreview() -> CIImage? {
         guard let base = sourcePreview() else { return placeholder }
-        return EditPipeline.apply(renderedRecipe, to: base, developedFromRAW: developsFromRAW)
+        return EditPipeline.apply(recipe, to: base, developedFromRAW: developsFromRAW)
     }
 
     private func sourcePreview() -> CIImage? {
         if developsFromRAW, let raw = (useDetail ? detailRAW : nil) ?? previewRAW {
-            EditPipeline.configure(raw, recipe: renderedRecipe, defaults: rawDefaults)
+            EditPipeline.configure(raw, recipe: recipe, defaults: rawDefaults)
             return raw.outputImage
         }
         return (useDetail ? detailBase : nil) ?? previewBase
@@ -314,7 +258,7 @@ final class EditSession {
 
     private func renderFullResolution() async throws -> CIImage {
         guard let input, let url = input.fullSizeImageURL else { throw EditError.couldNotRender }
-        let recipe = renderedRecipe
+        let recipe = self.recipe
         let fromRAW = developsFromRAW
         let rawData = self.rawData
         let defaults = rawDefaults
@@ -350,9 +294,7 @@ final class EditSession {
         isSaving = true
         defer { isSaving = false }
         // Pin the film look's current tuning into the saved edit (no-op if the photo
-        // already carries one), so later retuning in code never changes this photo. The
-        // brightness match goes in too, so the photo renders the same everywhere.
-        recipe = renderedRecipe
+        // already carries one), so later retuning in code never changes this photo.
         recipe.freezeFilmTuning()
         do {
             let image = try await renderFullResolution()
@@ -391,7 +333,7 @@ final class EditSession {
                 throw EditError.couldNotRender
             }
             try await PhotoLibrary.saveCopy(data: data, location: asset.location)
-            savedRecipe = renderedRecipe
+            savedRecipe = recipe
             return true
         } catch {
             Diag.error(.editor, "save as new photo failed", error)

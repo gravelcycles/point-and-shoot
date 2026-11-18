@@ -8,10 +8,7 @@ import Photos
 enum RecipeBaker {
     /// `rawData`: the shot's DNG, when the caller still has it in memory. Film looks
     /// develop from it (scene light); other looks use the processed photo.
-    /// `viewfinderKey`: what the viewfinder showed (FilmLUT.sceneKey); a film look's RAW
-    /// develop is exposed to match it. Without one, the processed photo is the reference.
-    static func apply(_ recipe: EditRecipe, toAssetWithID id: String, rawData: Data? = nil,
-                      viewfinderKey: Double? = nil) async throws {
+    static func apply(_ recipe: EditRecipe, toAssetWithID id: String, rawData: Data? = nil) async throws {
         guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
                 || PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited,
               let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return }
@@ -41,19 +38,10 @@ enum RecipeBaker {
             recipe.rawInitialized = true
             recipe.rawLocalTone = Double(defaults.localTone * 100)
             recipe.rawBoost = Double(defaults.boost * 100)
+            // The photo comes from the RAW alone: developed at the look's fixed exposure
+            // (picking the look sets it; pinned here too, so it's always in the saved edit).
+            if recipe.rawFilmExposure == nil { recipe.rawFilmExposure = EditRecipe.filmRAWExposure }
             EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
-            if recipe.rawFilmExposure == nil,
-               let target = viewfinderKey ?? FilmPipeline.sceneKey(of: base, context: EditPipeline.context, source: .displayReferred) {
-                if let match = FilmPipeline.matchRAWExposure(raw, target: target, context: EditPipeline.context) {
-                    recipe.rawFilmExposure = match.ev
-                    let source = viewfinderKey != nil ? "viewfinder" : "photo"
-                    Diag.log(.bake, "film exposure " + String(format: "%+.2f EV: ", match.ev) + source
-                             + String(format: " key %.4f, RAW key %.4f", target, match.rawKey))
-                } else {
-                    Diag.error(.bake, "couldn't measure the RAW's brightness; developing it unmatched")
-                }
-                EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
-            }
             output = raw.outputImage.map { EditPipeline.apply(recipe, to: $0, developedFromRAW: true) }
                 ?? EditPipeline.apply(recipe, to: base, developedFromRAW: false)
         } else {
