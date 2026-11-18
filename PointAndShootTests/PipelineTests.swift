@@ -172,11 +172,6 @@ final class PipelineTests: XCTestCase {
         }
     }
 
-    func testSceneKeyIsPositiveAndFinite() throws {
-        let key = try XCTUnwrap(FilmPipeline.sceneKey(of: testImage(), context: EditPipeline.context, source: .displayReferred))
-        XCTAssertTrue(key.isFinite && key > 0)
-    }
-
     func testBakeQueueRunsInOrder() async {
         // Each later bake is shorter, so if bakes overlapped they'd finish out of order.
         let log = OrderLog()

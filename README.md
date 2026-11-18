@@ -53,9 +53,10 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   - **Photos keep the look they were made with.** Looks from earlier versions (Natural,
     Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400, Silver) are no longer offered,
     but photos made with them look exactly as before.
-  - **The live preview matches the saved photo.** The viewfinder undoes Apple's own
+  - **The live preview closely matches the saved photo.** The viewfinder undoes Apple's own
     rendering (its curve and extra saturation, measured on real shots) before applying
-    the film, so the look you frame is the look you get. Photos edited before this
+    the film, so the look you frame is the look you get. iPhones give apps only
+    Apple's processed video live, never the RAW, so it's a close preview, not an exact one. Photos edited before this
     keep their original rendering.
 - **Print: film, from the sensor.** Print is a real film emulation rather than a set of
   slider moves.
@@ -64,8 +65,12 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     to fiddle with. Flash, timer and exposure stay.
   - **Or make it a look:** Settings → Photo → **Print film look** → Look puts it in the
     LOOK list instead.
-  - **What you see is what you get:** each shot is exposed to match the viewfinder's
-    brightness.
+  - **Developed from the RAW alone:** every shot develops at the same fixed brightness
+    (Chromagraph's, +1.86 stops over a neutral develop), whatever the viewfinder showed.
+    Older photos keep theirs; picking the look again in the editor brings the current one.
+  - **Plain live view** (Settings → Photo, experimental): asks the camera for a plainer
+    feed in Print and Zero, with no video HDR and no local brightening, so the viewfinder
+    tracks the RAW photo more closely.
   - **How it works:** the camera shoots Bayer RAW and keeps the DNG, like Zero. Print runs
     the sensor data through a model of a Kodak Vision3 negative printed to print film:
     - dense blacks with a long, soft toe

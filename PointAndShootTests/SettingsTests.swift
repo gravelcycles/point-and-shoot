@@ -72,6 +72,22 @@ final class SettingsTests: XCTestCase {
         XCTAssertNil(s.defaultGrade)
     }
 
+    func testPlainLiveViewOnlyWhereThePhotoComesFromTheRAW() {
+        var s = CameraSettings()
+        XCTAssertFalse(s.plainLiveView, "Experimental: off by default")
+        s.plainLiveView = true
+        XCTAssertTrue(s.wantsPlainLiveView, "every P&S Studio photo develops the RAW alone")
+        s.mode = .print
+        XCTAssertTrue(s.wantsPlainLiveView)
+        s.rawMode = .bayer
+        XCTAssertTrue(s.wantsPlainLiveView)
+        s.mode = .video
+        XCTAssertFalse(s.wantsPlainLiveView, "Video never changes")
+        s.mode = .print
+        s.plainLiveView = false
+        XCTAssertFalse(s.wantsPlainLiveView)
+    }
+
     func testPrintAsFilterLeavesTheModePicker() {
         var s = CameraSettings()
         s.printPlacement = .filter

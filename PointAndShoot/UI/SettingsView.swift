@@ -241,6 +241,8 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("settings.printPlacement")
+            Toggle("Plain live view", isOn: camera.binding(\.plainLiveView))
+                .accessibilityIdentifier("settings.plainLiveView")
             Picker("Self-timer", selection: camera.binding(\.selfTimer)) {
                 ForEach(SelfTimer.allCases) { Text($0.label).tag($0) }
             }
@@ -250,9 +252,10 @@ struct SettingsView: View {
         } header: {
             Text("Shooting")
         } footer: {
-            Text(s.printPlacement == .mode
-                 ? "PHOTO · PRINT · VIDEO: Print is its own mode."
-                 : "Print is one of the looks in Photo mode.")
+            Text((s.printPlacement == .mode
+                  ? "PHOTO · PRINT · VIDEO: Print is its own mode. "
+                  : "Print is one of the looks in Photo mode. ")
+                 + "Plain live view: every photo here develops from the RAW alone, but iPhones only give the viewfinder Apple's processed video. This asks for a plainer feed (no video HDR, no local brightening) so the viewfinder tracks the photo more closely. Experimental.")
         }
         Section {
             Toggle("Grid", isOn: camera.binding(\.showGrid))

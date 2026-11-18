@@ -277,6 +277,8 @@ final class EditSession {
         r.straighten = recipe.straighten
         r.quarterTurns = recipe.quarterTurns
         r.flipped = recipe.flipped
+        // A film grade on a photo that had none develops at the fixed film exposure.
+        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = EditRecipe.filmRAWExposure }
         recipe = r
     }
 

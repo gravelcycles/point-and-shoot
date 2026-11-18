@@ -261,6 +261,10 @@ struct CameraSettings: Codable, Equatable {
     var lookSet: String?
     /// Print as its own mode next to Photo and Video, or as one of the looks.
     var printPlacement: PrintPlacement = .mode
+    /// Print and Zero: ask the camera for a plainer live view (no video HDR, one tone curve
+    /// for the whole frame instead of Apple's local brightening), so the viewfinder tracks
+    /// the photo, which comes from the RAW alone. Experimental: off until tried on device.
+    var plainLiveView: Bool = false
     /// Lens to reopen on next launch.
     var lastLensID: String?
 
@@ -490,6 +494,12 @@ extension CameraSettings {
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
     /// We capture Bayer RAW and develop it ourselves.
     var developsBayerRAW: Bool { !shootsProRAW }
+
+    /// The plain live view applies now: the option is on and the photo comes from the RAW
+    /// alone (Print, Zero, a RAW-capturing look) in a still mode.
+    /// Every P&S Studio photo develops from the RAW alone (ProRAW or Bayer), so it applies
+    /// in every still mode.
+    var wantsPlainLiveView: Bool { plainLiveView && mode.isStill }
 
     /// Bayer RAW is the sensor's full frame, and AVFoundation throws (an instant crash) if
     /// it's captured while digitally zoomed. Bayer RAW locks zoom at 1×; ProRAW zooms.

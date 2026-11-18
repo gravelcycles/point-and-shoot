@@ -44,10 +44,17 @@ struct EditRecipe: Codable, Equatable {
     static let filmMinimumNoiseReduction: Double = 50
     var rawLocalTone: Double = 50
     var rawBoost: Double = 100
-    /// Stops added to the RAW develop under a film look so the shot matches the
-    /// viewfinder's brightness (measured when the look is baked at capture). nil = none;
-    /// optional so older edits decode.
+    /// Stops added to the RAW develop under a film look. Set to `filmRAWExposure` when a
+    /// film look is picked (in the camera or the editor), so a photo keeps the brightness
+    /// it was made with and picking the look again brings it up to date. nil = none: edits
+    /// from before 2026-11-14 (developed ~2 stops dark). Photos baked between #22 and #42
+    /// carry a per-shot value matched to the viewfinder. Optional so older edits decode.
     var rawFilmExposure: Double?
+    /// The film looks' RAW develop exposure: the photo comes from the RAW alone, at a fixed
+    /// brightness, like any RAW converter. An iPhone RAW sits about 2 stops under Apple's
+    /// rendering; Chromagraph develops +1.86 EV over a neutral develop (measured over 12
+    /// pairs, docs/film-looks.md §5½), and the owner's side-by-side agreed (+1.9).
+    static let filmRAWExposure: Double = 1.86
 
     // Color mixer: 8 bands × (hue, saturation, luminance), -100…100. Stored only when
     // used (nil = untouched), which also keeps older saved edits decoding fine.
@@ -127,7 +134,12 @@ struct EditRecipe: Codable, Equatable {
         r.rawNoiseReduction = target.rawNoiseReduction
         r.rawLocalTone = target.rawLocalTone
         r.rawBoost = target.rawBoost
-        r.rawFilmExposure = target.rawFilmExposure
+        // The film develop's exposure belongs to the look (set when it's picked).
+        if r.film != nil {
+            r.rawFilmExposure = rawFilmExposure ?? EditRecipe.filmRAWExposure
+        } else {
+            r.rawFilmExposure = target.rawFilmExposure
+        }
         return r
     }
 
@@ -142,7 +154,8 @@ struct EditRecipe: Codable, Equatable {
         r.flipped = false
         r.useRAW = true
         r.rawInitialized = false
-        r.rawFilmExposure = nil
+        // A film look's RAW develop exposure belongs to the look (#42): keep the fixed value.
+        r.rawFilmExposure = r.film != nil ? EditRecipe.filmRAWExposure : nil
         let fresh = EditRecipe()
         r.rawNoiseReduction = fresh.rawNoiseReduction
         r.rawLocalTone = fresh.rawLocalTone
@@ -351,8 +364,10 @@ struct Look: Identifiable {
     private static func film(_ stock: String, _ extra: @escaping (inout EditRecipe) -> Void = { _ in })
         -> (inout EditRecipe) -> Void {
         { r in
-            // Pin the stock's tuning as it is right now (see FilmRecipe.tuning).
+            // Pin the stock's tuning as it is right now (see FilmRecipe.tuning), and the
+            // RAW develop's exposure with it.
             r.film = FilmRecipe(stock: stock, tuning: FilmStock.named(stock), engine: FilmRecipe.currentEngine)
+            r.rawFilmExposure = EditRecipe.filmRAWExposure
             r.grain = FilmRecipe.defaultGrain
             extra(&r)
         }
@@ -368,6 +383,7 @@ struct Look: Identifiable {
             // Pin Print's tuning as it is right now (see FilmRecipe.tuning).
             r.film = FilmRecipe(stock: FilmStock.printLook.id, tuning: FilmStock.printLook,
                                 engine: FilmRecipe.currentEngine)
+            r.rawFilmExposure = EditRecipe.filmRAWExposure
             r.grain = FilmRecipe.defaultGrain
         },
         // Fitted to Chromagraph Camera's own renders of its RAWs (scripts/phromagraph.py),

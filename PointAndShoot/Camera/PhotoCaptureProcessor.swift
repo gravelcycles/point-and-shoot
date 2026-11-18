@@ -12,9 +12,6 @@ struct PhotoPlan {
     var location: TaggedLocation?
     /// The grade the new shot starts with (the active look).
     var look: EditRecipe?
-    /// The viewfinder's scene key at the shutter (FilmLUT.sceneKey), for matching a film
-    /// look's RAW develop to what was on screen.
-    var viewfinderKey: Double?
 }
 
 /// Writes GPS (and compass heading) into the photo file's own EXIF.
@@ -42,7 +39,6 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
     private var previewJPEG: Data?
     private var sentThumbnail = false
     private var captureError: Error?
-    private var flashFired = false
 
     init(plan: PhotoPlan,
          willCapture: @escaping () -> Void,
@@ -63,7 +59,6 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
             captureError = error
             return
         }
-        if photo.resolvedSettings.isFlashEnabled { flashFired = true }
         let data = plan.location.map { photo.fileDataRepresentation(with: GPSCustomizer($0)) }
             ?? photo.fileDataRepresentation()
         if photo.isRawPhoto {
@@ -89,9 +84,6 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
         }
         Diag.log(.capture, "captured: raw \(rawData.map { "\($0.count / 1024) KB" } ?? "none"), processed \(processedData.map { "\($0.count / 1024) KB" } ?? "none")")
         let plan = self.plan
-        // A flash shot looks nothing like the pre-flash viewfinder: match it to the camera's
-        // own preview of the shot instead.
-        let viewfinderKey = flashFired ? nil : plan.viewfinderKey
         let original: Data
         let ext: String
         let kind: Shot.Kind
@@ -109,8 +101,7 @@ final class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
         Task { @MainActor in
             do {
                 let shot = try await ShotStore.shared.add(original: original, fileExtension: ext, kind: kind,
-                                                          capturePreview: preview, recipe: look,
-                                                          viewfinderKey: viewfinderKey)
+                                                          capturePreview: preview, recipe: look)
                 self.completion(note, shot.id)
             } catch {
                 Diag.error(.save, "couldn't store the shot", error)
