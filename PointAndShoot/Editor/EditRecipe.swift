@@ -68,6 +68,25 @@ struct EditRecipe: Codable, Equatable {
     ///   dark; the editor opens them this way, as an unsaved change;
     /// - a Bayer RAW still carrying +1.86, the shared default until 2026-11-19, moves to the
     ///   Bayer value. Any other value (a viewfinder match from #22–#41, a later pin) stays.
+    /// One line for Diagnostics: how this edit develops (look, the RAW develop's exposure
+    /// split into the film's and the slider's, noise reduction, film engine). A film look on
+    /// a RAW with no film exposure renders ~2 stops dark, so it's flagged.
+    var developSummary: String {
+        var parts = ["look \(look ?? "none")"]
+        if film != nil {
+            if let ev = rawFilmExposure {
+                parts.append(String(format: "develop %+.2f EV (film %+.2f, slider %+.2f)", ev + exposure / 50, ev, exposure / 50))
+            } else {
+                parts.append(String(format: "develop %+.2f EV (film exposure MISSING, slider %+.2f)", exposure / 50, exposure / 50))
+            }
+            parts.append("engine \(film?.renderEngine ?? 1)")
+        } else {
+            parts.append(String(format: "exposure %+.2f EV", exposure / 50))
+        }
+        parts.append(useRAW ? String(format: "RAW NR %.0f", rawNoiseReduction) : "processed")
+        return parts.joined(separator: ", ")
+    }
+
     func withFilmDevelopExposure(hasRAW: Bool, bayer: Bool) -> EditRecipe {
         guard hasRAW, useRAW, film != nil else { return self }
         guard rawFilmExposure == nil || (bayer && rawFilmExposure == EditRecipe.filmRAWExposure) else { return self }

@@ -285,6 +285,33 @@ final class ShotStoreTests: XCTestCase {
         XCTAssertEqual(again.recipe(for: bayer.id).rawFilmExposure, EditRecipe.filmBayerRAWExposure, "saved, once")
     }
 
+    /// On device: picking Phromagraph in the editor showed a dark photo, and Save stored a
+    /// +1.86 one ("a nice dark photo … I click save and it's this overexposed monstrosity").
+    /// Picking left the film exposure unset and the preview rendered it as 0 EV. Whatever
+    /// the editor shows must be what Save stores, for every way a grade changes.
+    @MainActor
+    func testTheEditorShowsExactlyWhatSaveStores() async throws {
+        for kind in [Shot.Kind.proRAW, .bayerRAW] {
+            let shot = try await addShot(kind: kind)
+            let session = EditSession(shot: shot, store: store)
+            let expected = EditRecipe.filmRAWExposure(bayer: kind == .bayerRAW)
+            session.apply(look: Look.named("phromagraph")!)
+            XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): picking a look")
+            var copied = session.recipe
+            copied.rawFilmExposure = nil
+            session.apply(look: Look.all[0])   // Original
+            session.paste(Look.named(CameraSettings.printLookID)!.recipe)
+            XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): pasting a look")
+            session.recipe = copied                      // undo, or any direct change
+            XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): setting the grade")
+            let shown = session.recipe
+            let saved = await session.save()
+            XCTAssertTrue(saved)
+            XCTAssertEqual(session.recipe, shown, "\(kind): Save must store what the editor showed")
+            XCTAssertEqual(store.recipe(for: shot.id).rawFilmExposure, expected)
+        }
+    }
+
     func testTheDefaultGradeLeavesTheExposureToEachShot() {
         XCTAssertNil(filmGrade.asDefaultGrade.rawFilmExposure, "each new shot's RAW type decides")
         XCTAssertNil(EditRecipe().asDefaultGrade.rawFilmExposure)

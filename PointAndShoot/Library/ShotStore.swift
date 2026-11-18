@@ -188,6 +188,7 @@ final class ShotStore {
             return false
         }
         recipes[id] = r
+        Diag.log(.editor, "grade stored \(id.uuidString.prefix(8)) (\(shot(id)?.kind.rawValue ?? "?")): \(r.developSummary)")
         // Settle the RAW develop too (a shot edited before its first develop finished needs
         // its noise reduction). Brightness is never changed: it comes from the grade.
         develop(id)
@@ -235,7 +236,7 @@ final class ShotStore {
                 try ShotRenderer.writeJPEG(preview, to: dir.appendingPathComponent("preview.jpg"), quality: 0.9)
                 let thumb = ShotRenderer.scaled(preview, maxSide: ShotRenderer.thumbSide)
                 try ShotRenderer.writeJPEG(thumb, to: dir.appendingPathComponent("thumb.jpg"), quality: 0.85)
-                Diag.log(.bake, "rendered \(shot.id.uuidString.prefix(8)) \(r.look ?? "original") in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+                Diag.log(.bake, "rendered \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)) in \(Int(Date().timeIntervalSince(start) * 1000)) ms: \(r.developSummary)")
             } catch {
                 Diag.error(.bake, "couldn't write the preview of \(shot.id.uuidString.prefix(8))", error)
             }
