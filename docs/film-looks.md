@@ -20,8 +20,8 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #36 | Engine 2: the viewfinder un-render, measured (§5¾) | merged |
 | #38 | Looks with structure (hue twists, dye saturation), named look sets, engine 3's subtractive Saturation slider (§1¾); #37 is the same for P&S Studio | merged |
 | #41 | Brightness against Chromagraph: editor matching, cap +4 EV (§5⅞) | merged, superseded by #42 |
-| #42 | Film looks develop from the RAW alone at a fixed +1.86 EV; the viewfinder match is gone (§5⅞) | open |
-| #43 | Plain live view: video HDR off and global tone mapping in Print/Zero (§5⅞) | open, stacked on #42 |
+| #42 | Film looks develop from the RAW alone at a fixed +1.86 EV; the viewfinder match is gone (§5⅞) | merged |
+| #43 | Plain live view: video HDR off and global tone mapping in Print/Zero (§5⅞) | this PR |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
