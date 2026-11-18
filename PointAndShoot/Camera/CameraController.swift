@@ -1207,8 +1207,6 @@ final class CameraController: NSObject {
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
         let look = Look.named(s.activeLook)?.recipe
-        // What the viewfinder showed, so a film look's RAW develop can match its brightness.
-        let viewfinderKey = look?.film != nil ? renderer.currentSceneKey() : nil
         sessionQueue.async {
             guard let device = self.device, self.session.outputs.contains(self.photoOutput) else {
                 DispatchQueue.main.async { self.captureFinished() }
@@ -1221,7 +1219,6 @@ final class CameraController: NSObject {
             var plan = basePlan
             plan.location = place
             plan.look = look
-            plan.viewfinderKey = viewfinderKey
             let id = avSettings.uniqueID
             let processor = PhotoCaptureProcessor(
                 plan: plan,

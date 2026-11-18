@@ -19,7 +19,8 @@ here*, how to tune, what's still unknown, and the tricks that save hours. Writte
 | #35 | Filters → **Looks**: seven cinematic grades replace the Instagram-ish filters (§1½) | open, into `claude/raw-import` |
 | #36 | Engine 2: the viewfinder un-render, measured (§5¾) | merged |
 | #38 | Looks with structure (hue twists, dye saturation), named look sets, engine 3's subtractive Saturation slider (§1¾); #37 is the same for P&S Studio | merged |
-| #41 | Brightness against Chromagraph: the editor matches unmatched photos, the cap rises to +4 EV (§5⅞) | this PR |
+| #41 | Brightness against Chromagraph: editor matching, cap +4 EV (§5⅞) | merged, superseded by #42 |
+| #42 | Film looks develop from the RAW alone at a fixed +1.86 EV; the viewfinder match is gone (§5⅞) | this PR |
 
 **Not yet verified on the phone:** everything in #15 and #20. Device feedback so far, in
 order:
@@ -48,6 +49,11 @@ order:
    chromagraph", with screenshots of the same tram scene in both apps: ours had about a
    sixth of Chromagraph's light (geometric-mean display luminance 0.021 vs 0.125). That
    shot predated the viewfinder match, and the editor could never add one. See §5⅞.
+8. "the viewfinder workaround seems...bad. the inputs for the photo should just be the
+   raw photo imo. nothing else… can we change the viewport to match the photo?" Agreed:
+   #42 develops every film look's RAW at a fixed exposure. The viewfinder already
+   previews that within ~0.1 EV at mid-grey; what's left is Apple's per-scene video
+   rendering (§5⅞).
 
 **What to ask the owner next:**
 - Do the new looks feel like films or movie grades? Which ones would they cut or push
@@ -55,11 +61,11 @@ order:
 - Do indoor Print shots look clean now?
 - Is there still visible grain at 100%? If there's none at all, see §6.
 - Do the looks read as different at thumbnail size?
-- Does the saved Print photo now match the viewfinder's brightness, including at night?
-- Shot side by side with Chromagraph, is a new shot as bright? If not, ask for the
-  Diagnostics log (Settings): each bake logs `film exposure ±x EV: viewfinder key …, RAW
-  key …`. Opening an older, dark Print photo in the editor should now show it brighter
-  (Save keeps it).
+- Shot side by side with Chromagraph, is a new shot as bright? If every shot is off by
+  the same amount, change `EditRecipe.filmRAWExposure`.
+- How far is the viewfinder from the saved photo, and in which scenes (sun, overcast,
+  night)?
+- Re-picking the look on an older, dark Print photo should bring it up ~2 stops.
 
 ## 1½. Filters → Looks (2026-11-17)
 
@@ -444,8 +450,8 @@ iPhone 12 Pro on iOS 18.7.3. Not committed (personal photos). Ask the owner for 
    layer sensitivity, crosstalk, split toning and hue protection, plus one develop
    exposure shared by every pair. It writes `scripts/phromagraph-stock.json`. Then run
    `print-look.py export-swift` and `parity`.
-3. `measure DIR` prints the exposure gap between the app's viewfinder match and
-   Chromagraph, and the grain statistics. `sheet OUT.jpg` draws neutral | Print |
+3. `measure DIR` prints, per shot, how far the viewfinder (Apple's render, un-rendered)
+   lands from the fixed develop exposure, and the grain statistics. `sheet OUT.jpg` draws neutral | Print |
    Phromagraph | Chromagraph.
 
 **Results:** mean ΔE (Oklab) **0.0070** across the 12 fitted pairs (per pair
@@ -457,20 +463,18 @@ iPhone 12 Pro on iOS 18.7.3. Not committed (personal photos). Ask the owner for 
   - Neither was kept.
 
 **Caveats:**
-- **Brightness per shot.** The app exposes each RAW to match the viewfinder, not
-  Chromagraph's fixed exposure. Using Apple's default render as a stand-in for the
-  viewfinder, the median gap is +0.09 EV (so the stock's exposure is 0). Per shot it's
-  ±0.5 EV:
-  - Apple keeps night scenes darker: the night alley lands ~1.4 EV under Chromagraph.
-  - Overcast scenes land ~0.6 EV under.
-  - Bright daytime scenes land ~0.3 EV over.
-  - If the owner prefers Chromagraph's fixed exposure, Phromagraph could use a constant
-    `rawFilmExposure`. The trade-off: the viewfinder would no longer match the saved
-    photo.
+- **Brightness.** Since #42 the app develops every film look's RAW at Chromagraph's fixed
+  +1.86 EV (`EditRecipe.filmRAWExposure`), so the stock's exposure is 0. Before that it
+  matched each shot to the viewfinder. With Apple's default render standing in for the
+  viewfinder (engine 1), the viewfinder sits +0.09 EV from that fixed develop (median),
+  ±0.5 EV per shot:
+  - night alley: the viewfinder is ~1.4 EV darker;
+  - overcast: ~0.6 EV darker;
+  - bright day: ~0.3 EV brighter.
 - **Bayer vs ProRAW.** We fitted on ProRAW developed by CIRAWFilter; the app shoots Bayer
   RAW. Both develop through Apple's colour pipeline, but Bayer is noisier and its exposure
-  scale may differ. Exposure doesn't matter (it's matched to the viewfinder); colour should
-  carry over.
+  scale may differ. The owner's side-by-side (§5⅞) put Bayer at Print exposure 0 at
+  1.9–2.1 EV under Chromagraph, so the scales agree to ~0.1 EV. Colour should carry over.
   - **Best next data:** the same scenes shot with Point & Shoot Phromagraph (DNG kept)
     and Chromagraph back to back, from a tripod or steady hands.
 - **Highlights above the develop's clip** (CIRAWFilter with boost 0 tops out at 1.0) aren't
@@ -551,33 +555,42 @@ against 0.125 for Chromagraph (2.6 stops), 95th percentile 0.11 against 0.53.
   included, whose stock exposure is 0 because it relies on the match), developed ~1.9 EV
   dark.
 
-**Fixes (#41):**
-- **The editor matches photos that have no match.** `EditSession.filmExposureMatch`
-  measures the RAW (developed as a film look, no exposure of its own) against the photo
-  Photos keeps as the original:
-  - the processed HEIF;
-  - for a Print shot, the Zero develop: Apple's global tone curve with no local tone
-    mapping. That gives about Chromagraph's fixed +1.86 EV, because the engine-2 table is
-    anchored on Apple's curve.
-  `renderedRecipe` adds it only where a film look develops from RAW with none, so undo,
-  copy and paste never move one photo's match onto another. An older film photo
-  therefore opens with unsaved changes, and Save keeps the corrected brightness.
-- **The cap rose from +2.5 to +4 EV** (`EditRecipe.filmExposureRange`). Engine 2 reads a
-  viewfinder frame's key 0.2–1.5 stops higher than engine 1 did, more for darker frames
-  (22 Apple JPEGs: +0.16 for a bright day to +1.48 for a dim street). Phromagraph's
-  measure, with engine 1, put a bright day's match at ≈ +2.15 EV. Under engine 2 typical
-  matches are therefore +2…+3, and the old cap clipped bright days.
-- **The match is logged** (Diagnostics: `bake`, `editor`).
+**Fixes:**
+- **#41** (superseded the same day) matched photos without a match in the editor, against
+  the photo's own original. It also raised the cap from +2.5 to +4 EV, because engine 2
+  reads a viewfinder frame's key 0.2–1.5 stops higher than engine 1 did (22 Apple JPEGs:
+  +0.16 for a bright day to +1.48 for a dim street).
+- **#42, the owner's call:** "the inputs for the photo should just be the raw photo".
+  - **It's the RAW converters' practice.** Lightroom, Capture One and Chromagraph render
+    a RAW at a fixed default brightness, or one derived from the RAW itself.
+  - **Matching hid the real problem.** Borrowing each shot's brightness from Apple's
+    video made the photo follow Apple's rendering choices.
+  - **What #42 does:**
+    - Film looks develop at `EditRecipe.filmRAWExposure` = +1.86 EV.
+    - Picking a look pins it in `rawFilmExposure` (`Look.film`, Print), next to the
+      tuning: older photos keep theirs, and re-picking the look brings the current one.
+    - The viewfinder key (`FilmLUT.sceneKey`, `PreviewRenderer`, `PhotoPlan.viewfinderKey`),
+      the baker's match and #41's editor match are all removed.
+  - **The constant, checked on the owner's scene:** both screenshots inverted through
+    their own neutral curves (ours through Print, Chromagraph's through Phromagraph) are
+    1.92 EV apart at the median and 2.14 at the geometric mean, against Phromagraph's
+    fitted +1.86.
 
-**Where new shots land against Chromagraph:** Phromagraph's `measure` (engine 1): bright
-day +0.3 EV, overcast −0.6, night alley −1.4. Engine 2 lifts each by roughly its own key
-shift, so expect bright days ≈ +0.5…+0.8, overcast ≈ 0 and night ≈ −0.2…−0.5. These are
-estimates from the un-render's key shift, not measured on the device.
-- If the owner wants exactly Chromagraph's brightness rather than the viewfinder's, the
-  lever is a fixed `rawFilmExposure` (+1.86) for Phromagraph. But then the viewfinder
-  stops matching the photo.
-- **Best next data:** a few scenes shot back to back in Point & Shoot and Chromagraph,
-  plus the Diagnostics log.
+**The viewfinder against the photo:**
+- iOS gives third-party apps only Apple's processed video live, never RAW. So the
+  viewfinder can only approximate the photo.
+- At mid-grey, engine 2's un-render agrees with engine 1, and engine 1 measured within
+  +0.09 EV (median) of the fixed develop (§5½).
+- Per scene, Apple's video brightness drifts with its own rendering:
+  - bright day ≈ +0.3 EV;
+  - overcast ≈ −0.6;
+  - night ≈ −1.4 at mid-tones.
+- Engine 2 reads shadows brighter than engine 1, so dim scenes should look closer than
+  those engine-1 numbers.
+- Not measured on the device. Levers if it matters:
+  - `AVCaptureDevice.isGlobalToneMappingEnabled` (iOS 16+, where the format supports
+    it), to take Apple's local tone mapping out of the feed;
+  - viewfinder frames saved next to DNGs, to measure the drift per scene.
 
 ## 6. Grain and noise: what's known and what isn't
 
