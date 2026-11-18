@@ -142,7 +142,8 @@ enum FilmPipeline {
         _ = printCube(stock, FilmControls(contrast: recipe.contrast / 100, saturation: recipe.saturation / 100,
                                           crossover: film.crossover / 100,
                                           highlights: recipe.highlights / 100, shadows: recipe.shadows / 100,
-                                          subtractiveSaturation: film.renderEngine >= 3))
+                                          subtractiveSaturation: film.renderEngine >= 3,
+                                          strongTone: film.renderEngine >= 4))
     }
 
     // MARK: Render
