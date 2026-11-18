@@ -17,10 +17,15 @@ import Foundation
 ///
 /// Nothing here feeds the photo: it only changes what's on screen.
 enum ViewfinderMatch {
-    /// Viewfinder exposure correction (stops) for a scene of this EV100.
-    static func correction(ev100: Double) -> Double {
-        min(max(0.03 - 0.122 * (ev100 - 10), -maxCorrection), maxCorrection)
+    /// Viewfinder exposure correction (stops) for a scene of this EV100, for the RAW type the
+    /// shot will be. The fit is against ProRAW at +1.86. A Bayer RAW develops at +0.54
+    /// (`EditRecipe.filmBayerRAWExposure`), and relative to Apple's rendering a Bayer RAW
+    /// sits ~0.65 EV brighter than a ProRAW (3 scenes, 2026-11-18): net, its photo lands
+    /// ~0.67 EV darker than a ProRAW one, and so must the preview.
+    static func correction(ev100: Double, bayer: Bool = false) -> Double {
+        min(max(0.03 - 0.122 * (ev100 - 10), -maxCorrection), maxCorrection) + (bayer ? bayerOffset : 0)
     }
+    static let bayerOffset = -0.67
     /// The fit covers EV 4.7–15.2; don't extrapolate far beyond it.
     static let maxCorrection = 0.75
     /// The correction moves in these steps, so the viewfinder's table (one per exposure)

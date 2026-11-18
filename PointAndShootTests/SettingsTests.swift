@@ -19,9 +19,11 @@ final class SettingsTests: XCTestCase {
         s.mode = .print
         XCTAssertFalse(s.zoomLocked, "Print on ProRAW zooms")
         s.rawMode = .bayer
-        XCTAssertTrue(s.zoomLocked, "Bayer RAW can't be zoomed")
+        XCTAssertTrue(s.shootsProRAW, "Print always shoots ProRAW, whatever Photo's RAW choice")
+        XCTAssertFalse(s.zoomLocked, "so Print always zooms")
         s.mode = .photo
-        XCTAssertTrue(s.zoomLocked)
+        XCTAssertFalse(s.shootsProRAW)
+        XCTAssertTrue(s.zoomLocked, "Bayer RAW can't be zoomed")
         s.mode = .video
         XCTAssertFalse(s.zoomLocked, "Video always zooms")
     }

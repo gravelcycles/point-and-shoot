@@ -252,10 +252,15 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   `recommendedVideoSettings(forVideoCodecType:…)`. HEVC/H.264 bitrate is pixels × fps ×
   0.16 bits per pixel (0.22 for 10-bit).
 - **RAW only.** Every photo is a RAW the app develops itself (`PhotoPlanner.decide`):
-  - **ProRAW is the default.** `CameraSettings.shootsProRAW` = `rawMode != .bayer`, so
-    `.off` from older settings counts as ProRAW. `CameraController.proRAWActive` must equal
-    it: when it didn't, every "ProRAW" shot silently came out Bayer.
-  - **Bayer RAW** (the sensor's single frame) is the opt-in.
+  - **ProRAW is the default ("Cleaner").** `CameraSettings.prefersProRAW` = `rawMode !=
+    .bayer` (`.off` from older settings counts as ProRAW), and **Print always shoots
+    ProRAW**: `shootsProRAW` = Print mode || `prefersProRAW`. `CameraController.proRAWActive`
+    must equal it: when it didn't, every "ProRAW" shot silently came out Bayer. Photo ↔
+    Print rebuilds the session only for someone who picked Bayer for Photo.
+  - **Bayer RAW ("Faster")** (the sensor's single frame) is the opt-in for Photo mode. The
+    pickers say the trade-off (`RawMode.choice`, `.tradeoff`): ProRAW is cleaner (Apple's
+    multi-frame merge, zoom works) but takes ~1–3 s per shot on an iPhone 12 Pro; Bayer is
+    ready in under half a second, noisier, zoom locked at 1×.
   - **Fallbacks, each with a toast:**
     - zoomed Bayer → ProRAW;
     - no ProRAW on the lens → Bayer;
@@ -310,9 +315,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     shot's last queued render finishes.
   - **A fresh shot's first develop settles its grade** (`ShotRenderer.prepare`): the
     camera's RAW noise reduction (floored for film looks), and a film look's fixed RAW
-    develop exposure (`rawFilmExposure` = `EditRecipe.filmRAWExposure`, +1.86 EV, as on
-    `main` since #42) where the grade lacks one. Photos come from their RAW alone; nothing
-    is borrowed from the viewfinder. Shots made before keep their matched value.
+    develop exposure for its RAW type (`withFilmDevelopExposure`: +1.86 ProRAW, +0.54
+    Bayer) where the grade lacks one. Photos come from their RAW alone; nothing is
+    borrowed from the viewfinder. Shots made before keep their matched value.
   - **A settle never overwrites a grade saved meanwhile.** It is applied only if
     `recipes[id]` is unchanged.
   - **Editor saves only settle the RAW develop.** Brightness comes from the grade: picking a
@@ -583,17 +588,29 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     - Print used to force 15%. Indoor shots came out "super grainy" on device: sensor
       noise, amplified by the film's contrast, with the synthetic grain on top.
   - **Brightness: the photo comes from the RAW alone.** Film looks develop the RAW at a
-    fixed `EditRecipe.filmRAWExposure` (+1.86 EV), like any RAW converter.
+    fixed exposure per RAW type (`EditRecipe.filmRAWExposure(bayer:)`), like any RAW
+    converter: **ProRAW +1.86 EV, Bayer RAW +0.54 EV.**
     - **Rule (the owner, 2026-11-18):** everything that renders the photo comes from the
       RAW file or camera settings saved with it, never from the viewport. The viewfinder
       may *predict* the photo (below); nothing ever flows from the viewfinder into it.
-    - Why +1.86: an iPhone RAW sits ~2 stops under Apple's rendering. Chromagraph develops
-      +1.86 EV over a neutral develop (Phromagraph's fit, 12 pairs), and the owner's
-      side-by-side of one scene agreed (+1.9).
-    - Picking a film look sets `rawFilmExposure` (`Look.film`, Print), so it's pinned
-      like the tuning: a photo keeps its brightness, and picking the look again brings
-      the current one. Pasting a film look carries its value. `EditPipeline.configure`
-      adds it to the RAW exposure under film looks.
+    - Why: Chromagraph develops its own ProRAWs at +1.86 EV over a neutral develop
+      (Phromagraph's fit, 12 pairs; again on 2026-11-18, where ours lands within 0.01 EV of
+      its export). It develops *this app's Bayer DNGs* at +0.54 (3 scenes, ±0.09), 1.3 EV
+      darker, with lifted shadows. #42 used +1.86 for both: Bayer exports came out 1.3 EV
+      brighter than Chromagraph's ("chromagraph def isn't this bright for the same photo").
+      `scripts/phromagraph.py develop-ev RAW.dng EXPORT.heic` measures it for any pair;
+      reference shoots in `Chromagraph RAW 2026-11-18/` (git-ignored, see its README).
+    - ⚠️ Relative to Apple's rendering a Bayer RAW sits ~0.65 EV brighter than a ProRAW
+      (Bayer's is a constant +1.2 in every scene), so at these constants a Bayer shot may
+      come out ~0.6 EV darker than a ProRAW one of the same scene. The owner's side-by-side
+      decides; if so, raise `filmBayerRAWExposure` toward +1.2 (and `ViewfinderMatch.bayerOffset`
+      toward 0).
+    - Picking (or pasting) a film look leaves `rawFilmExposure` nil; whatever knows the
+      photo's RAW settles it (`withFilmDevelopExposure`: `ShotRenderer.prepare`,
+      `ShotStore.setRecipe`, the editor) and keeps it, like the tuning: a photo keeps its
+      brightness, and picking the look again brings the current one. Bayer shots still on
+      the shared +1.86 move to +0.54 once, when the library loads
+      (`ShotStore.settleFilmExposures`). `EditPipeline.configure` adds it to the RAW exposure.
     - **History, so nobody rebuilds it:**
       - #22 matched each shot to the viewfinder's measured brightness.
       - #41 also matched unmatched photos in the editor.
@@ -686,7 +703,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Zero develop NR / sharpening | `ZeroDeveloper.configureNeutral` | chroma NR 0.3, sharpness 0.1 |
 | Storage reserve / auto-stop | `updateStorage` | 1 GB reserve / stop under 600 MB |
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
-| Film looks: RAW develop brightness | `EditRecipe.filmRAWExposure` | +1.86 EV over a neutral develop (Chromagraph's), pinned when a look is picked. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
+| Film looks: RAW develop brightness | `EditRecipe.filmRAWExposure(bayer:)` | ProRAW +1.86 EV, Bayer +0.54 EV over a neutral develop (Chromagraph's, per RAW type), settled per photo. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
@@ -900,8 +917,10 @@ to be wrong.
    Export puts a 2880 px HEIF in Photos with the look. Zooming in sharpens from the RAW.
 3. **Editor.** Each tool and sub-tab works; ✓ saves, and the viewer and grid refresh.
    Set as Default Grade, then new shots and the viewfinder use it. ⚠️ Film looks develop at
-   a fixed +1.86 EV (Chromagraph's). Compare against Chromagraph, and try Preferences →
-   Camera → Plain live view.
+   a fixed exposure per RAW type (ProRAW +1.86, Bayer +0.54: Chromagraph's). Compare
+   against Chromagraph, and shoot one scene as ProRAW and as Bayer: they should be equally
+   bright (if Bayer is darker, see §4 "Brightness"). Also try Preferences → Camera → Plain
+   live view.
 4. **Retention.** "N days left" shows on unkept shots. The Trash restores. Turning off
    Store Forever asks first.
 5. **Import/archive.** Import RAWs from Photos. Archive a few to a zip, delete them, and

@@ -10,7 +10,7 @@ Native SwiftUI + AVFoundation + Core Image on Metal. iPhone, iOS 17+.
 
 | Control | What it does |
 |---|---|
-| **RAW** (format pill) | Every photo is a RAW the app develops itself: **ProRAW** (default; Apple's multi-frame DNG, zoom works) or **RAW** (the Bayer sensor frame, real grain, zoom stays at 1×) |
+| **RAW** (format pill) | Every photo is a RAW the app develops itself: **ProRAW · Cleaner** (default; Apple's multi-frame DNG, far less noise, zoom works, a moment longer per shot) or **RAW · Faster** (the Bayer sensor frame, ready in under half a second, real noise, zoom stays at 1×). Print always shoots ProRAW. |
 | **Resolution** | ProRAW at 12 MP or the sensor max; Bayer RAW is always 12 MP |
 | **Modes** | PHOTO · **PRINT** (the simple mode: always the Print film look, nothing to set) · VIDEO |
 | Flash, self-timer | Dropdowns under the top bar: Off/Auto/On; Off/3s/10s |
@@ -66,8 +66,11 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     to fiddle with. Flash, timer and exposure stay.
   - **Or make it a look:** Settings → Photo → **Print film look** → Look puts it in the
     LOOK list instead.
-  - **Developed from the RAW alone:** every shot develops at the same fixed brightness
-    (Chromagraph's, +1.86 stops over a neutral develop), whatever the viewfinder showed.
+  - **Always ProRAW, and it zooms.** Print shoots Apple ProRAW, what Chromagraph shoots and
+    what Print was matched on.
+  - **Developed from the RAW alone:** every shot develops at a fixed brightness for its RAW
+    type, Chromagraph's (ProRAW +1.86 stops over a neutral develop, Bayer RAW +0.54),
+    whatever the viewfinder showed.
     Older photos keep theirs; picking the look again in the editor brings the current one.
   - **Plain live view** (Preferences → Camera, experimental): asks the camera for a plainer
     feed, with no video HDR and no local brightening, so the viewfinder tracks the RAW

@@ -38,7 +38,7 @@ final class ControlHitTargetTests: XCTestCase {
         let pill = app.buttons["topbar.format"]
         XCTAssertTrue(pill.waitForExistence(timeout: 3))
         tapOffLabel(pill, dx: 0.95)
-        let bayer = app.buttons["RAW"]
+        let bayer = app.buttons["RAW · Faster"]   // RawMode.bayer.choice
         guard bayer.waitForExistence(timeout: 3) else {
             print(app.debugDescription)
             return XCTFail("Tapping the format pill's edge didn't open the format panel")
