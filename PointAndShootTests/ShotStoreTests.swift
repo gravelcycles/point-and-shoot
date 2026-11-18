@@ -235,14 +235,30 @@ final class ShotStoreTests: XCTestCase {
         XCTAssertEqual(reopened.recipe(for: shot.id).exposure, 42, "the edit must be what's on disk")
     }
 
-    func testASavedFilmGradeKeepsTheBrightnessTheEditorShowed() async throws {
+    func testAFilmGradeDevelopsAtTheFixedFilmExposure() async throws {
         let shot = try await addShot()
-        store.setRecipe(Look.all.first { $0.recipe.film != nil }!.recipe, for: shot.id)
+        var film = Look.all.first { $0.recipe.film != nil }!.recipe
+        XCTAssertEqual(film.rawFilmExposure, EditRecipe.filmRAWExposure, "picking a film look pins it")
+        film.rawFilmExposure = nil                       // a grade that somehow lacks it
+        store.setRecipe(film, for: shot.id)
         await waitUntilDeveloped(shot.id)
         let reopened = ShotStore(root: root)
         await reopened.load()
-        XCTAssertEqual(reopened.recipe(for: shot.id).rawFilmExposure, 0,
-                       "pinned at what the editor showed, never re-matched later")
+        XCTAssertEqual(reopened.recipe(for: shot.id).rawFilmExposure, EditRecipe.filmRAWExposure)
+    }
+
+    func testAFreshFilmShotIsPinnedToTheFixedExposure() async throws {
+        var film = Look.all.first { $0.recipe.film != nil }!.recipe
+        film.rawFilmExposure = nil
+        let shot = try await addShot(recipe: film)
+        XCTAssertEqual(store.recipe(for: shot.id).rawFilmExposure, EditRecipe.filmRAWExposure,
+                       "the photo comes from its RAW alone, at the look's fixed exposure")
+    }
+
+    func testTheDefaultGradeKeepsAFilmLooksExposure() {
+        let film = Look.all.first { $0.recipe.film != nil }!.recipe
+        XCTAssertEqual(film.asDefaultGrade.rawFilmExposure, EditRecipe.filmRAWExposure)
+        XCTAssertNil(EditRecipe().asDefaultGrade.rawFilmExposure)
     }
 
     func testLoadDoesNotDropOrDuplicateAShotAddedMeanwhile() async throws {

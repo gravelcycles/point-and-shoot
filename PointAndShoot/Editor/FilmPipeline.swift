@@ -133,6 +133,18 @@ enum FilmPipeline {
         }
     }
 
+    /// Builds the viewfinder's tables for a look as the viewfinder will render it (its
+    /// exposure baked in: `ViewfinderMatch`), so switching to it never builds on the render
+    /// queue. Call off the main thread.
+    static func prewarmViewfinder(_ recipe: EditRecipe) {
+        guard let film = recipe.film, let stock = FilmStock.resolved(for: recipe) else { return }
+        _ = negativeCube(stock, .displayReferred, engine: film.renderEngine, exposure: recipe.exposure / 50 + stock.exposure)
+        _ = printCube(stock, FilmControls(contrast: recipe.contrast / 100, saturation: recipe.saturation / 100,
+                                          crossover: film.crossover / 100,
+                                          highlights: recipe.highlights / 100, shadows: recipe.shadows / 100,
+                                          subtractiveSaturation: film.renderEngine >= 3))
+    }
+
     // MARK: Render
 
     /// `image` is linear light in the working space (extended linear sRGB): scene light from
@@ -250,26 +262,6 @@ enum FilmPipeline {
             "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha),
             "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 0),
         ]
-    }
-
-    // MARK: Exposure matching
-
-    /// `FilmLUT.sceneKey` of a Core Image image (linear working space), measured on a
-    /// ~48 px Lanczos-downscaled copy. Cheap enough for the viewfinder a few times a second.
-    static func sceneKey(of image: CIImage, context: CIContext, source: FilmLUT.Source) -> Double? {
-        let e = image.extent
-        guard e.width >= 1, e.height >= 1, e.width.isFinite, e.height.isFinite else { return nil }
-        let w = 48
-        let s = CGFloat(w) / e.width
-        let h = max(1, Int(e.height * s))
-        let small = image
-            .transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
-            .clampedToExtent()
-            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: s, kCIInputAspectRatioKey: 1])
-        var px = [Float](repeating: 0, count: w * h * 4)
-        context.render(small, toBitmap: &px, rowBytes: w * 4 * MemoryLayout<Float>.size,
-                       bounds: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBAf, colorSpace: nil)
-        return FilmLUT.sceneKey(rgba: px, displayReferred: source == .displayReferred)
     }
 
     // MARK: Grain

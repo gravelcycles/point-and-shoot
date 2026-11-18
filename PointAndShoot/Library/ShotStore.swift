@@ -66,7 +66,7 @@ final class ShotStore {
         let known = Set(all.map(\.id))
         Task.detached(priority: .utility) { Self.sweepOrphans(in: root, keeping: known) }
         for shot in shots where !FileManager.default.fileExists(atPath: dir(shot.id).appendingPathComponent("preview.jpg").path) {
-            develop(shot.id, viewfinderKey: nil)
+            develop(shot.id)
         }
     }
 
@@ -76,7 +76,7 @@ final class ShotStore {
         guard isLoaded else { return }
         for shot in shots where !developing.contains(shot.id)
             && !FileManager.default.fileExists(atPath: dir(shot.id).appendingPathComponent("preview.jpg").path) {
-            develop(shot.id, viewfinderKey: nil)
+            develop(shot.id)
         }
     }
 
@@ -104,7 +104,7 @@ final class ShotStore {
     /// as the files are written: the shot shows (with the camera's preview) right away.
     @discardableResult
     func add(original: Data, fileExtension: String, kind: Shot.Kind, capturePreview: Data?,
-             recipe: EditRecipe, viewfinderKey: Double? = nil, captured: Date = Date(),
+             recipe: EditRecipe, captured: Date = Date(),
              id: UUID = UUID()) async throws -> Shot {
         var shot = Shot(id: id, captured: captured, kind: kind, original: "original.\(fileExtension)")
         shot.added = Date()
@@ -136,7 +136,7 @@ final class ShotStore {
         shots.insert(shot, at: 0)
         shots.sort { $0.captured > $1.captured }
         Diag.log(.save, "stored \(id.uuidString.prefix(8)) \(kind.rawValue) \(original.count / 1024) KB")
-        develop(id, viewfinderKey: viewfinderKey)
+        develop(id)
         return shot
     }
 
@@ -156,9 +156,9 @@ final class ShotStore {
     func setRecipe(_ recipe: EditRecipe, for id: UUID) -> Bool {
         var r = recipe
         r.freezeFilmTuning()
-        // Pin the brightness the editor showed: a film grade with no match yet was seen at
-        // +0, and a later full settle (an archive import, a re-develop) must not match it.
-        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = 0 }
+        // A film grade develops its RAW at the look's fixed exposure (picking a look sets
+        // it; this covers a grade that somehow lacks it), the same as the editor showed.
+        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = EditRecipe.filmRAWExposure }
         let url = dir(id).appendingPathComponent("recipe.json")
         do { try JSONEncoder().encode(r).write(to: url, options: .atomic) } catch {
             Diag.error(.editor, "couldn't save the grade of \(id.uuidString.prefix(8))", error)
@@ -166,24 +166,21 @@ final class ShotStore {
         }
         recipes[id] = r
         // Settle the RAW develop too (a shot edited before its first develop finished needs
-        // its noise reduction), but never change the brightness the editor showed.
-        develop(id, viewfinderKey: nil, settle: .rawOnly)
+        // its noise reduction). Brightness is never changed: it comes from the grade.
+        develop(id)
         return true
     }
 
-    /// Renders the graded preview and thumbnail, one shot at a time. A fresh shot's grade is
-    /// settled first (RAW noise reduction, a film look's matched exposure).
-    enum Settle: Sendable { case none, rawOnly, full }
-
-    private func develop(_ id: UUID, viewfinderKey: Double?, settle: Settle = .full) {
+    /// Renders the graded preview and thumbnail, one shot at a time. The grade is settled
+    /// first (RAW noise reduction where it has none, a film look's fixed exposure).
+    private func develop(_ id: UUID) {
         guard let shot = shot(id) else { return }
         pendingRenders[id, default: 0] += 1
         developing.insert(id)
         let dir = self.dir(id)
         let recipe = recipe(for: id)
         Task {
-            let result = await Self.renderPreviews(shot: shot, dir: dir, recipe: recipe, settle: settle,
-                                                   viewfinderKey: viewfinderKey)
+            let result = await Self.renderPreviews(shot: shot, dir: dir, recipe: recipe)
             // Only if the grade hasn't changed meanwhile: an edit saved while this shot was
             // still developing must never be overwritten by the capture's own settle.
             if let settled = result, settled != recipe, recipes[id] == recipe {
@@ -200,18 +197,12 @@ final class ShotStore {
         }
     }
 
-    private nonisolated static func renderPreviews(shot: Shot, dir: URL, recipe: EditRecipe, settle: Settle,
-                                                   viewfinderKey: Double?) async -> EditRecipe? {
+    private nonisolated static func renderPreviews(shot: Shot, dir: URL, recipe: EditRecipe) async -> EditRecipe? {
         let box = RecipeBox()
         await BakeQueue.shared.run {
             let start = Date()
-            var r = recipe
-            if settle != .none {
-                r = ShotRenderer.prepare(recipe, shot: shot, in: dir, viewfinderKey: viewfinderKey,
-                                         matchExposure: settle == .full)
-            }
-            // Kept even if the render below fails (backgrounded): the match to the viewfinder
-            // can't be redone later.
+            let r = ShotRenderer.prepare(recipe, shot: shot, in: dir)
+            // Kept even if the render below fails (backgrounded).
             box.value = r
             guard let preview = ShotRenderer.render(shot, in: dir, recipe: r, maxSide: ShotRenderer.previewSide) else {
                 Diag.error(.bake, "couldn't render \(shot.id.uuidString.prefix(8))")

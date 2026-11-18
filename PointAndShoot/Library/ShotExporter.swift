@@ -44,7 +44,7 @@ enum ShotExporter {
         let data = await Task.detached(priority: .userInitiated) { () -> Data? in
             // Still unsettled (the develop timed out): settle it here, the same way.
             let r = (recipe.rawInitialized || !shot.isRAW) ? recipe
-                : ShotRenderer.prepare(recipe, shot: shot, in: dir, viewfinderKey: nil)
+                : ShotRenderer.prepare(recipe, shot: shot, in: dir)
             return ShotRenderer.exportData(shot, in: dir, recipe: r, format: options.format,
                                            maxSide: options.maxSide, quality: options.quality)
         }.value

@@ -127,6 +127,14 @@ final class EditSession {
 
         recipe = loaded
         savedRecipe = loaded
+        // A film photo from before film looks had a develop exposure (shot before
+        // 2026-11-14) developed its RAW ~1.9 EV dark. Develop it like every film photo now,
+        // from the RAW at the fixed exposure; it opens as an unsaved change, so Save keeps it.
+        recipe = loaded.withFilmDevelopExposure(hasRAW: hasRAW)
+        if recipe != loaded {
+            Diag.log(.editor, "film photo \(shot.id.uuidString.prefix(8)) had no develop exposure: using "
+                     + String(format: "%+.2f EV", EditRecipe.filmRAWExposure))
+        }
         isLoading = false
         Task { await renderLookThumbnails() }
     }
@@ -277,6 +285,8 @@ final class EditSession {
         r.straighten = recipe.straighten
         r.quarterTurns = recipe.quarterTurns
         r.flipped = recipe.flipped
+        // A film grade on a photo that had none develops at the fixed film exposure.
+        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = EditRecipe.filmRAWExposure }
         recipe = r
     }
 

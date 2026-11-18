@@ -8,10 +8,7 @@ import Photos
 enum RecipeBaker {
     /// `rawData`: the shot's DNG, when the caller still has it in memory. Film looks
     /// develop from it (scene light); other looks use the processed photo.
-    /// `viewfinderKey`: what the viewfinder showed (FilmLUT.sceneKey); a film look's RAW
-    /// develop is exposed to match it. Without one, the processed photo is the reference.
-    static func apply(_ recipe: EditRecipe, toAssetWithID id: String, rawData: Data? = nil,
-                      viewfinderKey: Double? = nil) async throws {
+    static func apply(_ recipe: EditRecipe, toAssetWithID id: String, rawData: Data? = nil) async throws {
         guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
                 || PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited,
               let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return }
@@ -41,12 +38,10 @@ enum RecipeBaker {
             recipe.rawInitialized = true
             recipe.rawLocalTone = Double(defaults.localTone * 100)
             recipe.rawBoost = Double(defaults.boost * 100)
+            // The photo comes from the RAW alone: developed at the look's fixed exposure
+            // (picking the look sets it; pinned here too, so it's always in the saved edit).
+            if recipe.rawFilmExposure == nil { recipe.rawFilmExposure = EditRecipe.filmRAWExposure }
             EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
-            if recipe.rawFilmExposure == nil,
-               let target = viewfinderKey ?? FilmPipeline.sceneKey(of: base, context: EditPipeline.context, source: .displayReferred) {
-                recipe.rawFilmExposure = matchedExposure(raw, target: target)
-                EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
-            }
             output = raw.outputImage.map { EditPipeline.apply(recipe, to: $0, developedFromRAW: true) }
                 ?? EditPipeline.apply(recipe, to: base, developedFromRAW: false)
         } else {
@@ -68,21 +63,6 @@ enum RecipeBaker {
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest(for: asset).contentEditingOutput = editingOutput
         }
-    }
-
-    /// Stops that bring this RAW develop's scene key to `target`, measured on a small
-    /// develop (the key is an average; resolution doesn't change it). Clamped: a dark night
-    /// scene that Apple's video lifts hard shouldn't push the film more than 2.5 stops.
-    private static func matchedExposure(_ raw: CIRAWFilter, target: Double) -> Double? {
-        let native = raw.nativeSize
-        let full = raw.scaleFactor
-        raw.scaleFactor = Float(min(1, 256 / max(native.width, native.height, 1)))
-        defer { raw.scaleFactor = full }
-        guard let image = raw.outputImage,
-              let key = FilmPipeline.sceneKey(of: image, context: EditPipeline.context, source: .sceneLinear),
-              key > 0, target > 0 else { return nil }
-        let ev = min(max(log2(target / key), -1.5), 2.5)
-        return (ev * 100).rounded() / 100
     }
 
     private static func rawFilter(_ data: Data?, asset: PHAsset) async -> CIRAWFilter? {

@@ -104,6 +104,12 @@ final class CameraController: NSObject {
     @ObservationIgnored private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     @ObservationIgnored private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
     @ObservationIgnored private var meterTimer: Timer?
+    /// The viewfinder's exposure correction under a film look (`ViewfinderMatch`), stops.
+    @ObservationIgnored private var viewfinderExposure: Double = 0
+    /// The look id + correction whose table has been built off the render queue; until it
+    /// matches, the viewfinder shows the look uncorrected rather than stall on a build.
+    @ObservationIgnored private var viewfinderReady: String?
+    @ObservationIgnored private var viewfinderWarming: String?
     @ObservationIgnored private var subjectAreaObserver: NSObjectProtocol?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var isConfigured = false
@@ -273,6 +279,9 @@ final class CameraController: NSObject {
                 self.installCameraControls(device: device, zoom: zoomAllowed)
             }
         }
+        if s.wantsPlainLiveView != old.wantsPlainLiveView {
+            sessionQueue.async { self.applyPlainLiveView(s) }
+        }
         updateStorage()
         if old.saveLocation != s.saveLocation {
             if s.saveLocation { location.start() } else { location.stop(disabled: true) }
@@ -320,8 +329,48 @@ final class CameraController: NSObject {
             c.logAssist = s.mode == .video && s.videoColor == .appleLog && s.logViewAssist
             c.mirrored = front
             c.computeHistogram = !hot && s.showHistogram
-            // What new shots start with, so the viewfinder shows the default grade too.
-            c.look = s.startingGrade
+            c.look = viewfinderLook(s)
+        }
+    }
+
+    /// The look the viewfinder renders: the capture look, plus the exposure correction that
+    /// makes it predict the RAW-developed photo (`ViewfinderMatch`). The corrected table is
+    /// built on a background queue first; meanwhile the look shows uncorrected.
+    private func viewfinderLook(_ s: CameraSettings) -> EditRecipe? {
+        // What new shots start with (the default grade, or the picked look).
+        guard let look = s.startingGrade else { return nil }
+        guard look.film != nil, viewfinderExposure != 0 else { return look }
+        let grade = (try? JSONEncoder().encode(look)).map { String($0.hashValue) } ?? ""
+        let key = "\(s.activeLook ?? "")@\(viewfinderExposure)@\(grade)"
+        var corrected = look
+        corrected.exposure += viewfinderExposure * 50     // recipe exposure: 50 = 1 stop
+        if viewfinderReady == key { return corrected }
+        if viewfinderWarming != key {
+            viewfinderWarming = key
+            DispatchQueue.global(qos: .userInitiated).async {
+                FilmPipeline.prewarmViewfinder(corrected)
+                DispatchQueue.main.async {
+                    guard self.viewfinderWarming == key else { return }
+                    self.viewfinderWarming = nil
+                    self.viewfinderReady = key
+                    self.pushRendererConfig()
+                }
+            }
+        }
+        return look
+    }
+
+    /// Moves the viewfinder's correction to the scene's light, in steps (from the meter).
+    private func updateViewfinderMatch(_ m: MeterSample) {
+        guard let ev = ViewfinderMatch.meteredEV100(aperture: Double(m.aperture), seconds: m.duration,
+                                                    iso: Double(m.iso), targetOffset: Double(m.offset),
+                                                    targetBias: Double(m.bias)) else { return }
+        let next = ViewfinderMatch.stepped(ViewfinderMatch.correction(ev100: ev), current: viewfinderExposure)
+        guard next != viewfinderExposure else { return }
+        viewfinderExposure = next
+        if settings.startingGrade?.film != nil {
+            Diag.log(.capture, String(format: "viewfinder match %+.2f EV (scene EV100 %.1f)", next, ev))
+            pushRendererConfig()
         }
     }
 
@@ -475,6 +524,8 @@ final class CameraController: NSObject {
                 if d.isSmoothAutoFocusSupported { d.isSmoothAutoFocusEnabled = s.mode == .video }
                 if d.isLowLightBoostSupported { d.automaticallyEnablesLowLightBoostWhenAvailable = false }
             }
+            // A new format resets global tone mapping, so set it again.
+            self.applyPlainLiveView(s)
             self.applyExposure(mode: exposureState.0, iso: exposureState.1, shutter: exposureState.2, bias: exposureState.3)
             self.applyWhiteBalance(wb)
             self.applyFocus(mode: focus.0, lensPosition: focus.1)
@@ -690,6 +741,25 @@ final class CameraController: NSObject {
         supportsMaxResolution = c.maxRes
         isoRange = c.isoRange
         shutterRange = c.shutterRange
+    }
+
+    /// The live view is Apple's processed video, never the RAW. Where the photo comes from
+    /// the RAW alone, a plainer feed (video HDR off, global instead of local tone mapping)
+    /// lets the film's un-render track it more closely. Elsewhere Apple's defaults return.
+    /// sessionQueue only.
+    private func applyPlainLiveView(_ s: CameraSettings) {
+        let plain = s.wantsPlainLiveView
+        withLockedDevice { d in
+            let format = d.activeFormat
+            if d.automaticallyAdjustsVideoHDREnabled == plain { d.automaticallyAdjustsVideoHDREnabled = !plain }
+            if plain, format.isVideoHDRSupported, d.isVideoHDREnabled { d.isVideoHDREnabled = false }
+            let global = plain && format.isGlobalToneMappingSupported
+            if d.isGlobalToneMappingEnabled != global { d.isGlobalToneMappingEnabled = global }
+            if plain {
+                Diag.log(.session, "plain live view: video HDR \(format.isVideoHDRSupported ? "off" : "unsupported"), "
+                         + "global tone mapping \(format.isGlobalToneMappingSupported ? "on" : "unsupported")")
+            }
+        }
     }
 
     private func withLockedDevice(_ body: (AVCaptureDevice) -> Void) {
@@ -994,6 +1064,8 @@ final class CameraController: NSObject {
         var kelvin: Float?
         var zoom: CGFloat
         var audio: Float?
+        var aperture: Float
+        var bias: Float
     }
 
     /// 15×/s readouts. The device is sampled on `sessionQueue`: AVCaptureDevice getters take
@@ -1027,7 +1099,9 @@ final class CameraController: NSObject {
                 lensPosition: d.lensPosition,
                 kelvin: kelvin,
                 zoom: d.videoZoomFactor,
-                audio: wantsAudio ? self.audioDataOutput.connection(with: .audio)?.audioChannels.first?.averagePowerLevel : nil)
+                audio: wantsAudio ? self.audioDataOutput.connection(with: .audio)?.audioChannels.first?.averagePowerLevel : nil,
+                aperture: d.lensAperture,
+                bias: d.exposureTargetBias)
             DispatchQueue.main.async {
                 self.meterSampling = false
                 self.apply(meter: sample)
@@ -1050,6 +1124,7 @@ final class CameraController: NSObject {
         if whiteBalance == .auto, let k = m.kelvin, abs(k - measuredKelvin) > 25 { measuredKelvin = k }
         if let level = m.audio { audioLevel = level }
         if !isSwitchingLens, abs(m.zoom - zoomFactor) > 0.01 { zoomFactor = m.zoom }
+        if !isSwitchingLens { updateViewfinderMatch(m) }
     }
 
     // MARK: - Storage & heat
@@ -1169,8 +1244,6 @@ final class CameraController: NSObject {
         let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let place = s.saveLocation ? location.snapshot() : nil
         let look = s.startingGrade
-        // What the viewfinder showed, so a film look's RAW develop can match its brightness.
-        let viewfinderKey = look?.film != nil ? renderer.currentSceneKey() : nil
         sessionQueue.async {
             guard let device = self.device, self.session.outputs.contains(self.photoOutput) else {
                 DispatchQueue.main.async { self.captureFinished() }
@@ -1183,7 +1256,6 @@ final class CameraController: NSObject {
             var plan = basePlan
             plan.location = place
             plan.look = look
-            plan.viewfinderKey = viewfinderKey
             let id = avSettings.uniqueID
             let processor = PhotoCaptureProcessor(
                 plan: plan,

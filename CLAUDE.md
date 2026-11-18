@@ -43,8 +43,19 @@ Git history: merged into `main` so far:
 | #16 | silent shutter |
 | #17 | the Print/Zero "Couldn't save" fix |
 | #18 | crash shooting zoomed in with Bayer RAW (zoom locks at 1×) |
+| #19, #23, #29, #30 | deletes in every state, diagnostics log |
 | #20 | grainy Print photos: noise reduction and grain |
+| #21 | film-look handoff notes (`docs/film-looks.md`) |
+| #22 | Print photos match the viewfinder's brightness |
+| #24–#26 | RAW pairs save; shots never stuck on "Developing…" |
+| #27 | unit, Photos integration and roll UI tests in CI |
+| #28 | photos keep the film tuning they were made with |
+| #31 | zoom like Photos in the viewer and editor |
 | #34 | Phromagraph: a filter fitted to Chromagraph's own renders |
+| #36, #38 | engine 2's measured un-render; Looks with structure and named sets |
+| #41 | brightness against Chromagraph: editor matching (superseded by #42) |
+| #42 | film looks develop from the RAW alone, at a fixed +1.86 EV |
+| #43 | Plain live view: video HDR off, global tone mapping in Print/Zero (experimental) |
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
@@ -141,6 +152,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
                                   live capture Look, lens-switch blur
   Camera/PhotoCaptureProcessor.swift  AVCapturePhotoCaptureDelegate; GPS EXIF; save; bake Look (BakeQueue)
   Camera/PhotoPlanner.swift       pure capture decisions (RAW kind, prioritization, flash, 12 MP) — unit-tested
+  Camera/ViewfinderMatch.swift    pure viewfinder exposure correction from the meter (film looks) — unit-tested
   Camera/ZeroDeveloper.swift      "Zero" processing: neutral CIRAWFilter develop of Bayer DNG
   Camera/VideoRecorder.swift      AVAssetWriter recorder (video+audio, location metadata)
   Camera/LocationTagger.swift     CoreLocation GPS + compass; EXIF/ISO6709 builders
@@ -298,12 +310,14 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - **Developing:** renders run one at a time (`BakeQueue`). `developing` lasts until a
     shot's last queued render finishes.
   - **A fresh shot's first develop settles its grade** (`ShotRenderer.prepare`): the
-    camera's RAW noise reduction (floored for film looks), and a film look's exposure
-    matched to the viewfinder (`rawFilmExposure`).
+    camera's RAW noise reduction (floored for film looks), and a film look's fixed RAW
+    develop exposure (`rawFilmExposure` = `EditRecipe.filmRAWExposure`, +1.86 EV, as on
+    `main` since #42) where the grade lacks one. Photos come from their RAW alone; nothing
+    is borrowed from the viewfinder. Shots made before keep their matched value.
   - **A settle never overwrites a grade saved meanwhile.** It is applied only if
     `recipes[id]` is unchanged.
-  - **Editor saves settle `.rawOnly`.** They never change the brightness the editor showed,
-    and pin a film grade's `rawFilmExposure` to 0 if it had none.
+  - **Editor saves only settle the RAW develop.** Brightness comes from the grade: picking a
+    film look pins the fixed exposure, and the default grade keeps it.
   - **Videos still go straight to Photos.**
 
 ### Library, trash and retention (every state)
@@ -446,9 +460,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   public samples. Keep the two separate: don't retune Print from Phromagraph's data or
   vice versa. Details, numbers and caveats: `docs/film-looks.md` §5½.
   - Mean ΔE (Oklab) to Chromagraph 0.0070 on 12 pairs (Print: 0.019).
-  - Its stock `exposure` is 0 on purpose: the viewfinder match (`rawFilmExposure`)
-    supplies Chromagraph's +1.8 EV develop exposure. A non-zero stock exposure also scales
-    the viewfinder's display-referred input and would clip it.
+  - Its stock `exposure` is 0 on purpose: the fixed RAW develop (`filmRAWExposure`,
+    +1.86) supplies Chromagraph's develop exposure. A non-zero stock exposure would also
+    scale the viewfinder's display-referred input.
   - Grain starts at 0 (`Look` sets `grain = 0`, Chromagraph's default); slider 50 =
     Chromagraph grain 1.25 (`grainDensity` 0.017, size 0.17).
   - Halation is a third of Print's: Chromagraph shows no measurable red glow.
@@ -565,20 +579,60 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     - Film looks also get ≥ 0.5 chroma NR.
     - Print used to force 15%. Indoor shots came out "super grainy" on device: sensor
       noise, amplified by the film's contrast, with the synthetic grain on top.
-  - **Brightness matches the viewfinder.**
-    - The problem: the viewfinder renders Apple's processed video through the film's
-      display-referred path, but the photo develops the linear RAW. On device the photo
-      came out much darker than the viewfinder, which the owner likes.
-    - How the match works: under a film look, `PreviewRenderer` measures a scene key a
-      few times a second. That's the geometric-mean scene luminance as the film sees it
-      (`FilmLUT.sceneKey`, on a 48 px sample).
-    - The key rides along with the shot (`PhotoPlan.viewfinderKey`). The baker measures
-      the same key on a small RAW develop and stores the difference as
-      `EditRecipe.rawFilmExposure`, clamped to −1.5…+2.5 EV. `EditPipeline.configure`
-      adds it to the RAW exposure under film looks, so the editor reproduces it, and
-      switching looks keeps it.
-    - Flash shots, and shots with no recent viewfinder key, match the processed photo
-      instead.
+  - **Brightness: the photo comes from the RAW alone.** Film looks develop the RAW at a
+    fixed `EditRecipe.filmRAWExposure` (+1.86 EV), like any RAW converter.
+    - **Rule (the owner, 2026-11-18):** everything that renders the photo comes from the
+      RAW file or camera settings saved with it, never from the viewport. The viewfinder
+      may *predict* the photo (below); nothing ever flows from the viewfinder into it.
+    - Why +1.86: an iPhone RAW sits ~2 stops under Apple's rendering. Chromagraph develops
+      +1.86 EV over a neutral develop (Phromagraph's fit, 12 pairs), and the owner's
+      side-by-side of one scene agreed (+1.9).
+    - Picking a film look sets `rawFilmExposure` (`Look.film`, Print), so it's pinned
+      like the tuning: a photo keeps its brightness, and picking the look again brings
+      the current one. Pasting a film look carries its value. `EditPipeline.configure`
+      adds it to the RAW exposure under film looks.
+    - **History, so nobody rebuilds it:**
+      - #22 matched each shot to the viewfinder's measured brightness.
+      - #41 also matched unmatched photos in the editor.
+      - #42 removed both at the owner's call: "the inputs for the photo should just be the
+        raw photo". Per-shot borrowing from another image isn't how RAW converters work,
+        and the matched brightness drifted with Apple's video rendering, not the scene.
+      - Photos baked in between keep their matched values. Photos from before #22 have
+        none (developed ~2 stops dark): the editor opens them at +1.86 as an unsaved change
+        (`EditRecipe.withFilmDevelopExposure`), and Save keeps it.
+    - **The viewfinder predicts the photo** (`ViewfinderMatch`, `CameraController.viewfinderLook`).
+      iOS gives apps only Apple's processed video live, never RAW, so the viewfinder
+      un-renders it (engine 2). That undoes Apple's *average* curve, not its per-scene
+      choice: Apple renders dim scenes darker and bright scenes brighter, so the
+      viewfinder ran ~1 EV under the photo at night and up to ~0.6 EV over on bright days.
+      - The choice follows the scene's light, which the meter knows: EV100 from aperture,
+        shutter and ISO, plus `exposureTargetOffset` and `exposureTargetBias`, so manual
+        ISO/shutter and EV compensation don't move it (they already change the preview
+        exactly as they change the RAW).
+      - Correction = 0.03 − 0.122·(EV100 − 10), ±0.75 EV, in ⅙-stop steps with hysteresis.
+        Fitted on 12 Chromagraph shots (correlation 0.81): the gap goes from ±0.53 to
+        ±0.32 EV, the night alley from −0.96 to −0.28. What's left is Apple's local tone
+        mapping.
+      - It's the viewfinder look's exposure, baked into its negative table (engine 2+).
+        Each step's table is built on a background queue first
+        (`FilmPipeline.prewarmViewfinder`); until then the look shows uncorrected, so the
+        render queue never builds one. LOOK-strip thumbnails stay uncorrected.
+      - Measured with CIRAWFilter's default render standing in for the live video: check
+        on the device (`docs/film-looks.md` §5⅞).
+    - **Plain live view** (Settings → Photo, `CameraSettings.plainLiveView`, off by
+      default, experimental). Where the photo comes from the RAW alone (Print, Zero,
+      `wantsPlainLiveView`), `CameraController.applyPlainLiveView` turns video HDR off and
+      global tone mapping on (`isGlobalToneMappingEnabled`, where the format supports it).
+      That's one tone curve for the whole frame instead of Apple's local brightening.
+      - It's re-applied after every reconfigure, because a format change resets it.
+      - Apple's defaults return elsewhere, and the state is logged in Diagnostics.
+      - Its global curve still adapts to each scene, so it narrows the per-region drift,
+        not the per-scene one.
+      - The engine-2 table was measured with Apple's local tone mapping on, so it may need
+        re-measuring for this mode.
+      - The `ViewfinderMatch` correction was fitted the same way (local tone mapping on).
+        Plain live view narrows the drift within a frame; the correction handles the drift
+        between scenes. Re-measure both if the owner keeps Plain live view on.
 - **Photos keep the tuning they were made with.** `FilmRecipe.tuning` stores the whole
   `FilmStock` (~4.2 KB), pinned the moment a look is picked (`Look.film`) and kept through
   every save. Rendering uses `FilmStock.resolved(for:)`, so retuning a stock in code (or
@@ -629,10 +683,11 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Zero develop NR / sharpening | `ZeroDeveloper.configureNeutral` | chroma NR 0.3, sharpness 0.1 |
 | Storage reserve / auto-stop | `updateStorage` | 1 GB reserve / stop under 600 MB |
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
-| Print: brightness | `RecipeBaker.matchedExposure`, `FilmLUT.sceneKey` | each shot's RAW develop is matched to the viewfinder (geometric-mean scene luminance), −1.5…+2.5 EV. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
+| Film looks: RAW develop brightness | `EditRecipe.filmRAWExposure` | +1.86 EV over a neutral develop (Chromagraph's), pinned when a look is picked. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
+| Viewfinder correction under film looks | `ViewfinderMatch.correction` | 0.03 − 0.122·(EV100 − 10), ±0.75 EV, ⅙-stop steps; fitted on 12 shots with Apple's still render standing in for the video |
 | Film looks: inverse of Apple's rendering (viewfinder, processed photos) | `FilmLUT.unrender*` (engine 2) | measured from CIRAWFilter's default render of 13 iPhone 12 Pro ProRAWs, a stand-in for the video feed; refit with real viewfinder frames when possible |
 | Looks' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
 
@@ -826,8 +881,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 2. **Viewer.** The filmstrip follows paging. Keep tags the photo. Trash + Undo works.
    Export puts a 2880 px HEIF in Photos with the look. Zooming in sharpens from the RAW.
 3. **Editor.** Each tool and sub-tab works; ✓ saves, and the viewer and grid refresh.
-   Set as Default Grade, then new shots and the viewfinder use it. ⚠️ Film-look brightness
-   matches the viewfinder (`rawFilmExposure`).
+   Set as Default Grade, then new shots and the viewfinder use it. ⚠️ Film looks develop at
+   a fixed +1.86 EV (Chromagraph's). Compare against Chromagraph, and try Preferences →
+   Camera → Plain live view.
 4. **Retention.** "N days left" shows on unkept shots. The Trash restores. Turning off
    Store Forever asks first.
 5. **Import/archive.** Import RAWs from Photos. Archive a few to a zip, delete them, and
@@ -920,10 +976,21 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     - Settings → Print film look → Look: PRINT leaves the mode picker and appears under
       LOOK. The format pill then reads "Print · RAW" when it's picked.
     - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ The saved
-      photo should be about as bright as the viewfinder was (indoors, outdoors, at
-      night). If it's consistently off, check `rawFilmExposure` in the edit's recipe and
-      `FilmLUT.sceneKey`. If Print is too dark or bright everywhere, *including the
-      viewfinder*, change `exposure` in `print-stock.json`, then run export-swift.
+      photo should be about as bright as Chromagraph on the same scene, and close to the
+      viewfinder. If every shot is off by the same amount, change
+      `EditRecipe.filmRAWExposure`. If the viewfinder alone is off, the un-render
+      (engine 2) is the place to look.
+    - ⚠️ Viewfinder vs saved photo per scene (`ViewfinderMatch`): night street, dim room,
+      overcast, full sun. Then with manual ISO, manual shutter and EV ±1: the preview
+      should get brighter/darker exactly like the photo. The Diagnostics log shows each
+      `viewfinder match ±x EV (scene EV100 …)` step. If night still frames darker than it
+      saves (or sun brighter), steepen the 0.122 slope; if every scene is off the same way,
+      move the 0.03 offset.
+    - Open a Print photo from before 2026-11-14 in the editor: it opens ~2 stops brighter
+      with Save enabled (no need to tap Print); Save keeps it.
+    - ⚠️ Settings → Photo → Plain live view: the viewfinder should track the saved photo
+      more closely in Print, especially in contrasty and dim scenes, with no hitch when
+      switching Photo ↔ Print. The Diagnostics log says whether the phone supports it.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.
     - Indoors at night, the shot shouldn't look noisy. Fine grain should be visible

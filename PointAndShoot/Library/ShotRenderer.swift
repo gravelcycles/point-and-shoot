@@ -72,54 +72,26 @@ enum ShotRenderer {
 
     /// Settles the RAW develop a fresh shot starts from, as the editor would: the camera's
     /// own noise reduction (floored for film looks, which add grain and have no
-    /// sharpening), and a film look's exposure matched to what the viewfinder showed.
-    /// `matchExposure` false: only the RAW develop (an editor save must keep exactly the
-    /// brightness the editor showed).
-    static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL, viewfinderKey: Double?,
-                        matchExposure: Bool = true) -> EditRecipe {
+    /// sharpening), and a film look's fixed RAW develop exposure (+1.86 EV, Chromagraph's;
+    /// #42) where the grade doesn't carry one. The photo comes from its RAW alone: nothing
+    /// is borrowed from the viewfinder.
+    static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL) -> EditRecipe {
         var r = recipe
         r.freezeFilmTuning()
+        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = EditRecipe.filmRAWExposure }
         guard shot.isRAW, let raw = rawFilter(shot, in: dir) else {
             r.useRAW = shot.isRAW
             return r
         }
-        let defaults = EditPipeline.readDefaults(raw)
         if !r.rawInitialized {
+            let defaults = EditPipeline.readDefaults(raw)
             let nr = Double(defaults.noiseReduction * 100)
             r.rawNoiseReduction = r.film != nil ? max(nr, EditRecipe.filmMinimumNoiseReduction) : nr
             r.rawLocalTone = Double(defaults.localTone * 100)
             r.rawBoost = Double(defaults.boost * 100)
             r.rawInitialized = true
         }
-        if matchExposure, r.film != nil, r.rawFilmExposure == nil {
-            let reference = CIImage(contentsOf: dir.appendingPathComponent("capture.jpg"),
-                                    options: [.applyOrientationProperty: true])
-            let target = viewfinderKey ?? reference.flatMap {
-                FilmPipeline.sceneKey(of: $0, context: EditPipeline.context, source: .displayReferred)
-            }
-            if let target { r.rawFilmExposure = matchedExposure(raw, recipe: r, defaults: defaults, target: target) }
-        }
         return r
-    }
-
-    /// Stops that bring the RAW develop's scene key to `target` (measured small: the key is
-    /// an average). Clamped: a night scene Apple's video lifts hard shouldn't push the film
-    /// more than 2.5 stops.
-    private static func matchedExposure(_ raw: CIRAWFilter, recipe: EditRecipe, defaults: RAWDefaults,
-                                        target: Double) -> Double? {
-        var r = recipe
-        // Measure the base develop: the user's own Exposure goes on top of the match, as in
-        // the viewfinder (which measures before the look's exposure).
-        r.rawFilmExposure = 0
-        r.exposure = 0
-        EditPipeline.configure(raw, recipe: r, defaults: defaults)
-        let native = raw.nativeSize
-        raw.scaleFactor = Float(min(1, 256 / max(native.width, native.height, 1)))
-        guard let image = raw.outputImage,
-              let key = FilmPipeline.sceneKey(of: image, context: EditPipeline.context, source: .sceneLinear),
-              key > 0, target > 0 else { return nil }
-        let ev = min(max(log2(target / key), -1.5), 2.5)
-        return (ev * 100).rounded() / 100
     }
 
     // MARK: Files
