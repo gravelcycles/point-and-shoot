@@ -68,6 +68,29 @@ final class ShotStore {
         for shot in shots where !FileManager.default.fileExists(atPath: dir(shot.id).appendingPathComponent("preview.jpg").path) {
             develop(shot.id)
         }
+        settleFilmExposures()
+    }
+
+    /// Bayer shots graded with a film look before 2026-11-19 carry the shared +1.86 develop
+    /// exposure, 1.3 EV brighter than Chromagraph develops the same file: move them to the
+    /// Bayer value (`EditRecipe.withFilmDevelopExposure`) and re-render them, once. Any
+    /// other value stays.
+    private func settleFilmExposures() {
+        for shot in shots + trash where shot.kind == .bayerRAW {
+            let r = recipe(for: shot.id)
+            let settled = r.withFilmDevelopExposure(hasRAW: true, bayer: true)
+            guard settled != r else { continue }
+            let url = dir(shot.id).appendingPathComponent("recipe.json")
+            do { try JSONEncoder().encode(settled).write(to: url, options: .atomic) } catch {
+                Diag.error(.editor, "couldn't settle the film exposure of \(shot.id.uuidString.prefix(8))", error)
+                continue
+            }
+            recipes[shot.id] = settled
+            Diag.log(.bake, "film exposure of Bayer shot \(shot.id.uuidString.prefix(8)): "
+                     + String(format: "%@ → %+.2f EV", r.rawFilmExposure.map { String(format: "%+.2f", $0) } ?? "none",
+                              settled.rawFilmExposure ?? 0))
+            if shots.contains(where: { $0.id == shot.id }) { develop(shot.id) }
+        }
     }
 
     /// Back in the foreground: shots whose graded preview never got rendered (the app was
@@ -156,9 +179,9 @@ final class ShotStore {
     func setRecipe(_ recipe: EditRecipe, for id: UUID) -> Bool {
         var r = recipe
         r.freezeFilmTuning()
-        // A film grade develops its RAW at the look's fixed exposure (picking a look sets
-        // it; this covers a grade that somehow lacks it), the same as the editor showed.
-        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = EditRecipe.filmRAWExposure }
+        // A film grade develops its RAW at the fixed exposure for its RAW type (picking a
+        // look leaves it to the photo), the same as the editor showed.
+        if let shot = shot(id) { r = r.withFilmDevelopExposure(hasRAW: shot.isRAW, bayer: shot.kind == .bayerRAW) }
         let url = dir(id).appendingPathComponent("recipe.json")
         do { try JSONEncoder().encode(r).write(to: url, options: .atomic) } catch {
             Diag.error(.editor, "couldn't save the grade of \(id.uuidString.prefix(8))", error)

@@ -234,12 +234,13 @@ struct SettingsView: View {
     @ViewBuilder
     private func cameraTab(_ s: CameraSettings) -> some View {
         Section {
-            Picker("RAW", selection: Binding(get: { s.shootsProRAW ? RawMode.proRAW : .bayer },
+            Picker("RAW", selection: Binding(get: { s.prefersProRAW ? RawMode.proRAW : .bayer },
                                              set: { v in camera.update { $0.rawMode = v } })) {
-                Text("Bayer RAW").tag(RawMode.bayer)
-                Text("ProRAW").tag(RawMode.proRAW).disabled(!camera.supportsProRAW)
+                Text(RawMode.proRAW.choice).tag(RawMode.proRAW).disabled(!camera.supportsProRAW)
+                Text(RawMode.bayer.choice).tag(RawMode.bayer)
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("settings.rawMode")
             if s.shootsProRAW && camera.supportsMaxResolution {
                 Picker("Resolution", selection: camera.binding(\.resolution)) {
                     ForEach(PhotoResolution.allCases) { Text($0.label).tag($0) }
@@ -248,9 +249,7 @@ struct SettingsView: View {
         } header: {
             Text("RAW Format")
         } footer: {
-            Text(s.shootsProRAW
-                 ? "Apple ProRAW: several frames merged, less noise, and zoom works. Every look develops from it."
-                 : "Bayer RAW: the sensor's own single frame, with real grain and contrast. Zoom stays at 1× (the full sensor is recorded).")
+            Text((s.prefersProRAW ? RawMode.proRAW : .bayer).tradeoff + " Print always shoots ProRAW.")
         }
         Section {
             Toggle("Plain live view", isOn: camera.binding(\.plainLiveView))

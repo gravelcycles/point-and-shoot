@@ -72,13 +72,13 @@ enum ShotRenderer {
 
     /// Settles the RAW develop a fresh shot starts from, as the editor would: the camera's
     /// own noise reduction (floored for film looks, which add grain and have no
-    /// sharpening), and a film look's fixed RAW develop exposure (+1.86 EV, Chromagraph's;
-    /// #42) where the grade doesn't carry one. The photo comes from its RAW alone: nothing
-    /// is borrowed from the viewfinder.
+    /// sharpening), and a film look's fixed RAW develop exposure for this RAW type
+    /// (`EditRecipe.filmRAWExposure(bayer:)`) where the grade doesn't carry one. The photo
+    /// comes from its RAW alone: nothing is borrowed from the viewfinder.
     static func prepare(_ recipe: EditRecipe, shot: Shot, in dir: URL) -> EditRecipe {
         var r = recipe
         r.freezeFilmTuning()
-        if r.film != nil, r.rawFilmExposure == nil { r.rawFilmExposure = EditRecipe.filmRAWExposure }
+        r = r.withFilmDevelopExposure(hasRAW: shot.isRAW, bayer: shot.kind == .bayerRAW)
         guard shot.isRAW, let raw = rawFilter(shot, in: dir) else {
             r.useRAW = shot.isRAW
             return r

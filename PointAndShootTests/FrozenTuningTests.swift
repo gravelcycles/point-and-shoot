@@ -357,32 +357,25 @@ final class FrozenTuningTests: XCTestCase {
         XCTAssertEqual(r.film?.tuning, FilmStock.printLook, "Re-picking a look should pin its current tuning")
     }
 
-    func testFilmLooksPinTheFixedRAWExposure() {
-        for look in Look.all {
-            let r = look.recipe
-            if r.film != nil {
-                XCTAssertEqual(r.rawFilmExposure, EditRecipe.filmRAWExposure, "\(look.id): RAW develop exposure not pinned")
-            } else {
-                XCTAssertNil(r.rawFilmExposure, "\(look.id) isn't a film look")
-            }
-        }
-        // A photo from before the fixed exposure (none, or a viewfinder match) keeps its
-        // value until the look is picked again, which brings the current one.
+    /// Picking a film look leaves the develop exposure to the photo's RAW type (settled by
+    /// `withFilmDevelopExposure`): +1.86 for ProRAW, +0.54 for Bayer.
+    func testFilmLooksLeaveTheRAWExposureToThePhoto() {
+        for look in Look.all { XCTAssertNil(look.recipe.rawFilmExposure, "\(look.id)") }
+        XCTAssertEqual(printRecipe.withFilmDevelopExposure(hasRAW: true, bayer: false).rawFilmExposure, EditRecipe.filmRAWExposure)
+        XCTAssertEqual(printRecipe.withFilmDevelopExposure(hasRAW: true, bayer: true).rawFilmExposure, EditRecipe.filmBayerRAWExposure)
+        // A photo's value (a viewfinder match, an older pin) stays until the look is picked
+        // again, which leaves it to the RAW type again.
         var older = printRecipe
-        older.rawFilmExposure = nil
+        older.rawFilmExposure = 2.31
         var edited = older
         edited.resetTone()
-        XCTAssertNil(edited.rawFilmExposure, "Resetting tone must not invent a develop exposure")
+        XCTAssertEqual(edited.rawFilmExposure, 2.31, "Resetting tone keeps the photo's develop exposure")
         Look.named(CameraSettings.printLookID)!.apply(&edited)
-        XCTAssertEqual(edited.rawFilmExposure, EditRecipe.filmRAWExposure)
-        older.rawFilmExposure = 2.31
-        edited = older
-        Look.named(CameraSettings.printLookID)!.apply(&edited)
-        XCTAssertEqual(edited.rawFilmExposure, EditRecipe.filmRAWExposure)
-        // Pasting a film look carries its exposure; pasting a plain one keeps the photo's.
+        XCTAssertNil(edited.rawFilmExposure)
+        // Pasting a film look leaves it to the target's RAW; pasting a plain one keeps it.
         var target = EditRecipe()
         target.rawFilmExposure = 0.5
-        XCTAssertEqual(printRecipe.look(appliedTo: target).rawFilmExposure, EditRecipe.filmRAWExposure)
+        XCTAssertNil(printRecipe.look(appliedTo: target).rawFilmExposure)
         XCTAssertEqual(EditRecipe().look(appliedTo: target).rawFilmExposure, 0.5)
     }
 }

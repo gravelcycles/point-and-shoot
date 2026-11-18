@@ -50,6 +50,22 @@ enum RawMode: String, Codable, CaseIterable, Identifiable {
         case .proRAW: "PRORAW"
         }
     }
+    /// The choice as the pickers offer it: the trade-off first.
+    var choice: String {
+        switch self {
+        case .off, .proRAW: "ProRAW · Cleaner"
+        case .bayer: "RAW · Faster"
+        }
+    }
+    /// One line on what you get, for the pickers' notes.
+    var tradeoff: String {
+        switch self {
+        case .off, .proRAW:
+            "ProRAW, cleaner: Apple merges several frames, so far less noise and more highlight range, and zoom works. Each shot takes a moment longer to finish."
+        case .bayer:
+            "Bayer RAW, faster: the sensor's single frame, ready in under half a second, with real noise. Zoom stays at 1× (the full sensor is recorded)."
+        }
+    }
 }
 
 /// How much of Apple's computational pipeline (Deep Fusion, Smart HDR, NR, sharpening)
@@ -489,10 +505,15 @@ extension CameraSettings {
         return Look.named(activeLook)?.recipe
     }
 
-    /// Every photo is a RAW (the app's own library develops it). ProRAW by default (zoom
-    /// works; it's what Chromagraph shoots and Phromagraph was fitted on); Bayer RAW, the
-    /// sensor's single frame, when chosen. `.off` (settings from before RAW-only) = ProRAW.
-    var shootsProRAW: Bool { rawMode != .bayer }
+    /// The RAW choice (Photo mode): ProRAW, cleaner, by default; Bayer RAW, the sensor's
+    /// single frame, faster, when chosen. `.off` (settings from before RAW-only) = ProRAW.
+    var prefersProRAW: Bool { rawMode != .bayer }
+    /// Every photo is a RAW (the app's own library develops it). Print always shoots ProRAW:
+    /// it's what Chromagraph shoots, and Print and Phromagraph were fitted on it (on
+    /// Chromagraph's own ProRAW we develop within 0.01 EV of it; on Bayer files it develops
+    /// 1.3 EV darker, docs/film-looks.md §5⅞). Photo follows the RAW choice. Where the lens
+    /// has no ProRAW, `PhotoPlanner` falls back safely.
+    var shootsProRAW: Bool { mode == .print || prefersProRAW }
     /// The active look is a film stock (it develops from scene light).
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
     /// We capture Bayer RAW and develop it ourselves.
@@ -509,5 +530,5 @@ extension CameraSettings {
     var zoomLocked: Bool { mode.isStill && !shootsProRAW }
 
     /// What to call the zoom-locked mode in a toast.
-    var zoomLockReason: String { mode == .print ? "Print" : "Bayer RAW" }
+    var zoomLockReason: String { "Bayer RAW" }
 }

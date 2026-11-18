@@ -13,6 +13,11 @@ which print-look.py export-swift writes into FilmStock+Stocks.swift.
   phromagraph.py measure DIR [--work W]   viewfinder vs the fixed develop exposure; grain
   phromagraph.py sheet OUT.jpg [--work W] [--only a,b]
                                           neutral develop | Print | Phromagraph | Chromagraph
+  phromagraph.py develop-ev RAW.dng EXPORT.heic [...] [--work W]
+                                          the develop exposure (EV over the app's neutral
+                                          CIRAWFilter develop) that makes Phromagraph match
+                                          each export of that RAW: how bright Chromagraph
+                                          (or anything) renders this file
 
 What the fit covers: tone (grey, slope, shoulder, white, floor → print curve), printer
 lights, crossover, the 3×3 layer sensitivity, dye crosstalk, split toning and hue
@@ -356,6 +361,41 @@ def sheet(out, only=None):
     print("wrote", out, "(columns: neutral develop | Print | Phromagraph | Chromagraph)")
 
 
+def develop_ev(dng, exports):
+    """Fits one exposure per export of the same RAW, with Phromagraph's look."""
+    import cv2
+    from scipy.optimize import least_squares
+    os.makedirs(WORK_DIR, exist_ok=True)
+    st = F.load_stock(OUT)
+    name = os.path.splitext(os.path.basename(dng))[0]
+    first = read_heic(exports[0])
+    develop([dng], os.path.join(WORK_DIR, "ev"), max(first.shape[:2]) / 4032)
+    lin0 = read_f32(os.path.join(WORK_DIR, "ev", name + ".f32"))
+    for ref_path in exports:
+        ref = read_heic(ref_path)
+        lin, mask = _align(lin0, ref)
+        k = 3
+        bl = lambda a: cv2.resize(cv2.GaussianBlur(a.astype(np.float32), (0, 0), 2.5), None, fx=1 / k, fy=1 / k,
+                                  interpolation=cv2.INTER_AREA).astype(np.float64)
+        l, r = bl(lin), bl(ref)
+        mm = cv2.resize(mask.astype(np.uint8), (l.shape[1], l.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
+        ok = mm & (r.max(-1) < 0.98) & (l @ LUM709 > 1e-5)
+        idx = np.random.default_rng(0).choice(np.flatnonzero(ok), min(20000, int(ok.sum())), replace=False)
+        lp, lab = l.reshape(-1, 3)[idx], oklab_srgb(r.reshape(-1, 3)[idx])
+        fitres = least_squares(lambda q: (oklab_srgb(render_samples(dict(st, exposure=q[0]), lp)) - lab).ravel(), [1.0])
+        ev = float(fitres.x[0])
+        de = np.linalg.norm(oklab_srgb(render_samples(dict(st, exposure=ev), lp)) - lab, axis=1).mean()
+        # per brightness band (scene stops vs 18% grey at that exposure): a tone mismatch shows as drift
+        ys = lp @ LUM709 * 2 ** ev
+        bands = []
+        for lo, hi in ((-8, -3), (-3, -1), (-1, 1), (1, 4)):
+            b = (np.log2(np.maximum(ys, 1e-9) / 0.18) >= lo) & (np.log2(np.maximum(ys, 1e-9) / 0.18) < hi)
+            if b.sum() > 300:
+                rb = least_squares(lambda q: (oklab_srgb(render_samples(dict(st, exposure=q[0]), lp[b]))[:, 0] - lab[b, 0]), [ev])
+                bands.append(f"{lo:+d}..{hi:+d}: {rb.x[0]:+.2f}")
+        print(f"{os.path.basename(ref_path):16s} develop {ev:+.2f} EV  (ΔE {de:.4f})   by band: " + "  ".join(bands))
+
+
 def main():
     global WORK_DIR
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -365,6 +405,9 @@ def main():
     f = sub.add_parser("fit")
     f.add_argument("--out", default=OUT)
     sub.add_parser("measure").add_argument("dir")
+    e = sub.add_parser("develop-ev")
+    e.add_argument("dng")
+    e.add_argument("exports", nargs="+")
     s = sub.add_parser("sheet")
     s.add_argument("out")
     s.add_argument("--only")
@@ -376,6 +419,8 @@ def main():
         fit(a.out)
     elif a.cmd == "measure":
         measure(a.dir)
+    elif a.cmd == "develop-ev":
+        develop_ev(a.dng, a.exports)
     elif a.cmd == "sheet":
         sheet(a.out, a.only.split(",") if a.only else None)
 

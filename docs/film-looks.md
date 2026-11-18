@@ -634,6 +634,31 @@ photo, never feed it.
   night, indoors, overcast and in sun, also with manual ISO/shutter and EV compensation.
   Viewfinder frames saved next to DNGs would let us refit it exactly.
 
+**Bayer vs ProRAW (2026-11-18, the owner's "chromagraph def isn't this bright").** The
+owner imported this app's Bayer DNGs into Chromagraph, and a Chromagraph ProRAW into
+this app (`Chromagraph RAW 2026-11-18/`, git-ignored; `phromagraph.py develop-ev`):
+
+| RAW | Chromagraph's develop | Ours (fixed +1.86) |
+|---|---|---|
+| sunset, Chromagraph's ProRAW (baseline +1.01) | +1.85 (two exports) | +1.84 (ΔE 0.006) |
+| street, our Bayer | +0.64 | +1.86 |
+| tree, our Bayer | +0.50 (two exports) | +1.78 |
+| TV room, our Bayer | +0.47 | +1.96 |
+
+- **On ProRAW we match Chromagraph** (a third baseline-exposure value, so that tag isn't
+  the cause). **On Bayer files Chromagraph develops 1.3 EV darker** (+0.54 ± 0.09) and
+  flatter: its deep shadows sit as if at +1.8 while mids are at +0.45, so the Phromagraph
+  fit is looser there (ΔE 0.024–0.033).
+- So film looks now develop per RAW type (`EditRecipe.filmRAWExposure(bayer:)`): ProRAW
+  +1.86, Bayer +0.54; Print always shoots ProRAW; ProRAW is the default ("Cleaner").
+- Against Apple's rendering (CIRAWFilter defaults, scene keys through engine 2) a Bayer
+  RAW sits at a constant +1.2 in all three scenes (+1.20, +1.21, +1.18), while ProRAW
+  follows the scene (+0.5…+2.5): relative to Apple, a Bayer RAW is ~0.65 EV brighter
+  than a ProRAW in these scenes. So the viewfinder's Bayer offset is −0.67
+  (`ViewfinderMatch.bayerOffset`), and at these constants a Bayer shot may come out
+  ~0.6 EV darker than a ProRAW shot of the same scene: the owner's side-by-side decides
+  whether Bayer should be closer to +1.2.
+
 ## 6. Grain and noise: what's known and what isn't
 
 **Known:**
