@@ -133,6 +133,18 @@ enum FilmPipeline {
         }
     }
 
+    /// Builds the viewfinder's tables for a look as the viewfinder will render it (its
+    /// exposure baked in: `ViewfinderMatch`), so switching to it never builds on the render
+    /// queue. Call off the main thread.
+    static func prewarmViewfinder(_ recipe: EditRecipe) {
+        guard let film = recipe.film, let stock = FilmStock.resolved(for: recipe) else { return }
+        _ = negativeCube(stock, .displayReferred, engine: film.renderEngine, exposure: recipe.exposure / 50 + stock.exposure)
+        _ = printCube(stock, FilmControls(contrast: recipe.contrast / 100, saturation: recipe.saturation / 100,
+                                          crossover: film.crossover / 100,
+                                          highlights: recipe.highlights / 100, shadows: recipe.shadows / 100,
+                                          subtractiveSaturation: film.renderEngine >= 3))
+    }
+
     // MARK: Render
 
     /// `image` is linear light in the working space (extended linear sRGB): scene light from

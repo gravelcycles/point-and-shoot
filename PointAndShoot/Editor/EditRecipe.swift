@@ -56,6 +56,16 @@ struct EditRecipe: Codable, Equatable {
     /// pairs, docs/film-looks.md §5½), and the owner's side-by-side agreed (+1.9).
     static let filmRAWExposure: Double = 1.86
 
+    /// This edit with the fixed film develop exposure, if it's a film look developing from
+    /// RAW with none: photos from before film looks had one (shot before 2026-11-14)
+    /// developed ~1.9 EV dark. The editor opens them this way, as an unsaved change.
+    func withFilmDevelopExposure(hasRAW: Bool) -> EditRecipe {
+        guard hasRAW, useRAW, film != nil, rawFilmExposure == nil else { return self }
+        var r = self
+        r.rawFilmExposure = EditRecipe.filmRAWExposure
+        return r
+    }
+
     // Color mixer: 8 bands × (hue, saturation, luminance), -100…100. Stored only when
     // used (nil = untouched), which also keeps older saved edits decoding fine.
     var mixer: [Double]?

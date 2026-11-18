@@ -131,6 +131,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
                                   live capture Look, lens-switch blur
   Camera/PhotoCaptureProcessor.swift  AVCapturePhotoCaptureDelegate; GPS EXIF; save; bake Look (BakeQueue)
   Camera/PhotoPlanner.swift       pure capture decisions (RAW kind, prioritization, flash, 12 MP) — unit-tested
+  Camera/ViewfinderMatch.swift    pure viewfinder exposure correction from the meter (film looks) — unit-tested
   Camera/ZeroDeveloper.swift      "Zero" processing: neutral CIRAWFilter develop of Bayer DNG
   Camera/VideoRecorder.swift      AVAssetWriter recorder (video+audio, location metadata)
   Camera/LocationTagger.swift     CoreLocation GPS + compass; EXIF/ISO6709 builders
@@ -418,9 +419,9 @@ is the only source of truth for what exists. Everything else reacts to it.
   public samples. Keep the two separate: don't retune Print from Phromagraph's data or
   vice versa. Details, numbers and caveats: `docs/film-looks.md` §5½.
   - Mean ΔE (Oklab) to Chromagraph 0.0070 on 12 pairs (Print: 0.019).
-  - Its stock `exposure` is 0 on purpose: the viewfinder match (`rawFilmExposure`)
-    supplies Chromagraph's +1.8 EV develop exposure. A non-zero stock exposure also scales
-    the viewfinder's display-referred input and would clip it.
+  - Its stock `exposure` is 0 on purpose: the fixed RAW develop (`filmRAWExposure`,
+    +1.86) supplies Chromagraph's develop exposure. A non-zero stock exposure would also
+    scale the viewfinder's display-referred input.
   - Grain starts at 0 (`Look` sets `grain = 0`, Chromagraph's default); slider 50 =
     Chromagraph grain 1.25 (`grainDensity` 0.017, size 0.17).
   - Halation is a third of Print's: Chromagraph shows no measurable red glow.
@@ -539,6 +540,9 @@ is the only source of truth for what exists. Everything else reacts to it.
       noise, amplified by the film's contrast, with the synthetic grain on top.
   - **Brightness: the photo comes from the RAW alone.** Film looks develop the RAW at a
     fixed `EditRecipe.filmRAWExposure` (+1.86 EV), like any RAW converter.
+    - **Rule (the owner, 2026-11-18):** everything that renders the photo comes from the
+      RAW file or camera settings saved with it, never from the viewport. The viewfinder
+      may *predict* the photo (below); nothing ever flows from the viewfinder into it.
     - Why +1.86: an iPhone RAW sits ~2 stops under Apple's rendering. Chromagraph develops
       +1.86 EV over a neutral develop (Phromagraph's fit, 12 pairs), and the owner's
       side-by-side of one scene agreed (+1.9).
@@ -552,13 +556,28 @@ is the only source of truth for what exists. Everything else reacts to it.
       - #42 removed both at the owner's call: "the inputs for the photo should just be the
         raw photo". Per-shot borrowing from another image isn't how RAW converters work,
         and the matched brightness drifted with Apple's video rendering, not the scene.
-      - Photos baked in between keep their matched values; photos from before #22 have
-        none (developed ~2 stops dark) until their look is picked again.
-    - **The viewfinder previews the photo.** iOS gives apps only Apple's processed video
-      live, never RAW, so the viewfinder un-renders it (engine 2). At mid-grey that lands
-      within ~0.1 EV (median) of the fixed develop. Per scene it drifts with Apple's
-      rendering: ~0.3 EV brighter on bright days, darker in dim scenes (estimates;
-      `docs/film-looks.md` §5⅞).
+      - Photos baked in between keep their matched values. Photos from before #22 have
+        none (developed ~2 stops dark): the editor opens them at +1.86 as an unsaved change
+        (`EditRecipe.withFilmDevelopExposure`), and Save keeps it.
+    - **The viewfinder predicts the photo** (`ViewfinderMatch`, `CameraController.viewfinderLook`).
+      iOS gives apps only Apple's processed video live, never RAW, so the viewfinder
+      un-renders it (engine 2). That undoes Apple's *average* curve, not its per-scene
+      choice: Apple renders dim scenes darker and bright scenes brighter, so the
+      viewfinder ran ~1 EV under the photo at night and up to ~0.6 EV over on bright days.
+      - The choice follows the scene's light, which the meter knows: EV100 from aperture,
+        shutter and ISO, plus `exposureTargetOffset` and `exposureTargetBias`, so manual
+        ISO/shutter and EV compensation don't move it (they already change the preview
+        exactly as they change the RAW).
+      - Correction = 0.03 − 0.122·(EV100 − 10), ±0.75 EV, in ⅙-stop steps with hysteresis.
+        Fitted on 12 Chromagraph shots (correlation 0.81): the gap goes from ±0.53 to
+        ±0.32 EV, the night alley from −0.96 to −0.28. What's left is Apple's local tone
+        mapping.
+      - It's the viewfinder look's exposure, baked into its negative table (engine 2+).
+        Each step's table is built on a background queue first
+        (`FilmPipeline.prewarmViewfinder`); until then the look shows uncorrected, so the
+        render queue never builds one. LOOK-strip thumbnails stay uncorrected.
+      - Measured with CIRAWFilter's default render standing in for the live video: check
+        on the device (`docs/film-looks.md` §5⅞).
 - **Photos keep the tuning they were made with.** `FilmRecipe.tuning` stores the whole
   `FilmStock` (~4.2 KB), pinned the moment a look is picked (`Look.film`) and kept through
   every save. Rendering uses `FilmStock.resolved(for:)`, so retuning a stock in code (or
@@ -613,6 +632,7 @@ is the only source of truth for what exists. Everything else reacts to it.
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
 | Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
+| Viewfinder correction under film looks | `ViewfinderMatch.correction` | 0.03 − 0.122·(EV100 − 10), ±0.75 EV, ⅙-stop steps; fitted on 12 shots with Apple's still render standing in for the video |
 | Film looks: inverse of Apple's rendering (viewfinder, processed photos) | `FilmLUT.unrender*` (engine 2) | measured from CIRAWFilter's default render of 13 iPhone 12 Pro ProRAWs, a stand-in for the video feed; refit with real viewfinder frames when possible |
 | Looks' tone, color, split toning and texture | `scripts/film-looks.json` (+ vignette/structure in `Look.all`) | designed on two RAW files and two Apple-processed photos, spaced with `print-look.py spread`; tune on device, keep nearest ≥ 0.06 |
 
@@ -881,8 +901,14 @@ to be wrong.
       viewfinder. If every shot is off by the same amount, change
       `EditRecipe.filmRAWExposure`. If the viewfinder alone is off, the un-render
       (engine 2) is the place to look.
-    - Open a Print photo from before 2026-11-14 in the editor and tap Print: it comes up
-      ~2 stops brighter; Save keeps it.
+    - ⚠️ Viewfinder vs saved photo per scene (`ViewfinderMatch`): night street, dim room,
+      overcast, full sun. Then with manual ISO, manual shutter and EV ±1: the preview
+      should get brighter/darker exactly like the photo. The Diagnostics log shows each
+      `viewfinder match ±x EV (scene EV100 …)` step. If night still frames darker than it
+      saves (or sun brighter), steepen the 0.122 slope; if every scene is off the same way,
+      move the 0.03 offset.
+    - Open a Print photo from before 2026-11-14 in the editor: it opens ~2 stops brighter
+      with Save enabled (no need to tap Print); Save keeps it.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.
     - Indoors at night, the shot shouldn't look noisy. Fine grain should be visible
