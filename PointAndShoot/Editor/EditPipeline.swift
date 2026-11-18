@@ -1,4 +1,5 @@
 import CoreImage
+import ImageIO
 import Metal
 
 struct RAWDefaults {
@@ -48,6 +49,9 @@ enum EditPipeline {
             // and no sharpening (the film model supplies the tone and texture).
             if raw.isLocalToneMapSupported { raw.localToneMapAmount = 0 }
             raw.boostAmount = 0
+            // SDR, as in the fit that set the film develop exposure (scripts/raw-develop.swift):
+            // whatever iOS defaults to, highlights above white must not reach the film curve.
+            raw.extendedDynamicRangeAmount = 0
             if raw.isSharpnessSupported { raw.sharpnessAmount = 0 }
             // Color speckle never looks like film: at least moderate chroma noise reduction.
             if raw.isColorNoiseReductionSupported { raw.colorNoiseReductionAmount = max(d.colorNoiseReduction, 0.5) }
@@ -59,6 +63,33 @@ enum EditPipeline {
             if raw.isColorNoiseReductionSupported { raw.colorNoiseReductionAmount = d.colorNoiseReduction }
             if raw.isDetailSupported { raw.detailAmount = d.detail }
         }
+    }
+
+    /// One Diagnostics line on how a RAW was exposed and is being developed, for brightness
+    /// reports: the capture's exposure from its EXIF (EV100 = the scene light it was exposed
+    /// for), the DNG's baseline exposure, and the develop exposure on top. Comparing it with
+    /// another app's RAW of the same scene says whether a difference is the capture or the
+    /// develop.
+    static func developReport(_ raw: CIRAWFilter, recipe r: EditRecipe, properties: [String: Any]?) -> String {
+        let exif = properties?[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        let iso = (exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [Double])?.first
+        let t = exif?[kCGImagePropertyExifExposureTime as String] as? Double
+        let n = exif?[kCGImagePropertyExifFNumber as String] as? Double
+        let bias = exif?[kCGImagePropertyExifExposureBiasValue as String] as? Double
+        var parts: [String] = []
+        if let iso, let t, let n, iso > 0, t > 0, n > 0 {
+            parts.append(String(format: "ISO %.0f, 1/%.0f s, f/%.1f, EV100 %.1f", iso, 1 / t, n,
+                                log2(n * n / t) - log2(iso / 100)))
+        } else {
+            parts.append("no exposure in EXIF")
+        }
+        if let bias { parts.append(String(format: "bias %+.2f", bias)) }
+        parts.append(String(format: "DNG baseline %+.2f", raw.baselineExposure))
+        let develop = r.exposure / 50 + (r.film != nil ? r.rawFilmExposure ?? 0 : 0)
+        parts.append(String(format: "develop %+.2f EV (film %+.2f, slider %+.2f)", develop,
+                            r.film != nil ? r.rawFilmExposure ?? 0 : 0, r.exposure / 50))
+        parts.append("look \(r.look ?? "none")")
+        return parts.joined(separator: ", ")
     }
 
     // MARK: Geometry
