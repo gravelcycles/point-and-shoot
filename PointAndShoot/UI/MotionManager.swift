@@ -27,30 +27,66 @@ final class MotionManager {
             guard let self, let g = motion?.gravity else { return }
             self.process(g)
         }
+        Diag.log(.ui, "orientation: motion started (\(Self.name(bucket)))")
     }
 
-    func stop() { manager.stopDeviceMotionUpdates() }
+    func stop() {
+        manager.stopDeviceMotionUpdates()
+        Diag.log(.ui, "orientation: motion stopped (\(Self.name(bucket)))")
+    }
 
     private func process(_ g: CMAcceleration) {
-        let flat = abs(g.z) > 0.88
-        if flat != isFlat { isFlat = flat }
-        guard !flat else { return }
+        let s = Self.step(State(angle: angle, bucket: bucket, isFlat: isFlat), gravity: (g.x, g.y, g.z))
+        if s.isFlat != isFlat { isFlat = s.isFlat }
+        angle = s.angle
+        if s.bucket != bucket {
+            Diag.log(.ui, String(format: "orientation: %@ → %@ (%.0f°)", Self.name(bucket), Self.name(s.bucket), s.angle * 180 / .pi))
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { bucket = s.bucket }
+        }
+    }
 
+    // MARK: The math (pure, unit-tested)
+
+    struct State: Equatable {
+        var angle: Double
+        var bucket: Double
+        var isFlat: Bool
+    }
+
+    /// One gravity sample: the smoothed angle in the screen plane and the held orientation.
+    /// The angle is kept in (−π, π]: unwrapped, it ran past ±180° whenever the phone went
+    /// upside down, and upright then read as 360°, matching no orientation, so icons and
+    /// frame lines stayed stuck in the last one ("the horizontal vertical orientation gets
+    /// stuck a lot", on device).
+    static func step(_ s: State, gravity g: (x: Double, y: Double, z: Double)) -> State {
+        var out = s
+        out.isFlat = abs(g.z) > 0.88
+        guard !out.isFlat else { return out }
         let raw = atan2(g.x, -g.y)
         // Low-pass, handling wrap-around.
-        var delta = raw - angle
-        if delta > .pi { delta -= 2 * .pi }
-        if delta < -.pi { delta += 2 * .pi }
-        angle += delta * 0.25
+        out.angle = wrap(s.angle + wrap(raw - s.angle) * 0.25)
+        let degrees = out.angle * 180 / .pi
+        // Hysteresis so icons don't flicker at 45°. Upside down (beyond ±135°) keeps the
+        // current orientation: the UI has no upside-down layout.
+        if abs(degrees) < 35 { out.bucket = 0 }
+        else if degrees > 55 && degrees < 135 { out.bucket = 90 }
+        else if degrees < -55 && degrees > -135 { out.bucket = -90 }
+        return out
+    }
 
-        let degrees = angle * 180 / .pi
-        var newBucket = bucket
-        // Hysteresis so icons don't flicker at 45°.
-        if abs(degrees) < 35 { newBucket = 0 }
-        else if degrees > 55 && degrees < 135 { newBucket = 90 }
-        else if degrees < -55 && degrees > -135 { newBucket = -90 }
-        if newBucket != bucket {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { bucket = newBucket }
+    /// An angle in (−π, π].
+    static func wrap(_ a: Double) -> Double {
+        var x = a.truncatingRemainder(dividingBy: 2 * .pi)
+        if x > .pi { x -= 2 * .pi }
+        if x <= -.pi { x += 2 * .pi }
+        return x
+    }
+
+    static func name(_ bucket: Double) -> String {
+        switch bucket {
+        case 90: "landscape (left)"
+        case -90: "landscape (right)"
+        default: "portrait"
         }
     }
 }

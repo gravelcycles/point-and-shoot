@@ -73,7 +73,10 @@ struct MetalImageView: UIViewRepresentable {
         var zoomable = false
         var oneFingerPan = false
 
-        /// The edit rendered once to a bitmap, for zoom and pan frames.
+        /// The edit rendered once to a bitmap, for zoom and pan frames. It lives in a Metal
+        /// texture on the GPU: as a CGImage it was read back to the CPU after rendering, and
+        /// a 12 MP CGImage drawn every pinch/pan frame can be re-uploaded each time (zoomed
+        /// in "laggy in general", on device).
         private var raster: CIImage?
         private var rasterKey: Int?
         private var rasterJob: DispatchWorkItem?
@@ -171,7 +174,10 @@ struct MetalImageView: UIViewRepresentable {
         private func began() {
             stopAnimation()
             activeGestures += 1
-            if activeGestures == 1 { let f = onPinch; DispatchQueue.main.async { f(true) } }
+            if activeGestures == 1 {
+                let f = onPinch; DispatchQueue.main.async { f(true) }
+                stats.begin()
+            }
         }
 
         private func ended() {
@@ -179,8 +185,14 @@ struct MetalImageView: UIViewRepresentable {
             guard activeGestures == 0 else { return }
             let f = onPinch
             DispatchQueue.main.async { f(false) }
+            stats.end(zoom: zoom.scale)
             animate(to: ZoomMath.settled(zoom, maxScale: maxScale, fitted: fittedSize, view: viewSize))
         }
+
+        /// Frame timing for one pinch/pan gesture, logged when it ends (never per frame):
+        /// how many frames, how many drew the full edit live instead of the bitmap, and the
+        /// GPU time per frame. Zoom lag shows up here in Diagnostics.
+        private let stats = GestureStats()
 
         @objc private func handlePinch(_ g: UIPinchGestureRecognizer) {
             switch g.state {
@@ -266,6 +278,9 @@ struct MetalImageView: UIViewRepresentable {
 
         // MARK: Bitmap
 
+        /// This canvas's newest bitmap job, readable from the render queue.
+        private let latestRaster = LatestGeneration()
+
         /// The image changed: render it to a bitmap once it settles (slider drags change it
         /// every frame, and those frames render the graph directly, as before).
         func scheduleRaster() {
@@ -275,36 +290,69 @@ struct MetalImageView: UIViewRepresentable {
                 raster = nil
                 rasterKey = nil
             }
+            let sourceUpgrade = rasterKey == contentKey      // same edit, sharper source
             rasterJob?.cancel()
             rasterGeneration += 1
+            latestRaster.set(rasterGeneration)
             guard let image else { return }
             let e = image.extent
             guard !e.isInfinite, e.width >= 1, e.height >= 1,
                   max(e.width, e.height) <= Self.rasterMaxSide else { return }
             let generation = rasterGeneration
             let key = contentKey
+            let latest = latestRaster
             let job = DispatchWorkItem { [weak self] in
                 Self.rasterQueue.async {
+                    // A newer image arrived while this waited: skip it. Each render is the
+                    // whole photo (4096 px from the RAW when zoomed in), and once started it
+                    // can't be stopped, so stale ones queued behind each other and stalled
+                    // the GPU during slider drags.
+                    guard latest.get() == generation else { return }
                     let start = CACurrentMediaTime()
-                    guard let cg = EditPipeline.context.createCGImage(image, from: e, format: .RGBA8,
-                                                                      colorSpace: EditPipeline.displayColorSpace)
-                    else { return }
-                    let bitmap = CIImage(cgImage: cg)
+                    guard let bitmap = Self.renderToTexture(image, extent: e) else {
+                        Diag.error(.editor, "canvas bitmap \(Int(e.width))×\(Int(e.height)) couldn't render")
+                        return
+                    }
                     let ms = Int((CACurrentMediaTime() - start) * 1000)
                     DispatchQueue.main.async {
                         guard let self, self.rasterGeneration == generation else { return }
                         self.raster = bitmap
                         self.rasterKey = key
                         self.view?.setNeedsDisplay()
-                        if ms > 250 { Diag.log(.editor, "canvas bitmap \(cg.width)×\(cg.height) in \(ms) ms") }
+                        Diag.log(.editor, "canvas bitmap \(Int(e.width))×\(Int(e.height)) in \(ms) ms")
                     }
                 }
             }
             rasterJob = job
-            // Soon while zooming (the sharper source just arrived); otherwise after a
-            // pause, so a slider drag doesn't queue a render per step.
-            let busy = zoom.isZoomed || activeGestures > 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + (busy ? 0.02 : 0.25), execute: job)
+            // Soon when the sharper source arrives while zoomed in (same edit); otherwise
+            // only after the edit pauses, zoomed in or not, so a slider drag doesn't queue
+            // a full-photo render per step (it lagged badly zoomed in, on device).
+            let soon = sourceUpgrade && (zoom.isZoomed || activeGestures > 0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + (soon ? 0.02 : 0.3), execute: job)
+        }
+
+        /// Renders `image` once into a GPU texture and returns it as an image with the same
+        /// extent (Display P3, 8 bits, as the CGImage was). Blocks the raster queue, not main.
+        static func renderToTexture(_ image: CIImage, extent e: CGRect) -> CIImage? {
+            let w = Int(e.width.rounded()), h = Int(e.height.rounded())
+            guard w > 0, h > 0 else { return nil }
+            let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
+            desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
+            desc.storageMode = .private
+            guard let texture = EditPipeline.device.makeTexture(descriptor: desc),
+                  let commandBuffer = EditPipeline.queue.makeCommandBuffer() else { return nil }
+            let origin = image.transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
+            EditPipeline.context.render(origin, to: texture, commandBuffer: commandBuffer,
+                                        bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                                        colorSpace: EditPipeline.displayColorSpace)
+            commandBuffer.commit()
+            commandBuffer.waitUntilCompleted()
+            guard commandBuffer.status == .completed,
+                  let read = CIImage(mtlTexture: texture, options: [.colorSpace: EditPipeline.displayColorSpace])
+            else { return nil }
+            // Rendering into the texture and reading it back are both Core Image's, so the
+            // rows come back upright (CanvasBitmapTests checks): only the origin moves back.
+            return read.transformed(by: CGAffineTransform(translationX: e.minX, y: e.minY))
         }
 
         /// What to draw: the bitmap when it shows the current edit, else the live graph.
@@ -325,6 +373,7 @@ struct MetalImageView: UIViewRepresentable {
             let size = view.drawableSize
             let bounds = CGRect(origin: .zero, size: size)
             var output = CIImage(color: .black).cropped(to: bounds)
+            let fromBitmap = raster != nil && rasterKey == contentKey
             if let image = shownImage, image.extent.width > 0, image.extent.height > 0, !image.extent.isInfinite {
                 let e = image.extent
                 // Points → drawable pixels.
@@ -343,6 +392,12 @@ struct MetalImageView: UIViewRepresentable {
             }
             EditPipeline.context.render(output, to: drawable.texture, commandBuffer: commandBuffer,
                                         bounds: bounds, colorSpace: EditPipeline.displayColorSpace)
+            if activeGestures > 0 {
+                let stats = self.stats
+                commandBuffer.addCompletedHandler { cb in
+                    stats.frame(gpuMs: (cb.gpuEndTime - cb.gpuStartTime) * 1000, fromBitmap: fromBitmap)
+                }
+            }
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }
@@ -355,4 +410,36 @@ func aspectFitRect(_ imageSize: CGSize, in container: CGSize) -> CGRect {
     let scale = min(container.width / imageSize.width, container.height / imageSize.height)
     let w = imageSize.width * scale, h = imageSize.height * scale
     return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
+}
+
+/// A generation counter shared between the main thread and a background queue.
+final class LatestGeneration: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func set(_ v: Int) { lock.lock(); value = v; lock.unlock() }
+    func get() -> Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+
+/// One gesture's frame timing (`MetalImageView`), filled from Metal's completion handlers
+/// and logged once when the gesture ends.
+final class GestureStats: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frames = 0, live = 0, total = 0.0, worst = 0.0, started = 0.0
+
+    func begin() {
+        lock.lock(); frames = 0; live = 0; total = 0; worst = 0; started = CACurrentMediaTime(); lock.unlock()
+    }
+
+    func frame(gpuMs: Double, fromBitmap: Bool) {
+        lock.lock(); frames += 1; if !fromBitmap { live += 1 }; total += gpuMs; worst = max(worst, gpuMs); lock.unlock()
+    }
+
+    func end(zoom: CGFloat) {
+        lock.lock()
+        let line = String(format: "zoom gesture: %.1f s, %d frames (%.0f fps), %d drawn live (no bitmap yet), GPU %.1f ms avg / %.1f ms worst, at %.1f×",
+                          CACurrentMediaTime() - started, frames, Double(frames) / max(CACurrentMediaTime() - started, 0.001),
+                          live, frames > 0 ? total / Double(frames) : 0, worst, zoom)
+        lock.unlock()
+        Diag.log(.editor, line)
+    }
 }
