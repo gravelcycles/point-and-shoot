@@ -148,11 +148,11 @@ final class ControlHitTargetTests: XCTestCase {
         XCTAssertTrue(info.waitForExistence(timeout: 3))
         info.tap()
         // The guide opens at half height and its List is lazy: only the first few rows
-        // exist until scrolled, so pick one near the top (Original, Phromagraph, Punch, …).
-        let punch = app.buttons["guide.punch"]
-        XCTAssertTrue(punch.waitForExistence(timeout: 4), "Look guide didn't open")
-        punch.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Punch'"), evaluatedWith: app.buttons["strip.look"])
+        // exist until scrolled, so pick one near the top (Original, Print, Phromagraph, …).
+        let print = app.buttons["guide.print"]
+        XCTAssertTrue(print.waitForExistence(timeout: 4), "Look guide didn't open")
+        print.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Print'"), evaluatedWith: app.buttons["strip.look"])
         waitForExpectations(timeout: 3)
     }
 

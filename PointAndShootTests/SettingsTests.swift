@@ -10,7 +10,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.shutterSound, "The shutter is silent by default")
         XCTAssertFalse(s.showHistogram, "The histogram is off by default")
         XCTAssertFalse(s.zoomLocked, "Photo mode with default settings can zoom")
-        XCTAssertEqual(s.availableModes, [.photo, .print, .video])
+        XCTAssertEqual(s.availableModes, [.photo, .video], "P&S Studio: Print is a look, not a mode")
     }
 
     func testZoomLockFollowsBayerRAW() {
@@ -154,7 +154,7 @@ final class SettingsTests: XCTestCase {
         var s = CameraSettings()
         XCTAssertNil(s.lookSet)
         let all = s.filterLooks
-        XCTAssertEqual(all.count, Look.all.count - 2, "all looks but Original and Print (a mode)")
+        XCTAssertEqual(all.count, Look.all.count - 1, "all looks but Original (Print is one of them in Studio)")
         for set in LookSet.allCases {
             XCTAssertFalse(set.looks.isEmpty, "\(set.name) is empty")
             s.lookSet = set.rawValue

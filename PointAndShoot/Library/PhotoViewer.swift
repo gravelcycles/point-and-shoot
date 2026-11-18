@@ -554,6 +554,8 @@ struct PhotoViewer: View {
 
     private func show(_ b: Banner, seconds: Double = 1.8) {
         Diag.log(.viewer, "banner: \(b.text)")
+        // UI tests wait for the app to go idle before looking: give them time to see it.
+        let seconds = TestHooks.isUITest ? max(seconds, 6) : seconds
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { banner = b }
         Task {
             try? await Task.sleep(for: .seconds(seconds))
