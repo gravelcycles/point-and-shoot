@@ -3,8 +3,8 @@ import SwiftUI
 @main
 struct PointAndShootApp: App {
     @State private var camera = CameraController()
-    @State private var roll = RollStore()
-    /// UI tests: seeded photos are all saved (`roll.seeded` appears).
+    @State private var store = ShotStore.shared
+    /// UI tests: the library is ready (`roll.seeded` appears).
     @State private var seeded = false
 
     init() {
@@ -17,15 +17,17 @@ struct PointAndShootApp: App {
                 // Hosting PointAndShootTests: no camera, no roll, nothing in the way.
                 Color.black.ignoresSafeArea()
             } else {
-                CameraView(camera: camera, roll: roll)
+                CameraView(camera: camera, store: store)
                     .onAppear {
-                        roll.activateIfAuthorized()
                         FilmPipeline.prewarm()
-                        if TestHooks.seedCount > 0 {
-                            Task {
+                        Task {
+                            if TestHooks.isUITest {
+                                await TestHooks.prepareLibrary(store)
                                 await TestHooks.seedPhotosIfRequested()
-                                roll.activateIfAuthorized()
                                 seeded = true
+                            } else {
+                                await store.load()
+                                store.applyRetention(storeForever: camera.settings.storeForever)
                             }
                         }
                     }

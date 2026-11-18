@@ -10,16 +10,20 @@ struct TopBar: View {
     let rotation: Angle
     @Binding var showSettings: Bool
     @Binding var showFormat: Bool
+    /// The dropdown open under the bar (Chromagraph's: labelled rows of choices).
+    @State private var panel: TopPanel?
+
+    enum TopPanel { case flash, timer }
 
     var body: some View {
         let s = camera.settings
         let haptics = s.haptics
         HStack(spacing: 8) {
             if s.mode.isStill {
-                TopBarButton(symbol: s.flash.symbol, active: s.flash != .off, enabled: camera.supportsFlash,
-                             rotation: rotation, haptics: haptics, label: "Flash \(s.flash.rawValue)") {
-                    camera.update { $0.flash = cycled(s.flash, in: FlashSetting.allCases) }
-                }
+                // Each opens a dropdown of its choices: nothing cycles blindly.
+                TopBarButton(symbol: s.flash.symbol, active: s.flash != .off || panel == .flash,
+                             enabled: camera.supportsFlash, rotation: rotation, haptics: haptics,
+                             label: "Flash \(s.flash.rawValue)") { toggle(.flash) }
                 .accessibilityIdentifier("topbar.flash")
             } else {
                 Color.clear.frame(width: 44, height: 44)
@@ -51,9 +55,8 @@ struct TopBar: View {
 
             if s.mode.isStill {
                 TopBarButton(symbol: "timer", caption: s.selfTimer == .off ? nil : s.selfTimer.label,
-                             active: s.selfTimer != .off, rotation: rotation, haptics: haptics, label: "Self-timer") {
-                    camera.update { $0.selfTimer = cycled(s.selfTimer, in: SelfTimer.allCases) }
-                }
+                             active: s.selfTimer != .off || panel == .timer, rotation: rotation,
+                             haptics: haptics, label: "Self-timer") { toggle(.timer) }
                 .accessibilityIdentifier("topbar.timer")
             }
             GPSIndicator(tagger: camera.location, rotation: rotation) {
@@ -69,11 +72,118 @@ struct TopBar: View {
             // viewer's full-screen cover on one view kept Settings from ever appearing.
             .sheet(isPresented: $showSettings) {
                 SettingsView(camera: camera)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
         }
         .foregroundStyle(.white)
+        .overlay(alignment: .top) {
+            if let panel, s.mode.isStill, !camera.isRecording {
+                ZStack(alignment: .top) {
+                    // A tap anywhere else closes it (and doesn't focus the viewfinder).
+                    Color.white.opacity(0.001)
+                        .frame(height: 1600)
+                        .padding(.horizontal, -12)
+                        .onTapGesture { close() }
+                        .accessibilityHidden(true)
+                    dropdown(panel, s)
+                        .padding(.top, 50)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                }
+            }
+        }
+        .onChange(of: camera.settings.mode) { _, _ in panel = nil }
+        .onChange(of: camera.isRecording) { _, _ in panel = nil }
+    }
+
+    private func toggle(_ p: TopPanel) {
+        withAnimation(.snappy(duration: 0.2)) { panel = panel == p ? nil : p }
+    }
+
+    private func close() {
+        withAnimation(.snappy(duration: 0.2)) { panel = nil }
+    }
+
+    @ViewBuilder
+    private func dropdown(_ p: TopPanel, _ s: CameraSettings) -> some View {
+        switch p {
+        case .flash:
+            DropdownPanel {
+                DropdownRow(title: "Flash", id: "flash", options: FlashSetting.allCases.map { ($0, $0.menuLabel) },
+                            selection: s.flash, haptics: s.haptics) { v in
+                    camera.update { $0.flash = v }
+                    closeSoon()
+                }
+            }
+        case .timer:
+            DropdownPanel {
+                DropdownRow(title: "Timer", id: "timer", options: SelfTimer.allCases.map { ($0, $0.label) },
+                            selection: s.selfTimer, haptics: s.haptics) { v in
+                    camera.update { $0.selfTimer = v }
+                    closeSoon()
+                }
+            }
+        }
+    }
+
+    /// After a pick, long enough to see it land.
+    private func closeSoon() {
+        let open = panel
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            if panel == open { close() }
+        }
+    }
+}
+
+/// The dark rounded card a top-bar dropdown sits in.
+struct DropdownPanel<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) { content }
+            .padding(.horizontal, 18).padding(.vertical, 14)
+            .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .environment(\.colorScheme, .dark)
+    }
+}
+
+/// "TIMER   [Off] [3s] [10s]": a label and pill choices, the current one tan.
+struct DropdownRow<Value: Hashable>: View {
+    let title: String
+    /// For accessibility identifiers: `<id>.<index>`.
+    let id: String
+    let options: [(Value, String)]
+    let selection: Value
+    var haptics = true
+    let onPick: (Value) -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title.uppercased())
+                .font(.system(size: 13, weight: .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 64, alignment: .leading)
+            ForEach(options.indices, id: \.self) { i in
+                let value = options[i].0
+                let label = options[i].1
+                let on = value == selection
+                Button {
+                    if haptics { Haptics.selectionChanged() }
+                    onPick(value)
+                } label: {
+                    Text(label)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(on ? Color.black : Color.white)
+                        .frame(width: 62, height: 36)
+                        .background(Capsule().fill(on ? Color.tan : Color.white.opacity(0.14)))
+                }
+                .buttonStyle(PressScaleStyle(scale: 0.92))
+                .accessibilityIdentifier("\(id).\(i)")
+                .accessibilityLabel(label)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
     }
 }
 
@@ -165,16 +275,8 @@ enum CameraFormat {
         if s.mode == .video {
             return "\(s.videoResolution.label) · \(s.frameRate) · \(s.videoColor.label) · \(s.videoCodec.label)"
         }
-        if s.developsBayerRAW {
-            return s.processing == .zero ? "Zero · RAW" : "\(Look.named(s.activeLook)?.name ?? "Film") · RAW"
-        }
-        let file: String
-        switch s.rawMode {
-        case .off: file = s.photoFormat.label
-        case .bayer: file = s.keepProcessedWithRAW ? "RAW+\(s.photoFormat.label)" : "RAW"
-        case .proRAW: file = s.keepProcessedWithRAW ? "ProRAW+\(s.photoFormat.label)" : "ProRAW"
-        }
-        return "\(file) · \(s.processing.label)"
+        let look = Look.named(s.activeLook)?.name
+        return [s.shootsProRAW ? "ProRAW" : "RAW", look].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// Highlight the pill when you've stepped beyond the defaults (RAW, Zero, Log/HDR, ProRes).
@@ -182,7 +284,7 @@ enum CameraFormat {
         if s.mode == .video {
             return s.videoColor != .sdr || s.videoCodec == .proRes422HQ || s.videoCodec == .proRes422
         }
-        return s.rawMode != .off || s.developsBayerRAW
+        return s.shootsProRAW
     }
 
     static func timeLeft(_ seconds: TimeInterval) -> String {
@@ -204,63 +306,34 @@ struct CaptureFormatPanel: View {
         VStack(alignment: .leading, spacing: 18) {
             PanelHeader(title: "Photo format") { dismiss() }
 
-            PanelRow(title: "File type",
-                     note: s.photoFormat == .heif ? "Smaller files, same quality." : "Most compatible.") {
-                Picker("File type", selection: camera.binding(\.photoFormat)) {
-                    ForEach(PhotoFormat.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            .disabled(s.developsBayerRAW || (s.rawMode != .off && !s.keepProcessedWithRAW))
-
             PanelRow(title: "RAW", note: rawNote(s)) {
-                Picker("RAW", selection: camera.binding(\.rawMode)) {
-                    ForEach(rawOptions) { Text($0.label).tag($0) }
+                Picker("RAW", selection: Binding(get: { s.shootsProRAW ? RawMode.proRAW : .bayer },
+                                                 set: { v in camera.update { $0.rawMode = v } })) {
+                    ForEach([RawMode.bayer, .proRAW]) { mode in
+                        Text(mode.label).tag(mode)
+                            .disabled(mode == .proRAW && !camera.supportsProRAW && !TestHooks.isUITest)
+                    }
                 }
                 .pickerStyle(.segmented)
             }
-            .disabled(s.developsBayerRAW || rawOptions.count < 2)
 
-            if s.rawMode != .off && !s.developsBayerRAW {
-                Toggle("Also save \(s.photoFormat.label)", isOn: camera.binding(\.keepProcessedWithRAW))
-                    .font(.system(size: 14, weight: .semibold))
-                    .tint(.yellow)
-            }
-
-            PanelRow(title: "Processing", note: s.processing.detail) {
-                Picker("Processing", selection: camera.binding(\.processing)) {
-                    ForEach(processingOptions) { Text($0.label).tag($0) }
+            PanelRow(title: "Resolution", note: s.shootsProRAW ? "ProRAW at the sensor's full resolution, or 12 MP." : "Bayer RAW is always the sensor's 12 MP frame.") {
+                Picker("Resolution", selection: camera.binding(\.resolution)) {
+                    ForEach(PhotoResolution.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
             }
+            .disabled(!s.shootsProRAW)
         }
         .padding(20)
         .sensoryFeedback(.selection, trigger: s) { _, _ in s.haptics }
         .preferredColorScheme(.dark)
     }
 
-    private var rawOptions: [RawMode] {
-        var options: [RawMode] = [.off]
-        if camera.supportsBayerRAW { options.append(.bayer) }
-        if camera.supportsProRAW { options.append(.proRAW) }
-        return options
-    }
-
-    private var processingOptions: [ProcessingLevel] {
-        var options: [ProcessingLevel] = [.apple, .balanced, .natural]
-        if camera.supportsBayerRAW { options.append(.zero) }
-        return options
-    }
-
     private func rawNote(_ s: CameraSettings) -> String {
-        if s.processing == .zero { return "Zero always shoots RAW." }
-        if s.developsBayerRAW { return "The \(Look.named(s.activeLook)?.name ?? "film") look develops from RAW, so it always shoots RAW." }
-        if rawOptions.count < 2 { return "This lens doesn't offer RAW." }
-        switch s.rawMode {
-        case .off: return "Off: just the processed photo."
-        case .bayer: return "The sensor's own data — maximum editing latitude."
-        case .proRAW: return "Apple's RAW with its multi-frame processing."
-        }
+        s.shootsProRAW
+            ? "Apple ProRAW: multi-frame, less noise, zoom works. Develops with every look."
+            : "Bayer RAW: the sensor's own single frame, real grain and contrast. Zoom stays at 1×."
     }
 }
 

@@ -33,27 +33,37 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping the edge of LOOK didn't open the look picker")
     }
 
-    func testFormatPillOpensPanelAndChangesFileType() {
+    /// RAW only: the pill reads ProRAW by default, and the panel switches to Bayer RAW.
+    private func switchToBayerRAW() {
         let pill = app.buttons["topbar.format"]
         XCTAssertTrue(pill.waitForExistence(timeout: 3))
-        XCTAssertTrue(pill.label.contains("HEIF"), "unexpected default format: \(pill.label)")
         tapOffLabel(pill, dx: 0.95)
-        let jpeg = app.buttons["JPEG"]
-        guard jpeg.waitForExistence(timeout: 3) else {
+        let bayer = app.buttons["RAW"]
+        guard bayer.waitForExistence(timeout: 3) else {
             print(app.debugDescription)
             return XCTFail("Tapping the format pill's edge didn't open the format panel")
         }
-        jpeg.tap()
+        bayer.tap()
         app.buttons["format.done"].tap()
-        let changed = NSPredicate(format: "label CONTAINS 'JPEG'")
+    }
+
+    func testFormatPillOpensPanelAndChangesFileType() {
+        let pill = app.buttons["topbar.format"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 3))
+        XCTAssertTrue(pill.label.hasPrefix("ProRAW"), "unexpected default format: \(pill.label)")
+        switchToBayerRAW()
+        let changed = NSPredicate(format: "label BEGINSWITH 'RAW'")
         expectation(for: changed, evaluatedWith: pill)
         waitForExpectations(timeout: 3)
     }
 
     func testTopBarIconRespondsAwayFromGlyph() {
+        // The self-timer is a dropdown: its edge opens it, and a choice sets it.
         tapOffLabel(app.buttons["topbar.timer"], dx: 0.95, dy: 0.9)
-        XCTAssertTrue(app.staticTexts["3s"].waitForExistence(timeout: 3),
-                      "Tapping the timer button's edge didn't change the self-timer")
+        let three = app.buttons["timer.1"]
+        XCTAssertTrue(three.waitForExistence(timeout: 3), "Tapping the timer button's edge didn't open its dropdown")
+        three.tap()
+        XCTAssertTrue(app.staticTexts["3s"].waitForExistence(timeout: 3), "Choosing 3 Seconds didn't set the self-timer")
     }
 
     func testSettingsOpensFromIconEdgeAndTogglesWork() {
@@ -64,7 +74,8 @@ final class ControlHitTargetTests: XCTestCase {
             print(app.debugDescription)
             return XCTFail("Tapping the settings button's edge didn't open Settings")
         }
-        // Grid lives in Assists, further down the form.
+        // Grid lives in Camera → Viewfinder.
+        app.buttons["Camera"].firstMatch.tap()
         let grid = app.switches["Grid"]
         var swipes = 0
         while !grid.isHittable && swipes < 8 {
@@ -91,8 +102,9 @@ final class ControlHitTargetTests: XCTestCase {
                       "Tapping VIDEO didn't switch to video mode")
     }
 
-    /// Print mode always shoots RAW and *is* the look, so the format pill and the LOOK
-    /// cell go away; the photo controls stay. Back in Photo they return.
+    /// Print mode is the simple mode: it always shoots RAW and *is* the look, so the format
+    /// pill and the LOOK cell go away; the photo controls stay. Back in Photo they return,
+    /// and Print is one of Photo's looks too.
     func testPrintModeDropsFormatAndFilterControls() {
         tapOffLabel(app.buttons["mode.print"], dx: 0.5, dy: 0.95)
         let gone = NSPredicate(format: "exists == false")
@@ -105,7 +117,10 @@ final class ControlHitTargetTests: XCTestCase {
         tapOffLabel(app.buttons["mode.photo"], dx: 0.5, dy: 0.95)
         XCTAssertTrue(app.buttons["topbar.format"].waitForExistence(timeout: 3),
                       "Back in Photo, the format pill should return")
-        XCTAssertTrue(app.buttons["strip.look"].exists, "Back in Photo, LOOK should return")
+        let strip = app.buttons["strip.look"]
+        XCTAssertTrue(strip.exists, "Back in Photo, LOOK should return")
+        tapOffLabel(strip, dx: 0.1)
+        XCTAssertTrue(app.buttons["filter.print"].waitForExistence(timeout: 3), "Print should be one of Photo's looks too")
     }
 
     func testFilterCardsSelectAndDoubleTapResets() {
@@ -145,11 +160,11 @@ final class ControlHitTargetTests: XCTestCase {
         XCTAssertTrue(info.waitForExistence(timeout: 3))
         info.tap()
         // The guide opens at half height and its List is lazy: only the first few rows
-        // exist until scrolled, so pick one near the top (Original, Phromagraph, Punch, …).
-        let punch = app.buttons["guide.punch"]
-        XCTAssertTrue(punch.waitForExistence(timeout: 4), "Look guide didn't open")
-        punch.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Punch'"), evaluatedWith: app.buttons["strip.look"])
+        // exist until scrolled, so pick one near the top (Original, Print, Phromagraph, …).
+        let print = app.buttons["guide.print"]
+        XCTAssertTrue(print.waitForExistence(timeout: 4), "Look guide didn't open")
+        print.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Print'"), evaluatedWith: app.buttons["strip.look"])
         waitForExpectations(timeout: 3)
     }
 
@@ -170,26 +185,48 @@ final class ControlHitTargetTests: XCTestCase {
         }
     }
 
-    /// Print shoots Bayer RAW, which crashes AVFoundation when zoomed (#18): pinching in
-    /// Print must not zoom, and must say why.
-    func testPinchInPrintIsLockedAndExplained() {
-        app.buttons["mode.print"].tap()
+    /// Bayer RAW crashes AVFoundation when zoomed (#18): pinching with Bayer RAW must not
+    /// zoom, and must say why.
+    func testPinchWithBayerRAWIsLockedAndExplained() {
+        // Bayer RAW is what locks zoom (ProRAW, the default, zooms).
+        switchToBayerRAW()
         let viewfinder = app.otherElements["viewfinder"]
         XCTAssertTrue(viewfinder.waitForExistence(timeout: 3))
         viewfinder.pinch(withScale: 2.5, velocity: 2)
-        let toast = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'No zoom in Print'")).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 3), "Pinching in Print showed no zoom-lock message")
+        let toast = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'No zoom in Bayer RAW'")).firstMatch
+        XCTAssertTrue(toast.waitForExistence(timeout: 3), "Pinching with Bayer RAW showed no zoom-lock message")
     }
 
     /// The silent-shutter option exists and can be turned on.
     func testShutterSoundToggleIsInSettings() {
         tapOffLabel(app.buttons["topbar.settings"], dx: 0.5, dy: 0.5)
         XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 4))
+        app.buttons["Camera"].firstMatch.tap()
         let toggle = app.switches["Shutter sound"]
         var swipes = 0
         while !toggle.isHittable && swipes < 10 { app.swipeUp(); swipes += 1 }
         XCTAssertTrue(toggle.exists, "Settings has no Shutter sound toggle")
         XCTAssertEqual(toggle.value as? String, "0", "The shutter should be silent by default")
+    }
+
+    /// Double-tapping the viewfinder opens Preferences (Chromagraph's shortcut), and every
+    /// tab is there.
+    func testDoubleTapViewfinderOpensPreferences() {
+        let viewfinder = app.otherElements["viewfinder"]
+        XCTAssertTrue(viewfinder.waitForExistence(timeout: 3))
+        viewfinder.doubleTap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 4), "double-tap didn't open Preferences")
+        for tab in ["General", "Camera", "Processing"] {
+            XCTAssertTrue(app.buttons[tab].firstMatch.exists, "no \(tab) tab")
+        }
+        app.buttons["Processing"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["settings.defaultLook"].waitForExistence(timeout: 3)
+                      || app.otherElements["settings.defaultLook"].exists
+                      || app.staticTexts["Default Grade"].exists
+                      || app.staticTexts["DEFAULT GRADE"].exists,
+                      "Processing has no Default Grade")
+        app.buttons["General"].firstMatch.tap()
+        XCTAssertTrue(app.switches["settings.storeForever"].waitForExistence(timeout: 3), "General has no Store Forever")
     }
 
     /// Settings → Diagnostics opens and shows this launch in the log.

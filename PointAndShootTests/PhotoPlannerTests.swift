@@ -62,8 +62,6 @@ final class PhotoPlannerTests: XCTestCase {
                         XCTAssertTrue(caps.bayerRAW, "Bayer RAW requested but unavailable: \(ctx)")
                         XCTAssertEqual(d.prioritization, .speed, "Bayer RAW must use .speed: \(ctx)")
                         XCTAssertTrue(d.standardDimensions, "Bayer RAW must be 12 MP: \(ctx)")
-                        // The UI must have locked zoom for any mode that ends up shooting Bayer.
-                        XCTAssertTrue(s.zoomLocked, "Shoots Bayer RAW but zoom isn't locked: \(ctx)")
                     }
                     if d.raw == .proRAW {
                         XCTAssertTrue(caps.proRAW, "ProRAW requested but unavailable: \(ctx)")
@@ -74,14 +72,17 @@ final class PhotoPlannerTests: XCTestCase {
                         XCTAssertEqual(d.prioritization, .speed, "Bursts use .speed: \(ctx)")
                         XCTAssertTrue(d.standardDimensions, "Bursts are 12 MP: \(ctx)")
                     }
-                    if d.zeroDevelop {
-                        XCTAssertEqual(d.raw, .bayer, "We can only develop a Bayer DNG: \(ctx)")
-                        XCTAssertFalse(d.withProcessed, "Zero/film develops ask for RAW only: \(ctx)")
-                    }
-                    if d.raw == .none {
-                        XCTAssertTrue(d.withProcessed, "Without RAW there must be a processed photo: \(ctx)")
-                        if s.developsBayerRAW && !burst {
-                            XCTAssertNotNil(d.fallbackNote, "Falling back from Zero/Print must say so: \(ctx)")
+                    if !burst {
+                        // RAW only: a processed photo only when the lens has no RAW at all.
+                        // RAW it can shoot right now: ProRAW, or Bayer at 1×.
+                        if caps.proRAW || (caps.bayerRAW && !caps.zoomed) {
+                            XCTAssertNotEqual(d.raw, .none, "Every photo is a RAW: \(ctx)")
+                        } else {
+                            XCTAssertEqual(d.raw, .none, ctx)
+                            XCTAssertNotNil(d.fallbackNote, "Falling back to a processed photo must say so: \(ctx)")
+                        }
+                        if s.shootsProRAW && caps.proRAW {
+                            XCTAssertEqual(d.raw, .proRAW, "ProRAW chosen and available: \(ctx)")
                         }
                     }
                 }
@@ -90,39 +91,56 @@ final class PhotoPlannerTests: XCTestCase {
         XCTAssertGreaterThan(checked, 1000)
     }
 
-    func testPrintModeShootsBayerAndKeepsTheDNG() {
-        var s = CameraSettings()
-        s.mode = .print
+    func testDefaultShootsProRAW() {
+        let s = CameraSettings()
+        XCTAssertTrue(s.shootsProRAW)
+        XCTAssertFalse(s.zoomLocked, "ProRAW zooms")
         let d = PhotoPlanner.decide(s, burst: false, caps: .init())
-        XCTAssertEqual(d.raw, .bayer)
-        XCTAssertTrue(d.zeroDevelop)
-        XCTAssertTrue(d.storeRAW, "Print's edit re-develops from the DNG")
-        XCTAssertFalse(d.withProcessed)
+        XCTAssertEqual(d.raw, .proRAW)
+        XCTAssertNil(d.fallbackNote)
     }
 
-    func testZoomedPrintFallsBackToProcessedWithANote() {
+    func testBayerWhenChosen() {
         var s = CameraSettings()
-        s.mode = .print
+        s.rawMode = .bayer
+        XCTAssertTrue(s.zoomLocked, "Bayer RAW can't be zoomed")
+        let d = PhotoPlanner.decide(s, burst: false, caps: .init())
+        XCTAssertEqual(d.raw, .bayer)
+        XCTAssertEqual(d.prioritization, .speed)
+        XCTAssertTrue(d.standardDimensions)
+    }
+
+    func testNoProRAWOnThisLensFallsBackToBayerWithANote() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(proRAW: false))
+        XCTAssertEqual(d.raw, .bayer)
+        XCTAssertNotNil(d.fallbackNote)
+    }
+
+    func testZoomedBayerFallsBackToProRAWWithANote() {
+        var s = CameraSettings()
+        s.rawMode = .bayer
         let d = PhotoPlanner.decide(s, burst: false, caps: .init(zoomed: true))
+        XCTAssertEqual(d.raw, .proRAW)
+        XCTAssertNotNil(d.fallbackNote)
+    }
+
+    func testZoomedWithOnlyBayerFallsBackToProcessed() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(proRAW: false, zoomed: true))
+        XCTAssertEqual(d.raw, .none, "Bayer RAW while zoomed crashes")
+        XCTAssertNotNil(d.fallbackNote)
+    }
+
+    func testNoRAWAtAllFallsBackToProcessed() {
+        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init(bayerRAW: false, proRAW: false))
         XCTAssertEqual(d.raw, .none)
         XCTAssertNotNil(d.fallbackNote)
     }
 
-    func testPlainPhotoIsProcessedOnly() {
-        let d = PhotoPlanner.decide(CameraSettings(), burst: false, caps: .init())
-        XCTAssertEqual(d.raw, .none)
-        XCTAssertTrue(d.withProcessed)
-        XCTAssertTrue(d.heif)
-        XCTAssertNil(d.fallbackNote)
-    }
-
-    func testProRAWWithAndWithoutCompanion() {
+    func testProRAWResolution() {
         var s = CameraSettings()
-        s.rawMode = .proRAW
-        s.keepProcessedWithRAW = true
-        XCTAssertEqual(PhotoPlanner.decide(s, burst: false, caps: .init()).raw, .proRAW)
-        XCTAssertTrue(PhotoPlanner.decide(s, burst: false, caps: .init()).withProcessed)
-        s.keepProcessedWithRAW = false
-        XCTAssertFalse(PhotoPlanner.decide(s, burst: false, caps: .init()).withProcessed)
+        s.resolution = .max
+        XCTAssertFalse(PhotoPlanner.decide(s, burst: false, caps: .init()).standardDimensions)
+        s.resolution = .standard
+        XCTAssertTrue(PhotoPlanner.decide(s, burst: false, caps: .init()).standardDimensions)
     }
 }

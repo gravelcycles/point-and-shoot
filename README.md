@@ -10,25 +10,23 @@ Native SwiftUI + AVFoundation + Core Image on Metal. iPhone, iOS 17+.
 
 | Control | What it does |
 |---|---|
-| **RAW** (format pill) | Off / **RAW** (Bayer DNG straight off the sensor, with no Apple pipeline) / **ProRAW** (Apple's linear DNG, with fusion) |
-| **RAW + HEIF** | Saves the DNG and a processed HEIF/JPEG as one pair in Photos, or RAW only |
-| **Processing** (format pill) | **Apple**: Deep Fusion / Smart HDR, full pipeline · **Balanced** · **Natural**: lightest ISP touch, less HDR flattening and smoothing · **Zero**: no computational photography. Shoots Bayer RAW and develops it in-app with a neutral, film-like curve (no local tone mapping, no luminance NR, no oversharpening). You can keep the DNG too. |
-| **Format** | HEIF or JPEG |
-| **Resolution** | 12 MP or the sensor max (48 MP on Pro main cameras) |
-| Flash, self-timer | Off/Auto/On; 3s/10s |
+| **RAW** (format pill) | Every photo is a RAW the app develops itself: **ProRAW** (default; Apple's multi-frame DNG, zoom works) or **RAW** (the Bayer sensor frame, real grain, zoom stays at 1×) |
+| **Resolution** | ProRAW at 12 MP or the sensor max; Bayer RAW is always 12 MP |
+| **Modes** | PHOTO · **PRINT** (the simple mode: always the Print film look, nothing to set) · VIDEO |
+| Flash, self-timer | Dropdowns under the top bar: Off/Auto/On; Off/3s/10s |
 
 Responsive capture and zero shutter lag are turned on wherever the hardware supports them.
 
 - **The top bar** has big round buttons for flash, self-timer and settings (⚙︎), each with
-  a haptic click. The **format pill** in the middle ("HEIF · Natural ▾") opens a panel with
-  labelled choices for file type, RAW and processing.
+  a haptic click; flash and self-timer drop down their choices. The **format pill** in the
+  middle ("ProRAW · Print ▾") opens a panel with labelled choices for RAW and resolution.
 - **One control row** under the viewfinder: FOCUS, WB, ISO, SHUTTER, EV and LOOK. White
   means the camera is deciding, yellow means you set it. Tap one to dial it in.
 - **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, LOOK) to put it back on auto.
 - **Looks at capture time.** Tap **LOOK** for live square previews of each look, and
   **About** to read what each one does. You see it live in the viewfinder, and every shot
   is saved with the look as an *editable edit*. The untouched original stays one tap away
-  in the editor or Photos.
+  in the editor.
   - **Every look is a film or a movie grade,** not a tint or a saturation slider. Each is
     a film stock with its own tone curve and shoulder, color balance and crossover, its
     own rendering of each hue (skin, foliage, skies), film color (rich colors get denser
@@ -71,10 +69,10 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   - **Developed from the RAW alone:** every shot develops at the same fixed brightness
     (Chromagraph's, +1.86 stops over a neutral develop), whatever the viewfinder showed.
     Older photos keep theirs; picking the look again in the editor brings the current one.
-  - **Plain live view** (Settings → Photo, experimental): asks the camera for a plainer
-    feed in Print and Zero, with no video HDR and no local brightening, so the viewfinder
-    tracks the RAW photo more closely.
-  - **How it works:** the camera shoots Bayer RAW and keeps the DNG, like Zero. Print runs
+  - **Plain live view** (Preferences → Camera, experimental): asks the camera for a plainer
+    feed, with no video HDR and no local brightening, so the viewfinder tracks the RAW
+    photo more closely.
+  - **How it works:** Print runs
     the sensor data through a model of a Kodak Vision3 negative printed to print film:
     - dense blacks with a long, soft toe
     - a highlight shoulder that never clips harshly
@@ -89,15 +87,12 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   kept separate from Print.
   - Creamy highlights and skies, teal-leaning mid-tones, dense soft blacks and only a faint
     glow around lights.
-  - Like Print, it shoots RAW (zoom stays at 1×) and each shot is exposed to match the
-    viewfinder.
+  - Like every look, it develops from the RAW at Chromagraph's brightness.
   - Grain starts off, as in Chromagraph. The editor's **Grain** slider at 50 matches
     Chromagraph's grain 1.25.
-- **Hold the shutter for burst.** Shots fire as fast as the camera keeps up, with a
-  counter on the button. Burst frames skip RAW so they stay fast.
 - The app reopens on the lens you used last.
-- **Zoom stays at 1× in Print, Phromagraph, Zero and Bayer RAW.** Those shoot the sensor's full frame,
-  which can't be digitally zoomed; pick a lens instead. Pinching just tells you why.
+- **Zoom stays at 1× with Bayer RAW.** It's the sensor's full frame, which can't be
+  digitally zoomed; pick a lens instead, or shoot ProRAW. Pinching just tells you why.
 - **Silent shutter by default.** No click, no sounds at all. Turn **Shutter sound** on in
   Settings if you want it. Muting needs iOS 18, and isn't allowed in some countries (e.g.
   Japan, Korea); there the click plays unless the phone is on silent.
@@ -148,54 +143,40 @@ location is written into the file itself (EXIF / QuickTime), so it survives shar
 The **volume buttons** fire the shutter. On iPhone 16, **Camera Control** adjusts zoom and
 exposure.
 
-## Roll & editor
+## Library & editor
 
-**Shoot → tap the thumbnail → you're looking at that shot.** If it's still developing (a
-Zero RAW develop, say), you see a blurred preview that sharpens the moment it's saved. The
-camera waits for every in-flight shot to finish saving before it pauses, so nothing is lost.
+Photos stay in the app's own library (RAW + your edit) until you export them, like
+Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on Auto Export.
 
-- **Info** (ⓘ in the viewer): lens, focal length, aperture, shutter, ISO, EV,
-  resolution, file type and size, and a map of where you took the shot, with altitude and
-  which way you were facing.
-- **Viewer**: swipe sideways through your camera roll (photos and videos), tap to hide the
-  controls, and swipe down to get back to shooting. **Zoom like Photos**: pinch (zoom and
-  move at the same time), drag around while zoomed, double-tap to zoom in on a spot or
-  back out. The photo sharpens to full resolution as you zoom in. It also has
-  Share (the original full-quality file, RAW included), Favorite, Delete (iOS asks you to
-  confirm), and a grid of the whole roll.
-- **Edit** opens the editor on that photo, with a preview showing instantly while the
-  full-quality source loads.
-  - **Swipe ↕ on the photo** to choose a parameter and **↔** to dial it in. A pill shows
-    the value, and a haptic ticks when you cross zero. Hold ◧ to compare with the original.
-  - **Pinch to zoom** in while you edit, with two fingers to move around (one-finger
-    swipes still adjust); double-tap for fit ↔ 2.5×. Zoomed in, the preview renders from
-    the full-resolution photo, so you can judge grain, sharpening and noise.
-  - **Looks** (with an **About** guide explaining each): Print (the film emulation above),
-    Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks; Movie; and the
-    Grades set, with live thumbnails and a set menu. On a photo with a DNG,
-    every look develops from the sensor data.
-  - **Tune**: exposure, contrast, highlights, shadows, whites, blacks, saturation,
-    vibrance, warmth, tint.
-  - **Details**: structure, sharpening, fade, grain, vignette.
-  - **Color**: an 8-band mixer (red, orange, yellow, green, aqua, blue, purple,
-    magenta), each with hue, saturation and luminance. Greys stay neutral. In B&W looks it
-    works like darkroom colour filters, e.g. drag Blue Luminance down for dramatic skies.
-  - **Crop**: free or locked aspect, straighten dial, rotate, flip.
-  - **RAW**: if the photo has a DNG, the edit develops from the sensor data. You get real
-    white balance and exposure, plus Apple's noise reduction and local tone mapping as
-    sliders you can turn down to zero.
-  - **Copy Edits / Paste Edits**: carry a look from one photo to the next. Crop isn't
-    copied.
-- **Saving goes straight to your camera roll.**
-  - **Save** (one tap) updates the photo in Photos the same way Apple's own editor does.
-    The original is kept, the edit shows as *Edited* everywhere, and you can *Revert* in
-    Photos or here. Reopen the photo here and every slider is where you left it.
-  - **Save as New Photo** keeps the original untouched and adds a new full-resolution
-    HEIF next to it.
-  - Closing with unsaved changes asks whether to save or discard.
-- **Everything stays in sync**: the app watches your photo library. New shots, saved
-  edits, favorites, deletes, and edits made in Apple's Photos app show up immediately in
-  the viewer, the grid, and the camera's thumbnail.
+**Shoot → tap the thumbnail → you're looking at that shot.** A shot still developing shows
+"Developing…" over the camera's preview straight away, then the finished look.
+
+- **Viewer**: the newest shot on the right and older ones to the left, as in Photos, with a
+  filmstrip of every shot underneath. Swipe down to get back to shooting.
+  - **Zoom like Photos**: pinch (zoom and move at the same time), double-tap to zoom in on
+    a spot or back out. Zoomed in, it re-renders from the RAW at full resolution.
+  - **Keep** (bookmark) saves a photo from the 30-day clean-up. **Trash** asks first, then
+    offers Undo. **⋯** has Copy/Paste Grade and Archive RAW. **Export** (tan) saves the
+    finished photo to Photos; **Share** sends it anywhere.
+  - **Grid** (bottom left): the whole library by day, as its own screen, with a camera
+    button straight back to shooting. **Select** to export, share, keep, paste a grade,
+    archive or trash several at once. The **Trash** keeps photos 30 days.
+- **30 days by default**: photos you haven't tagged Keep move to the Trash 30 days after
+  you took them (Preferences → General → Store New Photos Forever turns that off).
+- **Edit** opens the editor: **Looks · Tone · Color · Texture · Crop**, each with labelled
+  sliders (double-tap one to reset it; every drag is one Undo step).
+  - **Looks**: Print, Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks;
+    Movie; and Grades, with live thumbnails and a set menu. Every look develops from the
+    RAW.
+  - **Pinch to zoom** while you edit; hold ◧ to compare with the original.
+  - **✓** saves the grade (the RAW is never touched; Reset to Original is always there).
+    **⋯** has Copy/Paste Grade, Set as Default Grade (new shots start from it), Reset and
+    Discard.
+- **Preferences** (⚙︎, or double-tap the viewfinder): General (storage, Auto Export,
+  location, Import RAW Photos, Import Archive, Diagnostics), Camera (RAW format, shooting,
+  assists, video) and Processing (Default Grade, export format, size and quality).
+- **Import & archive**: bring RAW files in from Photos, archive RAWs to Photos or to a zip
+  (with each photo's grade), and import that zip back later.
 
 ## Lock Screen, Control Center & the Action button (iOS 18)
 
@@ -207,8 +188,8 @@ Screen's camera button, or assign to the Action button.
   Face ID and continues in the app.
 - **Phone unlocked:** it opens the full app.
 
-Lock Screen shots go straight into Photos. If iOS doesn't allow that from the Lock Screen,
-they're held safely and imported the next time you open the app.
+Lock Screen shots are held safely and move into the library, with your Default Grade, the
+next time you open the app.
 
 To set it up: long-press Control Center → **Add a Control** → Point & Shoot. On the Lock
 Screen: long-press → Customize → Lock Screen → tap the camera button → Point & Shoot.
@@ -261,8 +242,9 @@ PointAndShoot/
   Editor/         EditorView, EditSession, EditPipeline (Core Image graph), EditRecipe,
                   CropOverlay, MetalImageView, FilmModel + FilmPipeline (the Print look)
 scripts/          deploy-iphone.sh; print-look.py (preview, fit and export the Print look)
-  Library/        RollStore (live camera roll), PhotoViewer (full-screen pager),
-                  LibraryView (RollGrid), PhotoLibrary (save/share/fetch helpers)
+  Library/        ShotStore (the in-app library: shots, trash, develop queue, retention),
+                  ShotRenderer, ShotExporter, ShotArchive (import/zip), PhotoViewer,
+                  LibraryView (grid + Trash), PhotoLibrary (export to Photos)
 ```
 
 ### Why it stays smooth

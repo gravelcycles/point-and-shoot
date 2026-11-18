@@ -154,6 +154,25 @@ struct EditRecipe: Codable, Equatable {
     }
 
     /// Clears tone & color (used before applying a Look), keeping geometry and RAW settings.
+    /// This grade as the one new shots start with: the look and every slider, without
+    /// anything that belongs to one photo (crop, rotation, its RAW develop settings).
+    var asDefaultGrade: EditRecipe {
+        var r = self
+        r.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        r.straighten = 0
+        r.quarterTurns = 0
+        r.flipped = false
+        r.useRAW = true
+        r.rawInitialized = false
+        // A film look's RAW develop exposure belongs to the look (#42): keep the fixed value.
+        r.rawFilmExposure = r.film != nil ? EditRecipe.filmRAWExposure : nil
+        let fresh = EditRecipe()
+        r.rawNoiseReduction = fresh.rawNoiseReduction
+        r.rawLocalTone = fresh.rawLocalTone
+        r.rawBoost = fresh.rawBoost
+        return r
+    }
+
     mutating func resetTone() {
         let keep = self
         self = EditRecipe()
@@ -288,6 +307,13 @@ struct Adjustment: Identifiable {
             .init(id: "mix\(base + 2)", name: "\(band.name) Luminance", range: -100...100, keyPath: \.mixerValues[base + 2]),
         ]
     }
+
+    /// Every slider by id (the editor's sub-tabs pick from these).
+    static let catalog: [String: Adjustment] = {
+        var out: [String: Adjustment] = [:]
+        for a in tune + filmDetails + details + raw where out[a.id] == nil { out[a.id] = a }
+        return out
+    }()
 
     static let raw: [Adjustment] = [
         .init(id: "rawNR", name: "Noise Reduction", range: 0...100, keyPath: \.rawNoiseReduction),
