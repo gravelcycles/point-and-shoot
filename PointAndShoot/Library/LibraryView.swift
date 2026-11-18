@@ -18,6 +18,7 @@ struct RollGrid: View {
     @State private var message: String?
     @State private var showTrash = false
     @State private var confirmArchive = false
+    @State private var confirmTrash = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
 
@@ -198,8 +199,16 @@ struct RollGrid: View {
                 .disabled(EditClipboard.recipe == nil)
             } label: { Image(systemName: "ellipsis.circle") }
             .accessibilityIdentifier("grid.more")
-            Button(role: .destructive) { trashSelected() } label: { Image(systemName: "trash") }
+            Button(role: .destructive) { confirmTrash = true } label: { Image(systemName: "trash") }
                 .tint(.red)
+                // Its own anchor (one presentation per view).
+                .confirmationDialog(selected.count == 1 ? "Delete this photo?" : "Delete \(selected.count) photos?",
+                                    isPresented: $confirmTrash, titleVisibility: .visible) {
+                    Button("Move to Trash", role: .destructive) { trashSelected() }
+                } message: {
+                    Text(selected.count == 1 ? "It moves to the Trash, where you can put it back for 30 days."
+                         : "They move to the Trash, where you can put them back for 30 days.")
+                }
                 .accessibilityIdentifier("grid.delete")
         }
         .font(.system(size: 19))

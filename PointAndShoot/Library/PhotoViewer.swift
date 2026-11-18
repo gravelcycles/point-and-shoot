@@ -20,6 +20,9 @@ struct PhotoViewer: View {
     /// straight back to the camera).
     @State private var showGrid = false
     @State private var confirmArchive = false
+    /// The shot the trash button asked about (fixed when tapped, so paging meanwhile
+    /// can't change what's deleted).
+    @State private var confirmTrash: UUID?
     /// The photo was opened from the grid, so swiping down goes back to the grid.
     @State private var cameFromGrid = false
     @State private var shareURL: ShareItem?
@@ -303,7 +306,21 @@ struct PhotoViewer: View {
                     show(Banner(text: shot.keep ? "No longer kept" : "Kept — never moved to the Trash"))
                 }
                 .disabled(selectedShot == nil)
-                circleButton("trash", id: "viewer.delete") { trash() }
+                circleButton("trash", id: "viewer.delete") {
+                    Haptics.impact(.light)
+                    confirmTrash = selectedShot?.id
+                }
+                // Its own anchor (one presentation per view).
+                .confirmationDialog("Delete this photo?",
+                                    isPresented: Binding(get: { confirmTrash != nil },
+                                                         set: { if !$0 { confirmTrash = nil } }),
+                                    titleVisibility: .visible) {
+                    Button("Move to Trash", role: .destructive) {
+                        if let id = confirmTrash { trash(id) }
+                    }
+                } message: {
+                    Text("It moves to the Trash (in the grid), where you can put it back for 30 days.")
+                }
                     .disabled(selectedShot == nil)
             }
             if let shot = selectedShot {
@@ -476,11 +493,10 @@ struct PhotoViewer: View {
 
     // MARK: Actions
 
-    private func trash() {
+    private func trash(_ id: UUID) {
         Haptics.impact(.light)
-        guard let shot = selectedShot else { return }
-        store.moveToTrash([shot.id])
-        show(Banner(text: "Moved to Trash", undoTrash: [shot.id]), seconds: 4)
+        store.moveToTrash([id])
+        show(Banner(text: "Moved to Trash", undoTrash: [id]), seconds: 4)
     }
 
     private func pasteGrade() {
