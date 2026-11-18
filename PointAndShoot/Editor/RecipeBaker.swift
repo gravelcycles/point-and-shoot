@@ -42,6 +42,9 @@ enum RecipeBaker {
             // (picking the look sets it; pinned here too, so it's always in the saved edit).
             if recipe.rawFilmExposure == nil { recipe.rawFilmExposure = EditRecipe.filmRAWExposure }
             EditPipeline.configure(raw, recipe: recipe, defaults: defaults)
+            // The processed photo is the same capture: same exposure in its EXIF.
+            Diag.log(.bake, "RAW develop: " + EditPipeline.developReport(raw, recipe: recipe,
+                                                                          properties: CIImage(contentsOf: url)?.properties))
             output = raw.outputImage.map { EditPipeline.apply(recipe, to: $0, developedFromRAW: true) }
                 ?? EditPipeline.apply(recipe, to: base, developedFromRAW: false)
         } else {

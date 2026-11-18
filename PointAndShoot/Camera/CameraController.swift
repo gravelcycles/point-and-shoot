@@ -1295,6 +1295,23 @@ final class CameraController: NSObject {
         }
     }
 
+    /// The camera's exposure at the shutter, for brightness reports: what it was set to,
+    /// how far from its own meter (offset) and the EV compensation (bias), the scene light
+    /// that adds up to, and the two settings Plain live view changes (they move how iOS
+    /// exposes, so they move the RAW).
+    static func exposureReport(_ d: AVCaptureDevice) -> String {
+        let t = d.exposureDuration.seconds
+        let ev = ViewfinderMatch.meteredEV100(aperture: Double(d.lensAperture), seconds: t, iso: Double(d.iso),
+                                              targetOffset: Double(d.exposureTargetOffset),
+                                              targetBias: Double(d.exposureTargetBias))
+        let format = d.activeFormat
+        return String(format: "exposure: ISO %.0f, 1/%.0f s, f/%.1f, offset %+.2f, bias %+.2f, scene EV100 %@, ",
+                      d.iso, t > 0 ? 1 / t : 0, d.lensAperture, d.exposureTargetOffset, d.exposureTargetBias,
+                      ev.map { String(format: "%.1f", $0) } ?? "?")
+            + "video HDR \(format.isVideoHDRSupported ? (d.isVideoHDREnabled ? "on" : "off") : "unsupported"), "
+            + "global tone mapping \(format.isGlobalToneMappingSupported ? (d.isGlobalToneMappingEnabled ? "on" : "off") : "unsupported")"
+    }
+
     private func makePhotoSettings(_ s: CameraSettings, device: AVCaptureDevice,
                                    burst: Bool = false) -> (AVCapturePhotoSettings, PhotoPlan) {
         // The decisions live in PhotoPlanner (pure, unit-tested); this applies them.
@@ -1308,6 +1325,7 @@ final class CameraController: NSObject {
             flash: device.hasFlash && photoOutput.supportedFlashModes.contains(s.flash.avMode),
             zoomed: device.videoZoomFactor > 1.001)
         let d = PhotoPlanner.decide(s, burst: burst, caps: caps)
+        Diag.log(.capture, Self.exposureReport(device))
         Diag.log(.capture, "shot: mode \(s.mode.rawValue) look \(s.activeLook ?? "-") raw \(d.raw) burst \(burst) zoomed \(caps.zoomed) lens \(device.localizedName)\(d.fallbackNote.map { " · " + $0 } ?? "")")
 
         let processedFormat: [String: Any] = [AVVideoCodecKey: d.heif ? AVVideoCodecType.hevc : .jpeg]
