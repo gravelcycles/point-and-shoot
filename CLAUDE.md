@@ -59,6 +59,26 @@ Git history: merged into `main` so far:
 
 The film-look work has its own handoff notes: `docs/film-looks.md`.
 
+**Redesign branch (`claude/raw-studio`).** A Chromagraph-style rework lives on this
+integration branch until the owner has compared it with `main` on device. Reference for
+what was copied: `docs/chromagraph-reference.md`.
+- **What it is:** RAW-only capture, an in-app library with Keep/Trash/30-day retention,
+  export to Photos, a Tone/Color/Texture editor, three-tab Preferences, RAW import and zip
+  archives, and the cinematic looks.
+- **Merged into it so far:** #32 library, #33 editor, #39 Preferences, #40 import/archive,
+  #35 + #37 looks, plus everything on `main`.
+- **CI state:** green. The full stack passed build + 119 tests (run 44161283672), and #37 on
+  top passed 137 (run 44164624577). Three independent review passes found ~45 issues, all
+  fixed.
+- **Not tested on the phone yet.**
+- **Sub-PRs merge into it, not into `main`.**
+- **Side-by-side install:** it builds as **"P&S Studio"**,
+  `APP_BUNDLE_ID = io.github.gravelcycles.pointandshoot.studio`, with a tan icon, so both
+  apps can be on the phone. `scripts/deploy-iphone.sh` reads the bundle ID from the project.
+  **Revert those three (bundle ID, display name, icon) when the branch merges to `main`.**
+- **On this branch, §3–§5 and §8 describe the redesign.** `main` still has the Photos-based
+  roll.
+
 ---
 
 ## 2. First session on the Mac: start here
@@ -123,7 +143,7 @@ reports; Claude reads logs, fixes, and opens PRs.**
 
 ```
 PointAndShoot/                    app target (synchronized folder: new files auto-included)
-  App/PointAndShootApp.swift      @main; owns CameraController + RollStore
+  App/PointAndShootApp.swift      @main; owns CameraController + ShotStore (loads it, runs retention)
   App/Shortcuts.swift             App Intents: "Take a Photo"/"Record a Video" (Action button, Siri)
   Camera/CameraController.swift   ★ the engine: session, lenses, exposure/focus/WB, capture, burst,
                                   recording, metering timer, storage/thermal, Camera Control
@@ -143,20 +163,27 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   UI/ScrubDial.swift              haptic tick-mark jog dial (reused in the editor's straighten)
   UI/PreviewView.swift            CAMetalLayer host + UIKit gestures; volume-button interaction
   UI/Overlays.swift               grid, frame lines, level, histogram, meter, reticle, EV slider, toast
-  UI/SettingsView.swift           settings sheet
+  UI/SettingsView.swift           Preferences: General · Camera · Processing (default grade, export,
+                                  import, resets); double-tap the viewfinder opens it
   UI/MotionManager.swift          gravity → level + icon rotation (UI is portrait-locked)
-  Library/RollStore.swift         live camera roll (PHPhotoLibraryChangeObserver), latest thumbnail
-  Library/PhotoViewer.swift       full-screen pager opened from the thumbnail; share/fav/delete/info
-  Library/LibraryView.swift       RollGrid + AssetThumbnail
+  Library/Shot.swift              one photo's record (shot.json) + ShotRetention (the 30-day rules, pure)
+  Library/ShotStore.swift         ★ the in-app library: shots, trash, develop queue, grades, retention
+  Library/ShotRenderer.swift      develops a shot's DNG with its grade (previews, export, zoom detail);
+                                  settles a fresh grade (RAW NR, film exposure matched to the viewfinder)
+  Library/ShotExporter.swift      export to Photos (add-only access) / share files; Auto Export
+  Library/ShotArchive.swift       Import RAW (system picker), Archive RAW (Photos or zip), Import Archive
+  Library/ZipArchive.swift        minimal zip writer (stored) / reader (stored + deflate), CRC-checked
+  Library/PhotoViewer.swift       viewer: filmstrip, Keep, trash + Undo, export, zoom (RAW detail render)
+  Library/LibraryView.swift       grid by day, Select (export/share/keep/grade/archive/trash), Trash view
   Library/ZoomableImageView.swift Photos-style zoom for viewer pages (UIScrollView: pinch+pan, double-tap)
-  Library/PhotoInfoSheet.swift    EXIF + map info panel
-  Library/PhotoLibrary.swift      save/share/favorite/delete/RAW-fetch helpers (returns asset IDs)
-  Library/LockedCaptureImporter.swift  imports Lock Screen shots parked by the extension
+  Library/PhotoLibrary.swift      Photos helpers (save for export/archive, video save)
+  Library/LockedCaptureImporter.swift  moves Lock Screen shots (parked DNGs) into the library
   Library/RollLogic.swift         pure viewer selection + thumbnail handoff rules — unit-tested
   App/TolerantJSON.swift          decodes saved settings/recipes from any app version (missing keys → defaults)
-  App/TestHooks.swift             -uitest, unit-test host, -uitest-seed N photo seeding, roll.count probe
-  Editor/EditorView.swift         Snapseed-style editor UI (swipe ↕ choose / ↔ adjust)
-  Editor/EditSession.swift        loads asset (+RAW), preview graph, non-destructive save/copy/revert
+  App/TestHooks.swift             -uitest, unit-test host, -uitest-seed N (library) / -uitest-photos N
+                                  (Photos) seeding, roll.count probe, viewer gesture probes
+  Editor/EditorView.swift         editor: Looks · Tone · Color · Texture · Crop, sub-tabs, GradeSlider
+  Editor/EditSession.swift        loads a shot (RAW off main), preview graph, saves the grade to the store
   Editor/EditPipeline.swift       the edit as a Core Image graph (geometry → tone → color → detail → fx)
   Editor/EditRecipe.swift         Codable recipe, Adjustment lists, Looks, ColorBand, CropAspect
   Editor/ColorMixer.swift         8-band HSL → cached 32³ color cube
@@ -225,36 +252,36 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   the preview and the file. Writer settings start from
   `recommendedVideoSettings(forVideoCodecType:…)`. HEVC/H.264 bitrate is pixels × fps ×
   0.16 bits per pixel (0.22 for 10-bit).
-- **Processing levels** map to `photoQualityPrioritization`: Apple → `.quality`, Balanced →
-  `.balanced`, Natural → `.speed`. **Zero** captures Bayer RAW only and develops it with
-  `ZeroDeveloper`: no local tone map, no luminance NR, a little chroma NR.
-- **RAW+processed pairs: the DNG goes in as a file.** `PhotoLibrary.savePhoto` writes the
-  RAW to a temp `.dng` and adds it with `addResource(with: .alternatePhoto, fileURL:)`
-  (`shouldMoveFile`), like Apple's AVCam. Added as `Data`, Photos rejects the pair with
-  PHPhotosErrorDomain 3300 (seen on device for Print). If a pair is still refused, the
-  photo and the DNG are saved as two assets and a toast names the error code.
-- **Bayer RAW forces `.speed` prioritization and 12 MP dimensions.** This is an assumption
-  meant to avoid `NSInvalidArgumentException` from AVFoundation. ProRAW is enabled on the
-  output only when selected.
-- **Zoom is locked at 1× while shooting Bayer RAW** (`CameraSettings.zoomLocked`: Print,
-  Zero, film looks, RAW = Bayer). AVFoundation throws on Bayer RAW when
-  `videoZoomFactor > 1` (crashed on device: Print, front camera, pinch-zoomed). The owner
-  chose "disable zoom" over falling back to the processed photo. Entering such a mode ramps
-  back to 1×; pinch shows a toast instead of zooming; cropped lens chips (48 mm) and the
-  Camera Control zoom slider are hidden. `makePhotoSettings` still skips Bayer RAW if the
-  device is somehow zoomed, as a crash guard. ProRAW and video zoom normally.
-- **Bursts:** no RAW, `.speed`, no flash, 12 MP. They fire every 0.11 s, at most 60 shots,
-  and pause while 4 or more captures are in flight.
+- **RAW only.** Every photo is a RAW the app develops itself (`PhotoPlanner.decide`):
+  - **ProRAW is the default.** `CameraSettings.shootsProRAW` = `rawMode != .bayer`, so
+    `.off` from older settings counts as ProRAW. `CameraController.proRAWActive` must equal
+    it: when it didn't, every "ProRAW" shot silently came out Bayer.
+  - **Bayer RAW** (the sensor's single frame) is the opt-in.
+  - **Fallbacks, each with a toast:**
+    - zoomed Bayer → ProRAW;
+    - no ProRAW on the lens → Bayer;
+    - no RAW at all (some front cameras, or zoomed with only Bayer) → a processed HEIF
+      stored as the original.
+  - The old processing levels (Apple/Balanced/Natural/Zero) are gone from the UI.
+- **Bayer RAW forces `.speed` prioritization and 12 MP dimensions** (avoids
+  `NSInvalidArgumentException`). ProRAW uses `.quality`, at 12 MP or max.
+- **Zoom is locked at 1× only with Bayer RAW** (`zoomLocked` = still mode && Bayer).
+  AVFoundation throws on Bayer RAW when `videoZoomFactor > 1` (crashed on device). ProRAW
+  and video zoom normally; the planner never requests Bayer while zoomed.
+- **No burst:** RAW can't burst. `CameraController.burstEnabled` is false; the code stays.
+- **The camera's quick preview is kept.** Each capture keeps a 1440 px preview
+  (`capture.jpg`): the instant thumbnail, the RAW stand-in where it can't decode (the
+  simulator), and a film look's brightness reference when there's no viewfinder key.
 - **Exposure modes** are P / S / M. S (shutter priority) is implemented by us: a 15 Hz
   meter loop adjusts ISO from `exposureTargetOffset` in custom mode, with gain 0.6. The
   180° shutter lock in video uses S with shutter = 1/(2·fps).
 - **`suspendForBrowsing()`:** opening the roll waits for `capturesInFlight == 0` before
   stopping the session, so a shot still being processed is never dropped.
-- **Edits are non-destructive.** They use `PHContentEditingOutput` with adjustment data
-  `formatIdentifier = "com.pointandshoot.recipe"`, version `"1"`, and the JSON-encoded
-  `EditRecipe`. Reopening restores every slider; Photos can revert. **When adding recipe
-  fields, make them optional or defaulted so old saved edits still decode** (see
-  `mixer: [Double]?`).
+- **Edits are a grade.** A shot's edit is its `EditRecipe` in `recipe.json`; the RAW is
+  never touched, and "Reset This Image" / "Reset to Original" are always available.
+  - Export renders it into Photos.
+  - **When adding recipe fields, make them optional or defaulted so old grades still
+    decode** (see `mixer: [Double]?`).
 - **Settings persistence:** `CameraSettings.load()` merges the saved JSON over the defaults,
   so new fields never wipe the user's setup. Keep it that way.
 - **Saved data is decoded tolerantly.** Swift's synthesized `Decodable` fails on any missing
@@ -273,27 +300,40 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   `PointAndShoot/`, `Shared/` or an extension folder needs no `.pbxproj` edit. Info.plists
   live in `Config/` (outside the synced folders) to avoid "multiple commands produce
   Info.plist".
-- **Library sync:** `RollStore` (fetch limit 2000, images + videos) is the source of truth
-  for the viewer, the grid and the camera thumbnail. Views key image caches on
-  `PHAsset.revisionKey` (localIdentifier + modificationDate), so edits refresh everywhere.
+- **The library is `ShotStore`** (main-actor), the only source of truth for the viewer, the
+  grid, the filmstrip and the camera thumbnail.
+  - **Files:** a shot is a folder `Application Support/Shots/<uuid>/` holding `shot.json`,
+    `original.dng`, `recipe.json`, `capture.jpg`, `preview.jpg` (2048 px) and `thumb.jpg`
+    (360 px). `shot.json` is written last and atomically.
+  - **Caches:** image caches key on id + `Shot.revision`, which is bumped after every
+    render.
+  - **Developing:** renders run one at a time (`BakeQueue`). `developing` lasts until a
+    shot's last queued render finishes.
+  - **A fresh shot's first develop settles its grade** (`ShotRenderer.prepare`): the
+    camera's RAW noise reduction (floored for film looks), and a film look's fixed RAW
+    develop exposure (`rawFilmExposure` = `EditRecipe.filmRAWExposure`, +1.86 EV, as on
+    `main` since #42) where the grade lacks one. Photos come from their RAW alone; nothing
+    is borrowed from the viewfinder. Shots made before keep their matched value.
+  - **A settle never overwrites a grade saved meanwhile.** It is applied only if
+    `recipes[id]` is unchanged.
+  - **Editor saves only settle the RAW develop.** Brightness comes from the grade: picking a
+    film look pins the fixed exposure, and the default grade keeps it.
+  - **Videos still go straight to Photos.**
 
-### Deletes (every state)
-`RollStore` (a `PHPhotoLibraryChangeObserver`, plus a refetch on every return to the app)
-is the only source of truth for what exists. Everything else reacts to it.
-
+### Library, trash and retention (every state)
 | Where / when | What happens |
 |---|---|
-| iOS never answers a delete | Seen on device (iOS 18, Limited Photos access): `performChanges` never returned, no prompt, and photos stopped loading afterwards (also on Apple's forums). `deleteReporting` allows one delete at a time and a watchdog reports a stall after 8 s (force-quit, send Diagnostics). **The owner keeps Limited access on purpose: everything must work under Limited.** `Config/App-Info.plist` sets `PHPhotoLibraryPreventAutomaticLimitedAccessAlert` (iOS's once-per-launch "select more photos?" prompt, Apple's advice for apps that handle limited access), and the viewer offers "Limited access · Choose photos" (`presentLimitedLibraryPicker`). |
-| Viewer trash | iOS shows its own (modal) confirmation. Confirm → the roll drops it → the viewer lands on the neighbour (`lastIndex`). Don't Allow → nothing. No busy flag: the modal alert already prevents a double delete. |
-| Grid Select → Delete | One confirmation for the batch; Select mode ends on success and stays (same picks) on Don't Allow. Items deleted elsewhere drop out of the selection; an empty roll shows "No photos". |
-| Deleted in Photos / another device, app open or backgrounded | Change observer (or the refetch on return) updates the roll → viewer moves to the neighbour, an open Info sheet closes, the camera thumbnail updates. |
-| Already-deleted asset deleted again | `PhotoLibrary.delete` always asks Photos to delete exactly what was tapped; only if Photos refuses does it drop items that are gone (`isGone`) and retry. **Never pre-filter with `isGone`:** that made Delete silently do nothing on device (#19). |
-| Open in the editor when deleted | Save/Revert fail, then `isGone` confirms it and the editor offers **Save as New Photo** (renders from the editing input) or Discard. |
-| Camera thumbnail | A capture's own thumbnail shows instantly but only until the roll has the shot *and* has rendered it (`handOffThumbnail`); then the roll's newest item is shown, so deleting it anywhere updates the button (empty roll → empty button). A failed save clears it. Without read access the capture's thumbnail is all there is. |
-| Shot with a look / Print | The shot is reported saved as soon as the plain develop is in Photos (so the camera can suspend and the next shot isn't held up), and its ID goes into `camera.developingAssetIDs` until the look is baked. The viewer shows its page blurred under "Developing…" meanwhile, and the camera thumbnail waits for the developed version. Bakes run one at a time (`BakeQueue`); the overlay gives up after 45 s. Blocking capture completion on the bake (#25) left shots stuck on "Developing…" on device. `PhotoPage` cancels and ignores image requests for older revisions, so a slow load of the unedited image can't overwrite the edited one. |
-| Shot still developing | Can't be deleted (no asset yet). If its save fails, `lastSavedAssetID` is cleared so the viewer's "Developing…" page doesn't wait forever. A Print bake on a shot deleted meanwhile fails quietly. |
-| Lock Screen shots parked for import | Imported once: one import at a time, and imported file keys are remembered, so a deleted shot never comes back if its parked file couldn't be removed. |
-| Recently Deleted | Deleted items sit there for 30 days (Photos' behaviour). Recovering one re-inserts it through the change observer. |
+| Capture | `ShotStore.add` writes the files and inserts the shot at once (the camera's preview shows), then develops it. A failed write removes the folder. A failed save clears `lastSavedShotID`, so the viewer never sticks on "Saving…". |
+| Viewer / grid trash | Asks first ("Delete this photo?" → Move to Trash; the owner wants the "are you sure"), then `moveToTrash`. The viewer lands on the neighbour, and a banner offers Undo. |
+| Trash view (grid → Trash) | Tap to put back; Empty deletes the files for good (with a confirmation). |
+| Retention | Each shot's 30 days run from `retentionStart` = the latest of taken, added (imports) and restored from the Trash past due. Then, unless tagged Keep or Store New Photos Forever is on, `applyRetention` (at launch and every return to the app) moves it to the Trash. Trash older than 30 days is deleted. An Undo keeps a shot's remaining days. |
+| Store Forever | Turning it off asks first if photos would move to the Trash right away. Reset General Settings leaves it alone. |
+| Editor open when the shot is trashed | Save reports "moved to the Trash" instead of saving. |
+| Edit while developing | Edit waits only for a RAW shot's first settle (`awaitingFirstSettle`). Export waits for the develop (up to a minute), then settles itself if needed. |
+| Launch | `load()` merges with shots added meanwhile (Lock Screen imports race it). Folders with no `shot.json` and over an hour old are swept. Shots without a preview (backgrounded mid-render) re-develop, and do again on every return to the app. |
+| Lock Screen shots | The extension parks a Bayer DNG (embedded preview, atomic write). On next open the app imports each one once, with the default grade. An unreadable parked file keeps its folder. |
+| Import RAW / Import Archive | Imported shots get `added` = now, so older RAWs aren't trashed on arrival. An archive skips shots already in the library and puts back ones in the Trash. Parsing runs off the main thread. |
+| Auto Export | After the first develop; skipped if the shot was trashed meanwhile. |
 
 ### Film looks: Print and every other look
 - **Every look except Original is a film stock** in the same model, and is meant to read
@@ -310,8 +350,8 @@ is the only source of truth for what exists. Everything else reacts to it.
     - Grades: PR #35's first pass, with its ids and tunings untouched (Desert, Pastel, Amber
       Haze, Sodium, Neon Night, and #35's Slide and Bleach Bypass, renamed "Slide 70s" and
       "Bleach Grit" but still ids `slide` / `bleach`). The new Slide and Bleach Bypass are
-      `classicslide` / `bleachbypass`: an id always means one look, or saved choices, photos'
-      edits and the editor's highlight would point at the wrong one.
+      `classicslide` / `bleachbypass`: an id always means one look, or saved choices, default
+      grades and the editor's highlight would point at the wrong one.
     - Adding a look: give it a `set` in both places. `export-swift` refuses a JSON set that
       disagrees with `Look.all` (or a look with no stock), and `SettingsTests` pins the
       Essentials and checks every film look's stock exists.
@@ -407,8 +447,8 @@ is the only source of truth for what exists. Everything else reacts to it.
     Silver; 2026-11-17) are out of `Look.all` and `FilmStock.all` but every photo made
     with one renders exactly as before: pinned tuning, else `FilmStock.Legacy.v2`
     (`resolved(for:)`; `namedOrRetired` fills gaps in an older pinned tuning from that
-    retired stock, not from Print). `Look.retired` keeps their names (`displayName`: the
-    editor's Looks tool shows the photo's retired look as a selected card) and moves a saved camera choice on: Chrome → Slide (`classicslide`), Skin → Portrait
+    retired stock, not from Print). `Look.retired` keeps their names (`displayName`, the
+    editor's info row) and moves a saved camera choice on: Chrome → Slide (`classicslide`), Skin → Portrait
     400, Cool Air → Evergreen, Cine → Blockbuster, Mono 400 / Silver → Noir, the rest →
     Original (`CameraSettings.decodeSaved`). Never reuse a
     retired id for a different look.
@@ -482,7 +522,7 @@ is the only source of truth for what exists. Everything else reacts to it.
     table, ~45 MB each at 19 stocks). Print-cube keys use `FilmControls.canonical`, so
     prewarmed tables serve engine-3 looks. Tables with an edit's exposure baked in have
     their own 4-slot cache, so an Exposure drag can't evict the viewfinder's (unless the
-    viewfinder's own look carries an exposure).
+    viewfinder's own look carries an exposure, as a default grade can).
   - LOOK-strip thumbnails render on their own utility queue and Metal command queue from
     a small copy of the frame (`PreviewRenderer.filterThumbnails`), never on the
     viewfinder's, and stop refreshing while the session is stopped (roll or editor open).
@@ -519,7 +559,9 @@ is the only source of truth for what exists. Everything else reacts to it.
       under the film's), and exposure applied *before* un-rendering (+1 EV clipped
       everything above display 0.5). Kept bit-exact for older edits.
 - **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
-  "Print film look".
+  "Print film look". **P&S Studio: Print is both** (the owner, 2026-11-18): always a mode
+  ("the simple mode") and always one of Photo's looks. `printPlacement` is ignored and its
+  setting hidden (kept so settings round-trip with `main`).
   - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
     (`isStill`), so it uses the photo pipeline.
     - It drops the controls that don't apply: no format pill (always RAW), no LOOK
@@ -658,18 +700,19 @@ is the only source of truth for what exists. Everything else reacts to it.
 ## 5. Feature inventory (what exists)
 
 - **Photo:**
-  - HEIF/JPEG; RAW off, Bayer RAW or ProRAW; RAW+processed pairs saved as one Photos asset
-    (`.alternatePhoto`).
-  - Processing levels Apple, Balanced, Natural, Zero; 12 MP or max resolution.
+  - RAW only: ProRAW (default; 12 MP or max) or Bayer RAW (12 MP, zoom locked at 1×). Kept
+    in the app's library until exported; export is HEIF/JPEG at 1920/2880/3840 px or
+    actual size, at a chosen quality (default HEIF, 2880, 100%).
   - Flash, self-timer, responsive capture and zero shutter lag.
   - Silent shutter by default: `CameraSettings.shutterSound = false` sets
     `isShutterSoundSuppressionEnabled` (iOS 18+, only where
     `isShutterSoundSuppressionSupported`; `camera.canSilenceShutter` drives the Settings
     toggle). The Lock Screen extension is always silent where allowed. The app plays no
     other sounds.
-  - Capture **Looks**: film stocks and movie grades (§4 "Film looks"), previewed
-    live and baked on as an editable edit (needs full Photos access).
-  - Hold the shutter for **burst**.
+  - Capture **Looks**: film stocks and movie grades (§4 "Film looks"), previewed live.
+    New shots start from the **Default Grade** (a look plus sliders, Preferences →
+    Processing) while its look is the one picked; the viewfinder shows it too.
+  - No burst (RAW can't burst).
 - **Controls:**
   - One control row: FOCUS/WB/ISO/SHUTTER/EV/LOOK (LOOK in Photo only). The owner wants
     all of them visible at once; don't hide them behind a "more"/PRO toggle (tried in #12,
@@ -693,28 +736,44 @@ is the only source of truth for what exists. Everything else reacts to it.
   - The Action button works via App Shortcuts or the Control.
 - **GPS:** works offline. Written to EXIF (position, altitude, speed, compass heading),
   QuickTime ISO 6709 metadata, and `PHAsset.location`.
-- **Roll:**
-  - The viewer opens on the newest shot, with a "Developing…" placeholder while it saves.
-  - Paging, swipe down to dismiss.
+- **Library** (§4 "Library, trash and retention"):
+  - The viewer opens on the newest shot. A shot still saving gets its "Developing…" page
+    at once (over the camera's preview once it arrives), never the previous photo
+    meanwhile. Newest on the **right** (like Photos): the pager and the filmstrip run
+    oldest → newest, so older shots are to the left. Paging, swipe down to dismiss.
+  - Header: camera, share · ⋯ (Copy/Paste Grade, Archive RAW…), Keep (bookmark), trash.
+    An info line shows RAW type, date, exposure and days left. Bottom: grid (left, above
+    the filmstrip), edit and export (tan).
+  - The grid is its own screen inside the viewer (not a sheet), with a camera button
+    straight back to shooting; tapping a photo opens it, and swiping that photo down
+    returns to the grid.
   - Zoom like Photos (`ZoomableImageView`, a UIScrollView): pinch anchored under the
     fingers with pan at the same time, rubber-banding, double-tap fit ↔ 2.5×, up to 2×
     native pixels (4–8×). At 1× the scroll view has nothing to scroll, so swipes page and
     swipe-down dismisses; zoomed in, drags pan and never dismiss. A full-size copy (long
-    side ≤ 4096) loads once zoomed past 1.3× and is dropped when the page leaves.
-  - Share sends the original file. Favorite and Delete are there too.
-  - An Info sheet shows EXIF and a map.
+    side ≤ 4096), rendered from the RAW with its grade, loads once zoomed past 1.3× and is
+    dropped when the page leaves.
+  - Grid by day; Select → export, share, Keep, copy/paste grade, Archive RAW, trash; Trash
+    view.
+  - Import RAW Photos (system picker, no permission) and Import Archive in Preferences →
+    General.
 - **Editor:**
-  - Tools: Looks (19 plus Original, in named sets), Tune (10 sliders), Details (5), Color (8-band HSL), Crop (aspect,
-    straighten, rotate, flip) and RAW (develop from DNG with WB, exposure, NR, local tone
-    and boost).
-  - Undo, hold-to-compare, copy/paste edits.
+  - Tools: Looks (19 plus Original, in named sets) · Tone (Exposure, Contrast + Fade,
+    Shadow/Highlight, Whites/Blacks, RAW) · Color (Balance, Saturation + B&W, Crossover,
+    Mixer) · Texture (Grain, Halation, Detail, Vignette, Noise) · Crop. Each tool has
+    sub-tab pills and labelled `GradeSlider`s: a default mark and detent, double-tap to
+    reset, one undo step per drag.
+  - ✓ saves the grade. ⋯ offers Copy/Paste Grade, Set as Default Grade, Reset This Image,
+    Reset to Original and Discard. The export button sits in the tool bar. Undo,
+    hold-to-compare.
   - Zoom: pinch + two-finger pan (UIKit recognizers on `MetalImageView`), double-tap fit ↔
-    2.5×; one-finger swipes stay the Snapseed adjust gesture (a pinch that starts mid-drag
-    undoes that drag's change). Zoom is a transform in the renderer, so Core Image renders
+    2.5×; one finger pans when zoomed. Zoom is a transform in the renderer, so Core Image renders
     only the visible region; zoomed in, `EditSession` switches to a sharper source
     (`loadDetail`, long side ≤ 4096, RAW at the matching scale). Off in Crop.
-  - Save (non-destructive), Save as New Photo, Revert, and a discard guard for unsaved
-    changes.
+    Zoom and pan frames draw a bitmap of the edit (rendered once it stops changing for
+    0.25 s, keyed by `EditSession.recipeRevision`), never the RAW develop + film graph per
+    frame, which lagged on device. Slider drags still render the graph live.
+  - A discard guard for unsaved changes.
 - **iOS 18 Lock Screen camera + Control Center control:**
   - The extension writes to Photos when allowed. Otherwise it parks files in
     `sessionContentURL`, which the app imports on launch.
@@ -820,8 +879,8 @@ is the only source of truth for what exists. Everything else reacts to it.
     save results (incl. the RAW-pair fallback), Zero develop time, every bake with timing
     and errors, roll size changes, deletes (outcome, error code, access), editor errors,
     Lock Screen imports, and every toast/banner the user sees.
-  - **Asking the owner for logs:** Settings → About → Diagnostics → Share (AirDrop the
-    .txt to the Mac and attach it), or Copy. Settings → About → Version shows when the
+  - **Asking the owner for logs:** Preferences → General → Diagnostics → Share (AirDrop the
+    .txt to the Mac and attach it), or Copy. Preferences → General → Version shows when the
     installed build was made.
 - **Every device bug gets a test** where the simulator can reproduce it: a pure-logic
   rule (extract it, like `PhotoPlanner` / `ViewerSelection`), a Photos-library
@@ -832,8 +891,24 @@ is the only source of truth for what exists. Everything else reacts to it.
 
 ## 8. Device test plan (do this first)
 
-Work top to bottom; earlier failures can mask later ones. ⚠️ marks assumptions most likely
-to be wrong.
+**On `claude/raw-studio` (P&S Studio), check these first.** ⚠️ = most likely to be wrong.
+
+1. **Capture.** ProRAW is the default and zoom works. Bayer RAW (Preferences → Camera)
+   locks zoom at 1×. ⚠️ The first shots after launch show the camera's preview, then the
+   developed look.
+2. **Viewer.** The filmstrip follows paging. Keep tags the photo. Trash + Undo works.
+   Export puts a 2880 px HEIF in Photos with the look. Zooming in sharpens from the RAW.
+3. **Editor.** Each tool and sub-tab works; ✓ saves, and the viewer and grid refresh.
+   Set as Default Grade, then new shots and the viewfinder use it. ⚠️ Film looks develop at
+   a fixed +1.86 EV (Chromagraph's). Compare against Chromagraph, and try Preferences →
+   Camera → Plain live view.
+4. **Retention.** "N days left" shows on unkept shots. The Trash restores. Turning off
+   Store Forever asks first.
+5. **Import/archive.** Import RAWs from Photos. Archive a few to a zip, delete them, and
+   Import Archive brings them back with their grades.
+6. **Lock Screen.** The shot appears in the library with the default grade after opening
+   the app.
+7. **Preferences.** A double-tap on the viewfinder opens it; tap-to-focus is still instant.
 
 1. **Launch & preview**
    - The camera permission prompt appears.

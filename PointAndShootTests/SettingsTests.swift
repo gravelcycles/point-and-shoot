@@ -15,32 +15,73 @@ final class SettingsTests: XCTestCase {
 
     func testZoomLockFollowsBayerRAW() {
         var s = CameraSettings()
+        XCTAssertFalse(s.zoomLocked, "ProRAW (the default) zooms")
         s.mode = .print
-        XCTAssertTrue(s.zoomLocked, "Print shoots Bayer RAW")
+        XCTAssertFalse(s.zoomLocked, "Print on ProRAW zooms")
+        s.rawMode = .bayer
+        XCTAssertTrue(s.zoomLocked, "Bayer RAW can't be zoomed")
         s.mode = .photo
-        s.processing = .zero
-        XCTAssertTrue(s.zoomLocked, "Zero shoots Bayer RAW")
-        s.processing = .natural
-        s.rawMode = .bayer
-        XCTAssertTrue(s.zoomLocked, "RAW (Bayer) can't be zoomed")
-        s.rawMode = .proRAW
-        XCTAssertFalse(s.zoomLocked, "ProRAW zooms normally")
+        XCTAssertTrue(s.zoomLocked)
         s.mode = .video
-        s.processing = .zero
-        s.rawMode = .bayer
         XCTAssertFalse(s.zoomLocked, "Video always zooms")
+    }
+
+    /// The photo output turns ProRAW on exactly when the settings say ProRAW (the default
+    /// `.off` included); otherwise every "ProRAW" shot silently came out Bayer.
+    func testProRAWIsEnabledWheneverItIsWhatWeShoot() {
+        for mode in RawMode.allCases {
+            var s = CameraSettings()
+            s.rawMode = mode
+            XCTAssertEqual(CameraController.proRAWActive(s), s.shootsProRAW, "\(mode)")
+        }
+        XCTAssertTrue(CameraController.proRAWActive(CameraSettings()))
+    }
+
+    /// Exactly what the current app (`main`) saves: an upgrade must load it, shooting ProRAW.
+    func testSettingsSavedByTheCurrentAppLoad() throws {
+        let json = #"{"mode":"photo","photoFormat":"heif","rawMode":"off","keepProcessedWithRAW":true,"processing":"zero","zeroKeepsDNG":true,"flash":"off","resolution":"standard","selfTimer":0,"captureLook":"warm400","printPlacement":"mode","videoResolution":"uhd4K","frameRate":24,"videoCodec":"hevc","videoColor":"sdr","stabilization":"standard","recordAudio":true,"shutterAngleLock":true,"logViewAssist":true,"showGrid":true,"showLevel":true,"showHistogram":false,"focusPeaking":true,"peakingColor":"red","zebras":false,"zebraThreshold":0.95,"frameLines":"none","volumeShutter":true,"saveLocation":true,"haptics":true,"shutterSound":false}"#
+        let s = try XCTUnwrap(CameraSettings.decodeSaved(Data(json.utf8)))
+        XCTAssertTrue(s.shootsProRAW)
+        XCTAssertFalse(s.zoomLocked)
+        XCTAssertFalse(s.storeForever)
+        XCTAssertFalse(s.autoExport)
+        XCTAssertEqual(s.exportMaxSide, 2880)
+        XCTAssertEqual(s.availableModes, [.photo, .print, .video])
+    }
+
+    func testStartingGrade() {
+        var s = CameraSettings()
+        XCTAssertNil(s.startingGrade, "no look, no default grade: the original")
+        var g = Look.all[0].recipe          // Original
+        g.exposure = 50
+        s.defaultGrade = g
+        XCTAssertEqual(s.startingGrade?.exposure, 50, "an Original default grade applies with no look picked")
+        s.mode = .video
+        XCTAssertNil(s.startingGrade, "video records no grade")
+        s.mode = .photo
+        s.captureLook = "punch"
+        XCTAssertEqual(s.startingGrade?.look, "punch", "picking another look starts from that look")
+        XCTAssertEqual(s.startingGrade?.exposure, 0)
+    }
+
+    func testAnUnreadableDefaultGradeKeepsTheRestOfTheSettings() throws {
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(CameraSettings())) as! [String: Any]
+        object["showGrid"] = false
+        object["defaultGrade"] = ["exposure": "not a number"]
+        let s = try XCTUnwrap(CameraSettings.decodeSaved(JSONSerialization.data(withJSONObject: object)))
+        XCTAssertFalse(s.showGrid)
+        XCTAssertNil(s.defaultGrade)
     }
 
     func testPlainLiveViewOnlyWhereThePhotoComesFromTheRAW() {
         var s = CameraSettings()
         XCTAssertFalse(s.plainLiveView, "Experimental: off by default")
         s.plainLiveView = true
-        XCTAssertFalse(s.wantsPlainLiveView, "Photo mode's processed photo keeps Apple's live view")
+        XCTAssertTrue(s.wantsPlainLiveView, "every P&S Studio photo develops the RAW alone")
         s.mode = .print
-        XCTAssertTrue(s.wantsPlainLiveView, "Print develops the RAW alone")
-        s.mode = .photo
-        s.processing = .zero
-        XCTAssertTrue(s.wantsPlainLiveView, "Zero develops the RAW alone")
+        XCTAssertTrue(s.wantsPlainLiveView)
+        s.rawMode = .bayer
+        XCTAssertTrue(s.wantsPlainLiveView)
         s.mode = .video
         XCTAssertFalse(s.wantsPlainLiveView, "Video never changes")
         s.mode = .print
@@ -48,13 +89,19 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(s.wantsPlainLiveView)
     }
 
-    func testPrintAsFilterLeavesTheModePicker() {
+    /// P&S Studio: Print is both a mode (the simple one) and one of Photo's looks.
+    func testPrintIsAModeAndALook() {
         var s = CameraSettings()
-        s.printPlacement = .filter
-        XCTAssertEqual(s.availableModes, [.photo, .video])
-        XCTAssertTrue(s.filterLooks.contains { $0.id == CameraSettings.printLookID })
-        s.printPlacement = .mode
-        XCTAssertFalse(s.filterLooks.contains { $0.id == CameraSettings.printLookID })
+        for placement in PrintPlacement.allCases {
+            s.printPlacement = placement
+            XCTAssertEqual(s.availableModes, [.photo, .print, .video])
+            XCTAssertTrue(s.filterLooks.contains { $0.id == CameraSettings.printLookID })
+        }
+        s.captureLook = CameraSettings.printLookID
+        XCTAssertEqual(s.activeLook, CameraSettings.printLookID, "Print picked in Photo applies")
+        s.captureLook = "punch"
+        s.mode = .print
+        XCTAssertEqual(s.activeLook, CameraSettings.printLookID, "Print mode is always Print")
     }
 
     // MARK: Saved settings from other app versions
@@ -102,7 +149,7 @@ final class SettingsTests: XCTestCase {
         var s = CameraSettings()
         XCTAssertNil(s.lookSet)
         let all = s.filterLooks
-        XCTAssertEqual(all.count, Look.all.count - 2, "all looks but Original and Print (a mode)")
+        XCTAssertEqual(all.count, Look.all.count - 1, "all looks but Original (Print is one of them in Studio)")
         for set in LookSet.allCases {
             XCTAssertFalse(set.looks.isEmpty, "\(set.name) is empty")
             s.lookSet = set.rawValue
@@ -132,7 +179,7 @@ final class SettingsTests: XCTestCase {
     }
 
     /// The strip always shows the look in use, even from another set (first, so it can be
-    /// seen and turned off), and a set's count leaves Print out while Print is a mode.
+    /// seen and turned off), and a set's count includes Print (a card as well as a mode).
     func testStripKeepsTheActiveLookAndCountsWhatItShows() {
         var s = CameraSettings()
         s.lookSet = LookSet.movie.rawValue
@@ -141,10 +188,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.stripLooks.count, s.filterLooks.count + 1)
         s.captureLook = "blockbuster"       // already in the set: not doubled
         XCTAssertEqual(s.stripLooks.map(\.id), s.filterLooks.map(\.id))
-        XCTAssertEqual(s.printPlacement, .mode)
-        XCTAssertEqual(s.stripCount(of: .essentials), 3, "Print is a mode, not a card")
-        s.printPlacement = .filter
-        XCTAssertEqual(s.stripCount(of: .essentials), 4)
+        XCTAssertEqual(s.stripCount(of: .essentials), 4, "Print is a card as well as a mode")
         XCTAssertEqual(s.stripCount(of: .movie), 4)
     }
 

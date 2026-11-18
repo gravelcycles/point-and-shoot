@@ -97,6 +97,8 @@ enum ProcessingLevel: String, Codable, CaseIterable, Identifiable {
 enum FlashSetting: String, Codable, CaseIterable, Identifiable {
     case off, auto, on
     var id: String { rawValue }
+    /// In the top bar's dropdown.
+    var menuLabel: String { rawValue.capitalized }
     var avMode: AVCaptureDevice.FlashMode {
         switch self {
         case .off: .off
@@ -259,7 +261,9 @@ struct CameraSettings: Codable, Equatable {
     var captureLook: String?
     /// The named set of looks the LOOK picker shows (`LookSet` id); nil = all looks.
     var lookSet: String?
-    /// Print as its own mode next to Photo and Video, or as one of the looks.
+    /// Print as its own mode next to Photo and Video, or as one of the looks. P&S Studio
+    /// ignores it: Print is both (the owner, 2026-11-18: the mode is "the simple mode", and
+    /// Photo's LOOK list has it too). Kept so settings round-trip with `main`.
     var printPlacement: PrintPlacement = .mode
     /// Print and Zero: ask the camera for a plainer live view (no video HDR, one tone curve
     /// for the whole frame instead of Apple's local brightening), so the viewfinder tracks
@@ -297,6 +301,20 @@ struct CameraSettings: Codable, Equatable {
     /// switch mutes it too.
     var shutterSound: Bool = false
 
+    // Library (the app keeps every shot as a RAW until exported).
+    /// Off = photos not tagged Keep go to the trash 30 days after they were taken.
+    var storeForever: Bool = false
+    /// Render every shot with its look and save it to Photos right after capture.
+    var autoExport: Bool = false
+    var exportFormat: ShotRenderer.ExportFormat = .heif
+    /// Longest side of exported photos in pixels; 0 = the photo's own size.
+    var exportMaxSide: Int = 2880
+    /// 0…1.
+    var exportQuality: Double = 1.0
+    /// The grade new shots start with ("Set as Default Grade" in the editor). Applies while
+    /// its look is the one picked in the camera; picking another look starts from that look.
+    var defaultGrade: EditRecipe?
+
     static let storageKey = "camera.settings.v1"
 
     /// Loads saved settings, filling any options added since they were saved with defaults
@@ -311,7 +329,18 @@ struct CameraSettings: Codable, Equatable {
     /// ones (e.g. `proControls`) are ignored.
     static func decodeSaved(_ data: Data) -> CameraSettings? {
         TolerantJSON.decode(CameraSettings.self, from: data, defaults: CameraSettings()) { saved in
+            // The default grade is an EditRecipe: fill keys it lacks (saved by an older
+            // version) the same way saved edits are, or the whole settings blob would fail.
             var saved = saved
+            if let grade = saved["defaultGrade"] as? [String: Any],
+               let data = try? JSONSerialization.data(withJSONObject: grade),
+               let decoded = EditRecipe.decodeSaved(data),
+               let object = TolerantJSON.object(decoded) {
+                saved["defaultGrade"] = object
+            } else if saved["defaultGrade"] != nil {
+                // Unreadable: drop just the grade, never the whole setup.
+                saved.removeValue(forKey: "defaultGrade")
+            }
             // A look that's no longer offered moves to its successor, or to Original, so
             // the camera never applies (or shows) a look the pickers can't select.
             if let id = saved["captureLook"] as? String, Look.named(id) == nil {
@@ -414,11 +443,12 @@ enum Stops {
 extension CameraSettings {
     static let printLookID = "print"
 
-    /// The modes the mode picker offers.
-    var availableModes: [CaptureMode] { printPlacement == .mode ? [.photo, .print, .video] : [.photo, .video] }
+    /// The modes the mode picker offers. P&S Studio: Print is always a mode (the simple
+    /// one: no format pill, no LOOK cell) and also one of Photo's looks.
+    var availableModes: [CaptureMode] { [.photo, .print, .video] }
 
-    /// The looks the camera's LOOK picker offers (Print only when it isn't a mode), from
-    /// the chosen set (`lookSet`) or all of them.
+    /// The looks the camera's LOOK picker offers (Print included), from the chosen set
+    /// (`lookSet`) or all of them.
     var filterLooks: [Look] {
         let set = LookSet.named(lookSet)
         return Look.all.filter { offersInStrip($0) && (set == nil || $0.set == set) }
@@ -434,42 +464,50 @@ extension CameraSettings {
         return looks
     }
 
-    /// How many cards a set puts in the strip (Print is left out while it's a mode).
+    /// How many cards a set puts in the strip.
     func stripCount(of set: LookSet) -> Int { set.looks.filter(offersInStrip).count }
 
-    private func offersInStrip(_ look: Look) -> Bool {
-        look.id != "none" && (printPlacement == .filter || look.id != Self.printLookID)
-    }
+    private func offersInStrip(_ look: Look) -> Bool { look.id != "none" }
 
     /// The look applied to stills right now: Print in Print mode, otherwise the chosen
-    /// look (Print counts as one of the looks only while it isn't a mode).
+    /// look (which can be Print too).
     var activeLook: String? {
         switch mode {
         case .video: nil
         case .print: Self.printLookID
-        case .photo: printPlacement == .mode && captureLook == Self.printLookID ? nil : captureLook
+        case .photo: captureLook
         }
     }
 
-    /// The active look shoots the sensor's Bayer RAW and develops it itself (Print, like
-    /// Zero processing), so the film model gets real scene light.
+    /// The grade a new shot starts with: the default grade if its look is the active one,
+    /// otherwise the active look as designed.
+    var startingGrade: EditRecipe? {
+        guard mode.isStill else { return nil }   // video records no grade
+        // "none" and nil both mean no look.
+        func norm(_ id: String?) -> String? { id == "none" ? nil : id }
+        if let g = defaultGrade, norm(g.look) == norm(activeLook) { return g }
+        return Look.named(activeLook)?.recipe
+    }
+
+    /// Every photo is a RAW (the app's own library develops it). ProRAW by default (zoom
+    /// works; it's what Chromagraph shoots and Phromagraph was fitted on); Bayer RAW, the
+    /// sensor's single frame, when chosen. `.off` (settings from before RAW-only) = ProRAW.
+    var shootsProRAW: Bool { rawMode != .bayer }
+    /// The active look is a film stock (it develops from scene light).
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
-    /// We capture Bayer RAW and develop it ourselves: Zero processing, or a film look.
-    var developsBayerRAW: Bool { processing == .zero || captureLookNeedsRAW }
+    /// We capture Bayer RAW and develop it ourselves.
+    var developsBayerRAW: Bool { !shootsProRAW }
 
     /// The plain live view applies now: the option is on and the photo comes from the RAW
     /// alone (Print, Zero, a RAW-capturing look) in a still mode.
-    var wantsPlainLiveView: Bool { plainLiveView && mode.isStill && developsBayerRAW }
+    /// Every P&S Studio photo develops from the RAW alone (ProRAW or Bayer), so it applies
+    /// in every still mode.
+    var wantsPlainLiveView: Bool { plainLiveView && mode.isStill }
 
     /// Bayer RAW is the sensor's full frame, and AVFoundation throws (an instant crash) if
-    /// it's captured while digitally zoomed. Modes that shoot it lock zoom at 1×.
-    var zoomLocked: Bool { mode.isStill && (developsBayerRAW || rawMode == .bayer) }
+    /// it's captured while digitally zoomed. Bayer RAW locks zoom at 1×; ProRAW zooms.
+    var zoomLocked: Bool { mode.isStill && !shootsProRAW }
 
     /// What to call the zoom-locked mode in a toast.
-    var zoomLockReason: String {
-        if mode == .print { return "Print" }
-        if processing == .zero { return "Zero" }
-        if captureLookNeedsRAW { return Look.named(activeLook)?.name ?? "this look" }
-        return "Bayer RAW"
-    }
+    var zoomLockReason: String { mode == .print ? "Print" : "Bayer RAW" }
 }

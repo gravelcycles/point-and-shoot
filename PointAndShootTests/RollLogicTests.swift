@@ -58,25 +58,33 @@ final class RollLogicTests: XCTestCase {
 
     // MARK: Thumbnail handoff
 
-    private func release(thumb: Bool = true, inFlight: Int = 0, lastSaved: String? = "new",
-                         developing: Set<String> = [], roll: [String] = ["new", "a"],
-                         latest: String? = "new") -> Bool {
-        ThumbnailHandoff.shouldRelease(hasCaptureThumbnail: thumb, capturesInFlight: inFlight,
-                                       lastSavedAssetID: lastSaved, developingIDs: developing,
-                                       rollContains: { roll.contains($0) },
-                                       latestThumbnailID: latest, newestAssetID: roll.first)
+    private let new = UUID()
+    private let old = UUID()
+
+    private func release(thumb: Bool = true, inFlight: Int = 0, saved: Bool = true,
+                         developing: Bool = false, inLibrary: Bool = true, showingNew: Bool = true) -> Bool {
+        let lib = inLibrary ? [new, old] : [old]
+        return ThumbnailHandoff.shouldRelease(hasCaptureThumbnail: thumb, capturesInFlight: inFlight,
+                                              lastSavedID: saved ? new : nil,
+                                              developing: developing ? [new] : [],
+                                              libraryContains: { lib.contains($0) },
+                                              shownID: showingNew ? new : old,
+                                              newestID: lib.first)
     }
 
-    func testHandsOverOnceTheRollShowsTheShot() {
+    func testHandsOverOnceTheLibraryShowsTheShot() {
         XCTAssertTrue(release())
     }
 
     func testKeepsTheCaptureThumbnailUntilEverythingIsReady() {
         XCTAssertFalse(release(thumb: false))
         XCTAssertFalse(release(inFlight: 1), "Another shot is still saving")
-        XCTAssertFalse(release(roll: ["a"]), "The roll doesn't have the shot yet")
-        XCTAssertFalse(release(latest: "a"), "The roll's thumbnail is still the previous photo")
-        XCTAssertFalse(release(developing: ["new"]), "Its look is still being baked")
-        XCTAssertFalse(release(lastSaved: nil))
+        XCTAssertFalse(release(showingNew: false), "The thumbnail shown is still the previous photo")
+        XCTAssertFalse(release(developing: true), "Its look is still being developed")
+    }
+
+    func testReleasesWhenTheShotIsGone() {
+        XCTAssertTrue(release(inLibrary: false), "Trashed before it was shown")
+        XCTAssertTrue(release(saved: false), "Nothing was saved")
     }
 }
