@@ -199,8 +199,8 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["editor.undo"].isEnabled, "dragging the slider made no edit")
         // ⓘ explains the tab's controls.
         app.buttons["editor.info"].tap()
-        XCTAssertTrue(app.staticTexts["How they work together"].waitForExistence(timeout: 3)
-                      || app.staticTexts["HOW THEY WORK TOGETHER"].exists, "no ⓘ card")
+        // The card is titled after the tab (Exposure, on Original: no "together" section).
+        XCTAssertTrue(app.navigationBars["Exposure"].waitForExistence(timeout: 3), "no ⓘ card")
         app.buttons["Done"].firstMatch.tap()
         // Every tool's sub-tabs exist.
         app.buttons["editor.tool.color"].tap()
