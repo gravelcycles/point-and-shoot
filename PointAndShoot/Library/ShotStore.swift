@@ -69,6 +69,30 @@ final class ShotStore {
             develop(shot.id)
         }
         settleFilmExposures()
+        migrateFilmEngines()
+    }
+
+    /// Film grades made with older film math move to the current engine once, with the new
+    /// sliders that match their old look (`FilmMigration`: exact for contrast and grain,
+    /// fitted for highlights/shadows and saturation), so every photo has today's controls.
+    /// Shots whose sliders changed re-render.
+    private func migrateFilmEngines() {
+        for shot in shots + trash {
+            let r = recipe(for: shot.id)
+            let result = FilmMigration.migrate(r, developsFromRAW: shot.isRAW && r.useRAW)
+            guard result.changed else { continue }
+            let url = dir(shot.id).appendingPathComponent("recipe.json")
+            do { try JSONEncoder().encode(result.recipe).write(to: url, options: .atomic) } catch {
+                Diag.error(.editor, "couldn't move the grade of \(shot.id.uuidString.prefix(8)) to film engine \(FilmRecipe.currentEngine)", error)
+                continue
+            }
+            recipes[shot.id] = result.recipe
+            var sameSliders = result.recipe
+            sameSliders.film?.engine = r.film?.engine
+            Diag.log(.editor, "grade \(shot.id.uuidString.prefix(8)) moved from film engine \(r.film?.renderEngine ?? 1) to \(FilmRecipe.currentEngine)"
+                     + String(format: " (grey-scale fit error %.3f): ", result.toneError) + result.recipe.developSummary)
+            if sameSliders != r, shots.contains(where: { $0.id == shot.id }) { develop(shot.id) }
+        }
     }
 
     /// Film shots still on an earlier build's automatic develop exposure (#42's +1.86,
@@ -130,6 +154,9 @@ final class ShotStore {
              id: UUID = UUID()) async throws -> Shot {
         var shot = Shot(id: id, captured: captured, kind: kind, original: "original.\(fileExtension)")
         shot.added = Date()
+        // A grade made with older film math (an imported archive, a Default Grade) moves to
+        // today's, looking the same (`FilmMigration`).
+        let recipe = FilmMigration.migrate(recipe, developsFromRAW: kind != .processed && recipe.useRAW).recipe
         shot.readMetadata(from: original)
         let dir = self.dir(id)
         let record = shot
@@ -180,7 +207,11 @@ final class ShotStore {
         r.freezeFilmTuning()
         // A film grade develops its RAW at the fixed exposure for its RAW type (picking a
         // look leaves it to the photo), the same as the editor showed.
-        if let shot = shot(id) { r = r.withFilmDevelopExposure(for: shot) }
+        if let shot = shot(id) {
+            r = r.withFilmDevelopExposure(for: shot)
+            // A pasted grade from older film math moves to today's, looking the same.
+            r = FilmMigration.migrate(r, developsFromRAW: shot.isRAW && r.useRAW).recipe
+        }
         let url = dir(id).appendingPathComponent("recipe.json")
         do { try JSONEncoder().encode(r).write(to: url, options: .atomic) } catch {
             Diag.error(.editor, "couldn't save the grade of \(id.uuidString.prefix(8))", error)

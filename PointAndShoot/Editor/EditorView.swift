@@ -513,12 +513,11 @@ struct EditorView: View {
             GradeSlider(adjustment: a,
                         value: Binding(get: { session.recipe[keyPath: a.keyPath] },
                                        set: { v in
-                                           // An older photo moves to today's film engine when
-                                           // that changes nothing yet, or when this slider is
-                                           // one whose behaviour an engine changed.
-                                           var r = EditRecipe.engineGatedSliders.contains(a.id)
-                                               ? session.recipe.onCurrentFilmEngine()
-                                               : session.recipe.onCurrentFilmEngineIfUnchanged()
+                                           // An edit still on older film math moves to today's
+                                           // with the sliders that match its look (the store
+                                           // does this at launch; this covers the rest).
+                                           var r = FilmMigration.migrate(session.recipe,
+                                                                         developsFromRAW: session.developsFromRAW).recipe
                                            r[keyPath: a.keyPath] = v
                                            session.recipe = r
                                        }),

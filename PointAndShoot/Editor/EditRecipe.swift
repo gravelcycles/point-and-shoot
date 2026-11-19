@@ -170,21 +170,6 @@ struct EditRecipe: Codable, Equatable {
         set { film?.pixelGrain = newValue ? true : nil }
     }
 
-    /// This edit on the current film engine, whatever it was on (a new shot starting from a
-    /// Default Grade saved with older math gets today's).
-    func onCurrentFilmEngine() -> EditRecipe {
-        guard film != nil, film?.engine != FilmRecipe.currentEngine else { return self }
-        var r = self
-        r.film?.engine = FilmRecipe.currentEngine
-        return r
-    }
-
-    /// Sliders whose behaviour an engine changed: moving one moves the photo to the current
-    /// engine (the owner wants today's Highlights, Shadows, Contrast and grain on every
-    /// photo they touch, not only on ones whose sliders were still at 0).
-    static let engineGatedSliders: Set<String> = ["highlights", "shadows", "contrast", "pivot", "saturation",
-                                                  "grain", "grainSize"]
-
     /// Slider views of the optional fields: the default is stored as nil.
     var gradeShadowHueValue: Double {
         get { gradeShadowHue ?? 210 }
@@ -306,26 +291,6 @@ struct EditRecipe: Codable, Equatable {
             curve: [curveHighlightsValue, curveLightsValue, curveDarksValue, curveShadowsValue].map { $0 / 100 },
             tints: [gradeShadowHueValue, gradeShadowAmountValue / 100, gradeMidHueValue, gradeMidAmountValue / 100,
                     gradeHighlightHueValue, gradeHighlightAmountValue / 100])
-    }
-
-    /// Whether moving this film edit to the current engine changes nothing it renders:
-    /// each engine only changed sliders away from 0 (3: Saturation above 0; 4: Highlights
-    /// and Shadows; 5: those and Contrast). Engine 1 (and unversioned) edits stay, since
-    /// engine 2 changed how processed photos un-render at any setting.
-    var canMoveToCurrentFilmEngine: Bool {
-        guard let e = film?.engine, e >= 2 else { return false }
-        if e >= FilmRecipe.currentEngine { return true }
-        if e < 3 && saturation > 0 { return false }
-        return highlights == 0 && shadows == 0 && contrast == 0
-    }
-
-    /// This edit on the current film engine where that changes nothing yet (the editor
-    /// does this before a slider moves, so an older photo gets today's slider ranges).
-    func onCurrentFilmEngineIfUnchanged() -> EditRecipe {
-        guard canMoveToCurrentFilmEngine, film?.engine != FilmRecipe.currentEngine else { return self }
-        var r = self
-        r.film?.engine = FilmRecipe.currentEngine
-        return r
     }
 
     /// Always-24-values view of the mixer, for key-path based sliders.

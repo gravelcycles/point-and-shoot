@@ -443,14 +443,22 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
         and `canonical` gives table caches the same keys.
       - The print cube takes the per-cell path while it re-exposes (a 2048-step shift table
         and an 8192-step print-density table per channel; parity < 1e-6).
-      - **Older photos move up:** before a slider moves, the editor calls
-        `EditRecipe.onCurrentFilmEngineIfUnchanged()` (an engine-2+ edit whose engine-gated
-        sliders are all at 0 moves, since that renders identically), and moving one of
-        `EditRecipe.engineGatedSliders` (Highlights, Shadows, Contrast, Pivot, Saturation,
-        Grain, Grain Size) moves the photo to the current engine whatever it was (the owner,
-        2026-11-19, didn't see the new ranges: their photos had sliders moved or started from
-        an older Default Grade). New shots' Default Grade is put on the current engine too
-        (`CameraSettings.startingGrade`, `onCurrentFilmEngine`).
+      - **Older photos are migrated, not kept on old controls** (the owner: "can't you pick a
+        setting in the new version that matched the old version?"): `FilmMigration.migrate`
+        moves an edit to the current engine with the sliders that match its old look, at
+        launch for every shot (`ShotStore.migrateFilmEngines`, re-rendering those whose
+        sliders changed), on paste and import (`setRecipe`, `add`), for the Default Grade
+        (`startingGrade`), and in the editor before a slider moves.
+        - Exact: Contrast (old 2^(c/2) print gamma = new c/2, or 2c/3 below 0), grain (same
+          σ and std at a 4032 px export: amount ÷ 0.88, size ÷ 3), engine 1 → 2 for photos
+          developed from RAW.
+        - Fitted on the stock's grey scale (−7…+5 stops, encoded luminance; hue protection
+          off): Highlights/Shadows on a 21×21 grid then ±10 at 2, each with the tone curve's
+          four sliders solved by least squares where the edit has no curve. Shadows land
+          within ~1–4%; strong old Highlights stay ~5–20% off at the very ends (different
+          shapes). Saturation from engines 1–2 on six rich colours. The fit error is logged
+          per shot ("grey-scale fit error").
+        - A processed photo (no RAW) on engine 1 keeps its engine (its un-render changed).
     - 6 (now): grain sized to the frame and as strong at every size, like Chromagraph's
       (`FilmPipeline.addGrain` `frame`): σ = stock grain size × 3 (‰ of the long side) ×
       the Grain Size slider, std = grain density × 0.88 × amount, no averaging down for
