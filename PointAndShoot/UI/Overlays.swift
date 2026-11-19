@@ -251,6 +251,38 @@ struct AudioMeter: View {
     }
 }
 
+/// How far a batch (import, export, share, archive) has got: "Importing 3 of 12".
+struct BatchProgress: Equatable {
+    var verb: String
+    var done: Int
+    var total: Int
+    var text: String { total > 1 ? "\(verb) \(min(done + 1, total)) of \(total)" : "\(verb)…" }
+}
+
+/// A batch's progress as a pill: what's happening, "x of N", and a bar.
+struct ProgressPill: View {
+    let progress: BatchProgress
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(progress.text)
+                .font(.system(size: 13, weight: .semibold))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            if progress.total > 1 {
+                ProgressView(value: Double(progress.done), total: Double(progress.total))
+                    .tint(.tan)
+                    .frame(width: 160)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("batch.progress")
+    }
+}
+
 struct Toast: View {
     let text: String
     var body: some View {

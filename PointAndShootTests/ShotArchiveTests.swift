@@ -75,6 +75,12 @@ final class ShotArchiveTests: XCTestCase {
         }
     }
 
+    func testBatchProgressText() {
+        XCTAssertEqual(BatchProgress(verb: "Importing", done: 0, total: 12).text, "Importing 1 of 12")
+        XCTAssertEqual(BatchProgress(verb: "Importing", done: 12, total: 12).text, "Importing 12 of 12")
+        XCTAssertEqual(BatchProgress(verb: "Exporting", done: 0, total: 1).text, "Exporting…")
+    }
+
     func testArchiveAndImportRoundTrip() async throws {
         let when = Date(timeIntervalSince1970: 1_800_000_000)
         var grade = EditRecipe()
@@ -87,11 +93,23 @@ final class ShotArchiveTests: XCTestCase {
         store.setKeep(true, for: [a.id])
         await waitForRenders()
 
-        let zip = try await ShotArchive.makeZip(store.shots, store: store)
+        var zipped: [Int] = []
+        let zip = try await ShotArchive.makeZip(store.shots, store: store) { done, total in
+            XCTAssertEqual(total, 2)
+            zipped.append(done)
+        }
         defer { try? FileManager.default.removeItem(at: zip) }
+        try? await Task.sleep(nanoseconds: 200_000_000)      // the last callback hops to the main actor
+        XCTAssertEqual(zipped.first, 0, "progress starts at 0 of 2")
+        XCTAssertEqual(zipped.max(), 2, "and reaches 2 of 2")
 
         // Importing into the same library skips both.
-        let again = try await ShotArchive.importZip(at: zip, store: store)
+        var counted: [Int] = []
+        let again = try await ShotArchive.importZip(at: zip, store: store) { done, total in
+            XCTAssertEqual(total, 2)
+            counted.append(done)
+        }
+        XCTAssertEqual(counted, [0, 1], "one step per archived shot")
         XCTAssertEqual(again.imported, 0)
         XCTAssertEqual(again.skipped, 2)
 

@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var showRAWPicker = false
     @State private var showArchivePicker = false
     @State private var importing = false
+    /// "Importing 3 of 12" while an import runs.
+    @State private var importProgress: BatchProgress?
     @State private var importMessage: String?
     @State private var confirmReset: ResetKind?
     /// Turning Store Forever off would move this many photos to the Trash right away.
@@ -72,8 +74,11 @@ struct SettingsView: View {
                         importing = true
                         Task {
                             let grade = camera.settings.defaultGrade ?? EditRecipe()
-                            let r = await ShotArchive.importPicked(results, store: ShotStore.shared, grade: grade)
+                            let r = await ShotArchive.importPicked(results, store: ShotStore.shared, grade: grade) { done, total in
+                                importProgress = BatchProgress(verb: "Importing", done: done, total: total)
+                            }
                             importing = false
+                            importProgress = nil
                             importMessage = r.summary
                         }
                     }
@@ -84,12 +89,15 @@ struct SettingsView: View {
                     importing = true
                     Task {
                         do {
-                            let r = try await ShotArchive.importZip(at: url, store: ShotStore.shared)
+                            let r = try await ShotArchive.importZip(at: url, store: ShotStore.shared) { done, total in
+                                importProgress = BatchProgress(verb: "Restoring", done: done, total: total)
+                            }
                             importMessage = r.summary
                         } catch {
                             importMessage = error.localizedDescription
                         }
                         importing = false
+                        importProgress = nil
                     }
                 }
                 Color.clear.alert("Import", isPresented: Binding(get: { importMessage != nil },
@@ -166,6 +174,7 @@ struct SettingsView: View {
             .disabled(importing)
             .settingsRow()
             .accessibilityIdentifier("settings.importRAW")
+            if let p = importProgress, p.verb == "Importing" { importProgressRow(p) }
         } header: {
             Text("Import from Photos")
         } footer: {
@@ -184,6 +193,7 @@ struct SettingsView: View {
             .disabled(importing)
             .settingsRow()
             .accessibilityIdentifier("settings.importArchive")
+            if let p = importProgress, p.verb == "Restoring" { importProgressRow(p) }
         } header: {
             Text("Import Archive")
         } footer: {
@@ -400,6 +410,15 @@ struct SettingsView: View {
             Text("For every export and share. Export Size is the longest side; Actual Size keeps each photo's own (cropped) resolution.")
         }
         DefaultGradeSection(camera: camera)
+    }
+
+    /// "Importing 3 of 12" and a bar, under the import buttons while an import runs.
+    private func importProgressRow(_ p: BatchProgress) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(p.text).font(.footnote).monospacedDigit().foregroundStyle(.secondary)
+            if p.total > 1 { ProgressView(value: Double(p.done), total: Double(p.total)).tint(.tan) }
+        }
+        .accessibilityIdentifier("settings.importProgress")
     }
 
     // MARK: Resets

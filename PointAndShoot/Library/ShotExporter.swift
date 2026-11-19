@@ -58,10 +58,12 @@ enum ShotExporter {
 
     /// Saves each shot, rendered, to Photos. Returns how many were saved.
     @discardableResult
-    static func exportToPhotos(_ shots: [Shot], store: ShotStore, options: Options) async throws -> Int {
+    static func exportToPhotos(_ shots: [Shot], store: ShotStore, options: Options,
+                               progress: (Int, Int) -> Void = { _, _ in }) async throws -> Int {
         try await PhotoLibrary.ensureAddAccess()
         var saved: [UUID] = []
-        for shot in shots {
+        for (index, shot) in shots.enumerated() {
+            progress(index, shots.count)
             guard let data = await render(shot, store: store, options: options) else { throw ExportError.couldNotRender }
             let location = shot.latitude.flatMap { lat in shot.longitude.map { CLLocation(latitude: lat, longitude: $0) } }
             try await PhotoLibrary.saveCopy(data: data, location: location)
@@ -73,7 +75,8 @@ enum ShotExporter {
     }
 
     /// Rendered files in a temporary folder, for the share sheet.
-    static func shareFiles(_ shots: [Shot], store: ShotStore, options: Options) async -> [URL] {
+    static func shareFiles(_ shots: [Shot], store: ShotStore, options: Options,
+                           progress: (Int, Int) -> Void = { _, _ in }) async -> [URL] {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Share", isDirectory: true)
         try? FileManager.default.removeItem(at: dir)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -82,6 +85,7 @@ enum ShotExporter {
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         var urls: [URL] = []
         for (i, shot) in shots.enumerated() {
+            progress(i, shots.count)
             guard let data = await render(shot, store: store, options: options) else { continue }
             let name = "PS-\(formatter.string(from: shot.captured))\(shots.count > 1 ? "-\(i + 1)" : "")"
             let url = dir.appendingPathComponent(name).appendingPathExtension(options.format.fileExtension)

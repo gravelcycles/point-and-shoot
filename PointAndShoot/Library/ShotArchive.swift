@@ -20,8 +20,10 @@ enum ShotArchive {
 
     /// The shots' original RAW files into Photos, as plain RAW photos.
     @discardableResult
-    static func archiveToPhotos(_ shots: [Shot], store: ShotStore) async throws -> Int {
+    static func archiveToPhotos(_ shots: [Shot], store: ShotStore,
+                                progress: (Int, Int) -> Void = { _, _ in }) async throws -> Int {
         var n = 0
+        progress(0, shots.count)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd_HHmmss"
@@ -38,21 +40,27 @@ enum ShotArchive {
                 try await PhotoLibrary.savePhoto(primary: data, rawCompanion: nil, location: location)
             }
             n += 1
+            progress(n, shots.count)
         }
         Diag.log(.save, "archived \(n) RAW to Photos")
         return n
     }
 
     /// A zip of the shots (original, grade, record, camera preview) in a temporary folder.
-    static func makeZip(_ shots: [Shot], store: ShotStore) async throws -> URL {
+    static func makeZip(_ shots: [Shot], store: ShotStore,
+                        progress: @escaping (Int, Int) -> Void = { _, _ in }) async throws -> URL {
         var files: [(path: String, source: URL)] = []
-        for shot in shots {
+        var shotOfFile: [Int] = []      // how many shots are complete once each file is written
+        for (i, shot) in shots.enumerated() {
             let dir = store.dir(shot.id)
             for name in [shot.original] + archivedFiles
             where FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path) {
                 files.append(("\(shot.id.uuidString)/\(name)", dir.appendingPathComponent(name)))
+                shotOfFile.append(i)
             }
+            if !shotOfFile.isEmpty, shotOfFile.last == i { shotOfFile[shotOfFile.count - 1] = i + 1 }
         }
+        progress(0, shots.count)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd-HHmm"
@@ -66,8 +74,13 @@ enum ShotArchive {
             .appendingPathComponent("Point & Shoot RAW \(formatter.string(from: Date())) (\(shots.count)).zip")
         try? FileManager.default.removeItem(at: url)
         let entries = files
+        let done = shotOfFile
+        let total = shots.count
         try await Task.detached(priority: .userInitiated) {
-            try ZipArchive.write(entries, to: url)
+            try ZipArchive.write(entries, to: url) { n in
+                let shotsDone = done[n - 1]
+                Task { @MainActor in progress(shotsDone, total) }
+            }
         }.value
         Diag.log(.save, "archived \(shots.count) to a zip")
         return url
@@ -93,7 +106,8 @@ enum ShotArchive {
 
     /// Brings back a zip made by Archive RAW: each folder is one shot, keeping its id,
     /// date, Keep tag and grade. Shots already in the library (same id) are skipped.
-    static func importZip(at url: URL, store: ShotStore) async throws -> ImportResult {
+    static func importZip(at url: URL, store: ShotStore,
+                          progress: (Int, Int) -> Void = { _, _ in }) async throws -> ImportResult {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         // Parsing, inflating and checking DNGs is heavy: all of it off the main thread. The
@@ -105,7 +119,8 @@ enum ShotArchive {
             return (ArchiveData(data: data), groups)
         }.value
         var result = ImportResult()
-        for group in groups {
+        for (index, group) in groups.enumerated() {
+            progress(index, groups.count)
             do {
                 let files = group.files
                 // The small record first: shots already here are skipped without inflating
@@ -167,9 +182,11 @@ enum ShotArchive {
 
     /// RAWs picked in the system photo picker, copied into the library with the default
     /// grade. A pick without a RAW (a plain HEIF/JPEG) is skipped: the library is RAW only.
-    static func importPicked(_ results: [PHPickerResult], store: ShotStore, grade: EditRecipe) async -> ImportResult {
+    static func importPicked(_ results: [PHPickerResult], store: ShotStore, grade: EditRecipe,
+                             progress: (Int, Int) -> Void = { _, _ in }) async -> ImportResult {
         var result = ImportResult()
-        for item in results {
+        for (index, item) in results.enumerated() {
+            progress(index, results.count)
             let provider = item.itemProvider
             guard let type = provider.registeredTypeIdentifiers.first(where: { id in
                 UTType(id)?.conforms(to: .rawImage) == true
