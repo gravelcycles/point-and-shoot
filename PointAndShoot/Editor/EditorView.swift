@@ -95,12 +95,18 @@ struct EditorView: View {
         case .tone:
             var tabs = [
                 EditorSubTab(id: "exposure", name: "Exposure", controls: [.slider(adj("exposure"))]),
-                EditorSubTab(id: "contrast", name: "Contrast", controls: [.slider(adj("contrast")), .slider(adj("fade"))]),
+                // Film looks: Contrast turns about a Pivot (like Chromagraph's), so Fade
+                // gets its own tab (the panel fits two sliders).
+                EditorSubTab(id: "contrast", name: "Contrast",
+                             controls: [.slider(adj("contrast")), .slider(adj(isFilm ? "pivot" : "fade"))]),
                 EditorSubTab(id: "shadowHighlight", name: "Shadow/Highlight",
                              controls: [.slider(adj("highlights")), .slider(adj("shadows"))]),
                 EditorSubTab(id: "whitesBlacks", name: "Whites/Blacks",
                              controls: [.slider(adj("whites")), .slider(adj("blacks"))]),
             ]
+            if isFilm {
+                tabs.insert(EditorSubTab(id: "fade", name: "Fade", controls: [.slider(adj("fade"))]), at: 4)
+            }
             if session.hasRAW {
                 tabs.append(EditorSubTab(id: "raw", name: "RAW", controls: [
                     .slider(adj("rawLTM")), .slider(adj("rawBoost")),
@@ -122,7 +128,7 @@ struct EditorView: View {
                                      controls: [.bands] + Adjustment.mixer(colorBand).map { .slider($0) }))
             return tabs
         case .texture:
-            var tabs = [EditorSubTab(id: "grain", name: "Grain", controls: [.slider(adj("grain"))])]
+            var tabs = [EditorSubTab(id: "grain", name: "Grain", controls: [.slider(adj("grain")), .slider(adj("grainSize"))])]
             if isFilm {
                 tabs.append(EditorSubTab(id: "halation", name: "Halation", controls: [.slider(adj("halation"))]))
             }
@@ -401,13 +407,23 @@ struct EditorView: View {
         switch control {
         case .slider(let a):
             let rawOnly = ["rawLTM", "rawBoost", "rawNR"].contains(a.id)
+            // Pivot needs film engine 5; an older edit with Contrast or Highlights/Shadows
+            // already moved keeps its engine (picking the look again updates it).
+            let off = (rawOnly && !session.developsFromRAW)
+                || (a.id == "pivot" && (session.recipe.film?.renderEngine ?? 0) < 5 && !session.recipe.canMoveToCurrentFilmEngine)
             GradeSlider(adjustment: a,
                         value: Binding(get: { session.recipe[keyPath: a.keyPath] },
-                                       set: { session.recipe[keyPath: a.keyPath] = $0 }),
+                                       set: { v in
+                                           // An older photo moves to today's film engine (and
+                                           // its slider ranges) when that changes nothing yet.
+                                           var r = session.recipe.onCurrentFilmEngineIfUnchanged()
+                                           r[keyPath: a.keyPath] = v
+                                           session.recipe = r
+                                       }),
                         defaultValue: defaultValue(a),
                         onBegin: pushUndo)
-                .disabled(rawOnly && !session.developsFromRAW)
-                .opacity(rawOnly && !session.developsFromRAW ? 0.35 : 1)
+                .disabled(off)
+                .opacity(off ? 0.35 : 1)
         case .toggle(let id, let name, let keyPath):
             Toggle(isOn: Binding(get: { session.recipe[keyPath: keyPath] },
                                  set: { v in pushUndo(); withAnimation(.snappy) { session.recipe[keyPath: keyPath] = v } })) {
@@ -698,14 +714,7 @@ struct GradeSlider: View {
 
     private var range: ClosedRange<Double> { adjustment.range }
 
-    private var label: String {
-        if adjustment.id == "exposure" {
-            // Exposure is ±2 stops across the slider.
-            return String(format: "%+.1f", value / 50)
-        }
-        let i = Int(value.rounded())
-        return adjustment.isBipolar && i > 0 ? "+\(i)" : "\(i)"
-    }
+    private var label: String { adjustment.label(value) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

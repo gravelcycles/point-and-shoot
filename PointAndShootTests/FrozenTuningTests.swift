@@ -317,9 +317,8 @@ final class FrozenTuningTests: XCTestCase {
     /// Engine 4 changes only how far Highlights and Shadows go: at 0 it renders exactly like
     /// engine 3; with them moved it goes about twice as far; engine 3 photos keep theirs.
     func testEngineFourMakesHighlightsAndShadowsGoFurther() {
-        XCTAssertEqual(FilmRecipe.currentEngine, 4)
         var r = printRecipe
-        XCTAssertEqual(r.film?.engine, 4, "new looks pin engine 4")
+        r.film?.engine = 4
         var engine3 = r
         engine3.film?.engine = 3
         XCTAssertLessThan(maxDiff(pixels(engine3), pixels(r)), 1e-4, "engine 4 must render like engine 3 at 0")
@@ -364,6 +363,120 @@ final class FrozenTuningTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// Engine 5 (Chromagraph's ranges): at every slider's default it renders exactly like
+    /// engine 4; Highlights and Shadows go much further (whole regions re-exposed);
+    /// Contrast goes further and turns about its Pivot, which does nothing at Contrast 0.
+    func testEngineFiveReExposesRegionsAndPivotsContrast() {
+        XCTAssertEqual(FilmRecipe.currentEngine, 5)
+        let r = printRecipe
+        XCTAssertEqual(r.film?.engine, 5, "new looks pin engine 5")
+        var engine4 = r
+        engine4.film?.engine = 4
+        XCTAssertLessThan(maxDiff(pixels(engine4), pixels(r)), 1e-4, "engine 5 must render like engine 4 at the defaults")
+        var pivotOnly = r
+        pivotOnly.contrastPivot = 5
+        XCTAssertLessThan(maxDiff(pixels(pivotOnly), pixels(r)), 1e-4, "a pivot turns nothing at Contrast 0")
+        func mean(_ recipe: EditRecipe) -> Float {
+            let p = pixels(recipe); var sum: Float = 0
+            for i in stride(from: 0, to: p.count, by: 4) { sum += 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2] }
+            return sum / Float(p.count / 4)
+        }
+        let base = mean(r)
+        for (h, s) in [(100.0, 0.0), (-100.0, 0.0), (0.0, 100.0), (0.0, -100.0)] {
+            var a = r, b = engine4
+            a.highlights = h; a.shadows = s; b.highlights = h; b.shadows = s
+            let five = mean(a) - base, four = mean(b) - base
+            XCTAssertEqual(five.sign, four.sign, "same direction (h \(h), s \(s))")
+            XCTAssertGreaterThan(abs(five), abs(four), "engine 5 goes further (h \(h), s \(s)): \(five) vs \(four)")
+        }
+        // Contrast about a dark pivot brightens the picture; about a bright one, darkens it.
+        var low = r, high = r
+        low.contrast = 100; low.contrastPivot = 5
+        high.contrast = 100; high.contrastPivot = 95
+        XCTAssertGreaterThan(mean(low), base)
+        XCTAssertLessThan(mean(high), base)
+    }
+
+    /// Engine 5's re-exposure can't fold the tone curve: every look's grey ramp rises at
+    /// every combination of Highlights, Shadows, Contrast and Pivot extremes.
+    func testToneRegionsKeepEveryGreyRampMonotonic() {
+        var worst = 1.0, worstAt = ""
+        defer { print("tone regions: worst grey-ramp step ratio \(worst) (\(worstAt))") }
+        for stock in FilmStock.all.values {
+            for h in [-1.0, 0, 1] {
+                for s in [-1.0, 0, 1] {
+                    for (k, p) in [(0.0, 0.0), (1, -3.5), (1, 2.3), (-1, -3.5), (-1, 2.3)] {
+                        let c = FilmControls(contrast: k, highlights: h, shadows: s, subtractiveSaturation: true,
+                                             strongTone: true, toneRegions: true, pivot: p)
+                        var last = -1.0
+                        for i in 0...300 {
+                            let v = FilmLUT.neutralResponse(stops: -8 + Double(i) * 0.05, stock: stock, controls: c)
+                            let y = 0.2290 * v.0 + 0.6917 * v.1 + 0.0793 * v.2
+                            if y > 1.0 / 255 && last > 1.0 / 255 {
+                                if y / last < worst { worst = y / last; worstAt = "\(stock.id) h \(h) s \(s) c \(k) p \(p)" }
+                                XCTAssertGreaterThanOrEqual(y, last * (1 - 0.005), "\(stock.id) h \(h) s \(s) c \(k) p \(p)")
+                            }
+                            last = y
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// An older photo moves to the current engine (and its slider ranges) only while that
+    /// changes nothing it renders.
+    func testOlderEditsMoveToTheCurrentEngineOnlyWhenNothingChanges() {
+        var r = printRecipe
+        r.film?.engine = 3
+        XCTAssertEqual(r.onCurrentFilmEngineIfUnchanged().film?.engine, FilmRecipe.currentEngine)
+        var moved = r
+        moved.highlights = 20
+        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, 3, "Highlights already moved")
+        moved = r
+        moved.contrast = -10
+        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, 3, "Contrast already moved")
+        moved = r
+        moved.film?.engine = 2
+        moved.saturation = 30
+        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, 2, "Saturation already raised on engine 2")
+        moved.saturation = -30
+        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, FilmRecipe.currentEngine)
+        moved.film?.engine = nil
+        XCTAssertNil(moved.onCurrentFilmEngineIfUnchanged().film?.engine, "unversioned edits stay on engine 1")
+    }
+
+    /// The editor's ranges: Exposure ±6 stops (Chromagraph's), grain up to 4× the look's, and
+    /// untouched new sliders leave an edit unchanged.
+    func testEditorRangesAndNewSlidersDefaultToNil() {
+        let exposure = Adjustment.catalog["exposure"]!
+        XCTAssertEqual(exposure.range, -300...300)
+        XCTAssertEqual(exposure.label(300), "+6.0")
+        XCTAssertEqual(exposure.label(-25), "-0.5")
+        XCTAssertEqual(Adjustment.catalog["grain"]!.range.upperBound, 4 * FilmRecipe.defaultGrain)
+        XCTAssertEqual(Adjustment.catalog["grainSize"]!.label(100), "1.00×")
+        XCTAssertEqual(Adjustment.catalog["pivot"]!.label(35), "0.35")
+        var r = printRecipe
+        r.grainSizeValue = 100
+        r.contrastPivotValue = FilmControls.defaultPivot
+        XCTAssertNil(r.grainSize)
+        XCTAssertNil(r.contrastPivot)
+        XCTAssertEqual(r, printRecipe)
+        XCTAssertEqual(FilmControls.pivotStops(FilmControls.defaultPivot), 0, accuracy: 1e-12)
+        XCTAssertEqual(FilmControls.pivotStops(0), -3.5)
+        XCTAssertGreaterThan(FilmControls.pivotStops(100), 2)
+        // The RAW develop takes up to ±4 stops; the rest is applied after it.
+        var bright = EditRecipe()
+        bright.exposure = 300
+        XCTAssertEqual(EditPipeline.rawExposureSplit(bright).develop, 4)
+        XCTAssertEqual(EditPipeline.rawExposureSplit(bright).after, 2)
+        var film = printRecipe
+        film.rawFilmExposure = 1.6
+        film.exposure = -300
+        XCTAssertEqual(EditPipeline.rawExposureSplit(film).develop, -4)
+        XCTAssertEqual(EditPipeline.rawExposureSplit(film).after, -0.4, accuracy: 1e-9)
     }
 
     /// Engine 3 changes only the Saturation slider: with it at 0, an engine-3 edit renders

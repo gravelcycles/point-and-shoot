@@ -172,6 +172,9 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
   - **Looks**: Print, Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks;
     Movie; and Grades, with live thumbnails and a set menu. Every look develops from the
     RAW.
+  - Ranges like Chromagraph's: **Exposure ±6 stops**; under a film look **Highlights** and
+    **Shadows** re-expose whole regions of the scene (up to ±3 stops) and **Contrast** goes
+    to ×2 around a **Pivot**; **Grain** up to 4× with its own **Grain Size**.
   - **Pinch to zoom** while you edit; hold ◧ to compare with the original.
   - **✓** saves the grade (the RAW is never touched; Reset to Original is always there).
     **⋯** has Copy/Paste Grade, Set as Default Grade (new shots start from it), Reset and

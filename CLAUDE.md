@@ -412,11 +412,41 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       More saturation pivots on each colour's least dense channel, as dye saturation does.
       Engines 1–2 spread about the mean and *brightened* rich colours: a yellow at +50
       went from 0.34 to 0.57 luminance.
-    - 4 (now): Highlights and Shadows go about twice as far (`FilmControls.strongTone`:
+    - 4: Highlights and Shadows go about twice as far (`FilmControls.strongTone`:
       0.42 D ≈ 1.4 stops at the bright end, 0.75 D ≈ 2.5 stops at the dark end, from
       0.22 / 0.45), the owner's "do more, go further". At 0 it renders exactly like engine 3.
       The grey ramp stays monotonic at every slider extreme for every look, except a 0.16%
       dip on Pastel where its blue hits the floor first (`testStrongToneKeepsEveryGreyRampMonotonic`).
+    - 5 (now): Chromagraph's ranges (`FilmControls.toneRegions`), from the owner's
+      screenshots of its editor on one scene (2026-11-19). Still "much further" after
+      engine 4: its Highlights +1 lifts everything but the deepest shadows ~3 stops, its
+      Shadows −1 crushes ~1.7 (+1 lifts ~0.5–1), and its Contrast turns about a Pivot.
+      - Highlights/Shadows no longer shift print density at the ends of the scale: they
+        re-expose the *negative* before printing, by `FilmControls.exposureShift(x)` of
+        the cell's neutral scene level x (stops from grey; inverse negative curve, shift,
+        forward curve). Logistic masks: Highlights ±3 stops (half at −3 stops, width 1);
+        Shadows +1 / −2.2 stops (half at +0.75, width 1). The film's curve, colours, grain
+        and hue protection see an ordinary exposure, so it reads like more light, not a
+        curve hack.
+      - It can't fold: the shift's slope stays above −0.75, so the grey ramp rises for
+        every look at every combination of extremes (`testToneRegionsKeepEveryGreyRampMonotonic`).
+      - Measured against Chromagraph (display stops at scene −1.5…+2.4): Highlights +1
+        +3.7…+0.5 (Chromagraph +3.5…+0.2), Shadows −1 −2.5…−0.3 (−2.3…−0.7), +1 +1.5…+0.1
+        (+1.0…0). Highlights −1 wasn't shown; it's the mirror image (darkens everything
+        above ~−3 stops), check it on the device.
+      - Contrast: print gamma ×0.59…2 (was ×0.71…1.41). Pivot (`EditRecipe.contrastPivot`,
+        0…100 like Chromagraph's 0…1, nil = 35 ≈ where grey prints) → stops
+        (`FilmControls.pivotStops`, −3.5…+2.3) → a constant pre-shift of pivot·(1/K − 1),
+        so the pivot is the level that stays put. Pivot does nothing at Contrast 0.
+      - At every default (Highlights, Shadows, Contrast 0) it renders exactly like engine 4,
+        and `canonical` gives table caches the same keys.
+      - The print cube takes the per-cell path while it re-exposes (a 2048-step shift table
+        and an 8192-step print-density table per channel; parity < 1e-6).
+      - **Older photos move up when nothing changes:** before a slider moves, the editor
+        calls `EditRecipe.onCurrentFilmEngineIfUnchanged()`: an engine-2+ edit whose
+        engine-gated sliders are all at 0 (Highlights, Shadows, Contrast; Saturation ≤ 0
+        from engine 2) moves to the current engine, since that renders identically. Others
+        keep theirs (the Pivot slider is greyed out) until the look is picked again.
     - Engines 2+ share engine 2's un-render and its tables (`FilmLUT.unrenderEngine`). At
       Saturation 0, engine 3 renders exactly like engine 2.
     - `freezeFilmTuning` pins engine 1 on unversioned edits, never the current engine.
@@ -677,7 +707,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
-  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 4;
+  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 5;
     `renderEngine` treats nil as 1, and `freezeFilmTuning` pins nil as 1). Pinning
     freezes a stock's numbers, not the code: a change to the math that would alter older
     photos must keep the old behaviour for older engines (engines 2 and 3 did: see
@@ -782,9 +812,12 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Import RAW Photos (system picker, no permission) and Import Archive in Preferences →
     General.
 - **Editor:**
-  - Tools: Looks (19 plus Original, in named sets) · Tone (Exposure, Contrast + Fade,
-    Shadow/Highlight, Whites/Blacks, RAW) · Color (Balance, Saturation + B&W, Crossover,
-    Mixer) · Texture (Grain, Halation, Detail, Vignette, Noise) · Crop. Each tool has
+  - Tools: Looks (19 plus Original, in named sets) · Tone (Exposure ±6 stops, Contrast +
+    Pivot under film looks / + Fade otherwise, Shadow/Highlight, Whites/Blacks, Fade (film),
+    RAW) · Color (Balance, Saturation + B&W, Crossover, Mixer) · Texture (Grain amount 0–200
+    = up to 4× the look's + Grain Size 0.25–3×, Halation, Detail, Vignette, Noise) · Crop.
+    Ranges follow Chromagraph's (the owner's screenshots, 2026-11-19); film engine 5 has
+    the tone details. Each tool has
     sub-tab pills and labelled `GradeSlider`s: a default mark and detent, double-tap to
     reset, one undo step per drag.
   - ✓ saves the grade. ⋯ offers Copy/Paste Grade, Set as Default Grade, Reset This Image,

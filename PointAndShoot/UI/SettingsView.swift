@@ -497,6 +497,7 @@ struct DefaultGradeSection: View {
             group("tone", "Tone", summary: String(format: "%+.1f Stops · Contrast %d", g.exposure / 50, Int(g.contrast))) {
                 slider("exposure")
                 slider("contrast")
+                if g.film != nil { slider("pivot") }
                 slider("highlights")
                 slider("shadows")
             }
@@ -513,6 +514,7 @@ struct DefaultGradeSection: View {
             }
             group("texture", "Texture", summary: "Grain \(Int(g.grain))\(g.film != nil ? " · Halation \(Int(g.filmHalation))" : "")") {
                 slider("grain")
+                slider("grainSize")
                 if g.film != nil { slider("halation") }
                 slider("vignette")
             }
@@ -541,8 +543,7 @@ private struct SettingsGradeRow: View {
             HStack {
                 Text(adjustment.name)
                 Spacer()
-                Text(adjustment.id == "exposure" ? String(format: "%+.1f", v / 50)
-                     : (adjustment.isBipolar && v > 0 ? "+\(Int(v.rounded()))" : "\(Int(v.rounded()))"))
+                Text(adjustment.label(v))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
