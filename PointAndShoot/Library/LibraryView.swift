@@ -23,6 +23,7 @@ struct RollGrid: View {
     @State private var showTrash = false
     @State private var confirmArchive = false
     @State private var confirmTrash = false
+    @State private var showLookPicker = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
 
@@ -97,6 +98,13 @@ struct RollGrid: View {
                     ActivityView(items: item.urls).presentationDetents([.medium, .large]).ignoresSafeArea()
                 }
                 Color.clear.sheet(isPresented: $showTrash) { TrashView(store: store) }
+                Color.clear.sheet(isPresented: $showLookPicker) {
+                    LookPickerSheet(count: selected.count) { look in
+                        showLookPicker = false
+                        applyLook(look)
+                    }
+                    .presentationDetents([.medium, .large])
+                }
             }
             .confirmationDialog(selected.count == 1 ? "Archive 1 RAW Photo" : "Archive \(selected.count) RAW Photos",
                                 isPresented: $confirmArchive, titleVisibility: .visible) {
@@ -197,18 +205,9 @@ struct RollGrid: View {
                 Button { confirmArchive = true } label: { Label("Archive RAW…", systemImage: "archivebox") }
                     .accessibilityIdentifier("grid.archive")
                 Divider()
-                // A look onto every selected photo, as picking it in the editor would
-                // (tone and colour reset to the look; crop and RAW develop kept).
-                Menu {
-                    ForEach(LookSet.allCases) { set in
-                        Section(set.name) {
-                            ForEach(Look.all.filter { $0.set == set }) { look in
-                                Button(look.name) { applyLook(look) }
-                            }
-                        }
-                    }
-                } label: { Label("Apply Look", systemImage: "camera.filters") }
-                .accessibilityIdentifier("grid.applyLook")
+                // A look onto every selected photo (a sheet: 20 looks don't fit a submenu).
+                Button { showLookPicker = true } label: { Label("Apply Look…", systemImage: "camera.filters") }
+                    .accessibilityIdentifier("grid.applyLook")
                 Button {
                     if let first = selectedShots.first { EditClipboard.recipe = store.recipe(for: first.id) }
                 } label: { Label("Copy Grade", systemImage: "doc.on.doc") }
@@ -339,6 +338,41 @@ struct RollGrid: View {
 }
 
 /// Shots deleted, or past their 30 days without Keep. Each stays 30 days, then it's gone.
+/// Apply Look: every look by set, with its description. Picking one applies it to the
+/// selected photos as the editor's Looks tool would (tone and colour reset to the look;
+/// crop and RAW develop kept).
+private struct LookPickerSheet: View {
+    let count: Int
+    let onPick: (Look) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(LookSet.allCases) { set in
+                    Section(set.name) {
+                        ForEach(Look.all.filter { $0.set == set }) { look in
+                            Button { onPick(look) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(look.name).foregroundStyle(.primary)
+                                    Text(look.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                            .accessibilityIdentifier("grid.look.\(look.id)")
+                        }
+                    }
+                }
+            }
+            .navigationTitle(count == 1 ? "Apply Look" : "Apply Look to \(count)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
 struct TrashView: View {
     let store: ShotStore
     @Environment(\.dismiss) private var dismiss

@@ -221,11 +221,11 @@ final class LibraryFlowTests: XCTestCase {
         cells.element(boundBy: 0).tap()
         cells.element(boundBy: 1).tap()
         app.buttons["grid.more"].tap()
-        let applyLook = app.buttons["Apply Look"]
+        let applyLook = app.buttons["Apply Look…"]   // menu items are found by label
         XCTAssertTrue(applyLook.waitForExistence(timeout: 3), "the ⋯ menu has no Apply Look")
         applyLook.tap()
-        let print = app.buttons["Print"]
-        XCTAssertTrue(print.waitForExistence(timeout: 3), "Apply Look doesn't list Print")
+        let print = app.buttons["grid.look.print"]
+        XCTAssertTrue(print.waitForExistence(timeout: 4), "Apply Look doesn't list Print")
         print.tap()
         XCTAssertTrue(app.staticTexts["Print applied to 2"].waitForExistence(timeout: 4), "no confirmation that the look was applied")
     }

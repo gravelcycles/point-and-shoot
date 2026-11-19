@@ -778,7 +778,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     swipe-down dismisses; zoomed in, drags pan and never dismiss. A full-size copy (long
     side ≤ 4096), rendered from the RAW with its grade, loads once zoomed past 1.3× and is
     dropped when the page leaves.
-  - Grid by day; Select → export, share, Keep, Apply Look (any look onto every selected
+  - Grid by day; Select → export, share, Keep, Apply Look… (a sheet; any look onto every selected
     photo, as the editor's Looks tool would: `EditRecipe.withLook`), copy/paste grade,
     Archive RAW, trash; Trash view.
   - Import RAW Photos (system picker, no permission) and Import Archive in Preferences →
