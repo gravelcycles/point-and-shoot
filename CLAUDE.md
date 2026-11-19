@@ -766,7 +766,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     meanwhile. Newest on the **right** (like Photos): the pager and the filmstrip run
     oldest → newest, so older shots are to the left. Paging, swipe down to dismiss.
   - Header: camera, share · ⋯ (Copy/Paste Grade, Archive RAW…), Keep (bookmark), trash.
-    An info line shows RAW type, date, exposure and days left. Bottom: grid (left, above
+    An info line shows RAW type, date, the look (tan, after the date), exposure and days left. Bottom: grid (left, above
     the filmstrip), edit and export (tan).
   - The grid is its own screen inside the viewer (not a sheet), with a camera button
     straight back to shooting; tapping a photo opens it, and swiping that photo down
