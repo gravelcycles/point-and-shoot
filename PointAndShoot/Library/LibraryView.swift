@@ -19,6 +19,8 @@ struct RollGrid: View {
     @State private var selected: Set<UUID> = []
     @State private var share: ShareItem?
     @State private var working = false
+    /// "Exporting 3 of 12" while a batch runs.
+    @State private var progress: BatchProgress?
     @State private var message: String?
     @State private var showTrash = false
     @State private var confirmArchive = false
@@ -79,7 +81,10 @@ struct RollGrid: View {
             }
             .overlay(alignment: .topLeading) { RollCountProbe(store: store) }
             .overlay(alignment: .bottom) {
-                if let message {
+                if let progress {
+                    ProgressPill(progress: progress).padding(.bottom, selecting ? 70 : 20)
+                        .transition(.opacity)
+                } else if let message {
                     Toast(text: message).padding(.bottom, selecting ? 70 : 20)
                         .transition(.opacity)
                 }
@@ -286,7 +291,8 @@ struct RollGrid: View {
         working = true
         Task {
             do {
-                let n = try await ShotExporter.exportToPhotos(shots, store: store, options: .init(camera.settings))
+                let n = try await ShotExporter.exportToPhotos(shots, store: store, options: .init(camera.settings),
+                                                              progress: track("Exporting"))
                 Haptics.success()
                 flash(n == 1 ? "Saved to Photos" : "\(n) saved to Photos")
                 selecting = false
@@ -295,7 +301,13 @@ struct RollGrid: View {
                 flash("Couldn't save to Photos: \(error.localizedDescription)")
             }
             working = false
+            progress = nil
         }
+    }
+
+    /// A progress callback for a batch: shows "<verb> x of N" until `working` ends.
+    private func track(_ verb: String) -> (Int, Int) -> Void {
+        { done, total in progress = BatchProgress(verb: verb, done: done, total: total) }
     }
 
     private func archiveToPhotos() {
@@ -303,12 +315,13 @@ struct RollGrid: View {
         working = true
         Task {
             do {
-                let n = try await ShotArchive.archiveToPhotos(shots, store: store)
+                let n = try await ShotArchive.archiveToPhotos(shots, store: store, progress: track("Archiving"))
                 flash(n == 1 ? "1 RAW photo added to Photos" : "\(n) RAW photos added to Photos")
             } catch {
                 flash("Couldn't archive: \(error.localizedDescription)")
             }
             working = false
+            progress = nil
         }
     }
 
@@ -317,12 +330,13 @@ struct RollGrid: View {
         working = true
         Task {
             do {
-                let url = try await ShotArchive.makeZip(shots, store: store)
+                let url = try await ShotArchive.makeZip(shots, store: store, progress: track("Zipping"))
                 share = ShareItem(url: url)
             } catch {
                 flash("Couldn't make the zip: \(error.localizedDescription)")
             }
             working = false
+            progress = nil
         }
     }
 
@@ -330,8 +344,10 @@ struct RollGrid: View {
         let shots = selectedShots
         working = true
         Task {
-            let urls = await ShotExporter.shareFiles(shots, store: store, options: .init(camera.settings))
+            let urls = await ShotExporter.shareFiles(shots, store: store, options: .init(camera.settings),
+                                                     progress: track("Preparing"))
             working = false
+            progress = nil
             if !urls.isEmpty { share = ShareItem(urls: urls) }
         }
     }

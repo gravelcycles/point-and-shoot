@@ -336,7 +336,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Edit while developing | Edit waits only for a RAW shot's first settle (`awaitingFirstSettle`). Export waits for the develop (up to a minute), then settles itself if needed. |
 | Launch | `load()` merges with shots added meanwhile (Lock Screen imports race it). Folders with no `shot.json` and over an hour old are swept. Shots without a preview (backgrounded mid-render) re-develop, and do again on every return to the app. |
 | Lock Screen shots | The extension parks a Bayer DNG (embedded preview, atomic write). On next open the app imports each one once, with the default grade. An unreadable parked file keeps its folder. |
-| Import RAW / Import Archive | Imported shots get `added` = now, so older RAWs aren't trashed on arrival. An archive skips shots already in the library and puts back ones in the Trash. Parsing runs off the main thread. |
+| Import RAW / Import Archive | Imported shots get `added` = now, so older RAWs aren't trashed on arrival. An archive skips shots already in the library and puts back ones in the Trash. Parsing runs off the main thread. Preferences shows "Importing 3 of 12" with a bar under the button (`BatchProgress`). |
+| Batch export / share / archive / zip (grid Select) | A `ProgressPill` shows "Exporting 3 of 12" (Preparing, Archiving, Zipping) with a bar; each batch function takes a `progress(done, total)` callback. |
 | Auto Export | After the first develop; skipped if the shot was trashed meanwhile. |
 
 ### Film looks: Print and every other look

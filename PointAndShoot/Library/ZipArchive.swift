@@ -40,7 +40,9 @@ enum ZipArchive {
     // MARK: Writing
 
     /// Writes `files` (path inside the zip → file on disk) to `url`.
-    static func write(_ files: [(path: String, source: URL)], to url: URL) throws {
+    /// `onFile` is called (on the writing thread) after each file, with how many are done.
+    static func write(_ files: [(path: String, source: URL)], to url: URL,
+                      onFile: (@Sendable (Int) -> Void)? = nil) throws {
         FileManager.default.createFile(atPath: url.path, contents: nil)
         let out = try FileHandle(forWritingTo: url)
         defer { try? out.close() }
@@ -48,7 +50,7 @@ enum ZipArchive {
         var offset: UInt64 = 0
         let (dosTime, dosDate) = dosDateTime(Date())
 
-        for file in files {
+        for (index, file) in files.enumerated() {
             let data = try Data(contentsOf: file.source, options: .mappedIfSafe)
             guard offset + UInt64(data.count) < UInt64(UInt32.max) - 1_000_000 else { throw ZipError.tooLarge }
             let name = Data(file.path.utf8)
@@ -88,6 +90,7 @@ enum ZipArchive {
             central.append(le32: UInt32(offset))
             central.append(name)
             offset += UInt64(local.count + data.count)
+            onFile?(index + 1)
         }
         guard offset + UInt64(central.count) < UInt64(UInt32.max) else { throw ZipError.tooLarge }
         var end = Data()
