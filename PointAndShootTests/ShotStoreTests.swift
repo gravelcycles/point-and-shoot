@@ -288,6 +288,37 @@ final class ShotStoreTests: XCTestCase {
         XCTAssertEqual(again.recipe(for: bayer.id).rawFilmExposure, natural(.bayerRAW), "saved, once")
     }
 
+    /// Older film edits move to the current engine at launch, with a backup of the grade
+    /// as it was; Restore puts every backup back and turns migration off so it isn't redone.
+    func testFilmMigrationIsRecoverable() async throws {
+        UserDefaults.standard.removeObject(forKey: FilmMigration.enabledKey)
+        defer { UserDefaults.standard.removeObject(forKey: FilmMigration.enabledKey) }
+        var old = filmGrade
+        old.film?.engine = 4
+        old.shadows = 40
+        old.contrast = 30
+        let shot = try await addShot(recipe: filmGrade, kind: .proRAW)
+        // What an earlier build left on disk.
+        let onDisk = store.dir(shot.id).appendingPathComponent("recipe.json")
+        try JSONEncoder().encode(old).write(to: onDisk)
+        let reopened = ShotStore(root: root)
+        await reopened.load()
+        XCTAssertEqual(reopened.recipe(for: shot.id).film?.engine, FilmRecipe.currentEngine)
+        XCTAssertEqual(reopened.recipe(for: shot.id).contrast, 15, accuracy: 0.01)
+        XCTAssertEqual(reopened.preMigrationBackupCount(), 1)
+        let backup = store.dir(shot.id).appendingPathComponent(FilmMigration.backupName)
+        XCTAssertEqual(EditRecipe.decodeSaved(try Data(contentsOf: backup))?.film?.engine, 4)
+
+        XCTAssertEqual(reopened.restorePreMigrationGrades(), 1)
+        XCTAssertFalse(FilmMigration.isEnabled)
+        XCTAssertEqual(reopened.recipe(for: shot.id).film?.engine, 4)
+        XCTAssertEqual(reopened.recipe(for: shot.id).shadows, 40)
+        XCTAssertEqual(reopened.preMigrationBackupCount(), 0)
+        let again = ShotStore(root: root)
+        await again.load()
+        XCTAssertEqual(again.recipe(for: shot.id).film?.engine, 4, "restored edits aren't migrated again")
+    }
+
     /// On device: picking Phromagraph in the editor showed a dark photo, and Save stored a
     /// +1.86 one ("a nice dark photo … I click save and it's this overexposed monstrosity").
     /// Picking left the film exposure unset and the preview rendered it as 0 EV. Whatever

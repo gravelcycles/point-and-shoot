@@ -82,7 +82,15 @@ final class ShotStore {
             let result = FilmMigration.migrate(r, developsFromRAW: shot.isRAW && r.useRAW)
             guard result.changed else { continue }
             let url = dir(shot.id).appendingPathComponent("recipe.json")
-            do { try JSONEncoder().encode(result.recipe).write(to: url, options: .atomic) } catch {
+            // Recoverable: the grade as it was is kept next to it (the first backup wins,
+            // so a later migration never overwrites the original).
+            let backup = dir(shot.id).appendingPathComponent(FilmMigration.backupName)
+            do {
+                if !FileManager.default.fileExists(atPath: backup.path) {
+                    try JSONEncoder().encode(r).write(to: backup, options: .atomic)
+                }
+                try JSONEncoder().encode(result.recipe).write(to: url, options: .atomic)
+            } catch {
                 Diag.error(.editor, "couldn't move the grade of \(shot.id.uuidString.prefix(8)) to film engine \(FilmRecipe.currentEngine)", error)
                 continue
             }
@@ -114,6 +122,39 @@ final class ShotStore {
                               settled.rawFilmExposure ?? 0))
             if shots.contains(where: { $0.id == shot.id }) { develop(shot.id) }
         }
+    }
+
+    /// Undoes the film-engine migration: every shot with a backup gets its grade from before
+    /// the update back (and re-renders), and migration is switched off so it isn't redone.
+    /// Returns how many grades were restored.
+    @discardableResult
+    func restorePreMigrationGrades() -> Int {
+        UserDefaults.standard.set(false, forKey: FilmMigration.enabledKey)
+        var restored = 0
+        for shot in shots + trash {
+            let backup = dir(shot.id).appendingPathComponent(FilmMigration.backupName)
+            guard let data = try? Data(contentsOf: backup), let r = EditRecipe.decodeSaved(data) else { continue }
+            let url = dir(shot.id).appendingPathComponent("recipe.json")
+            do {
+                try data.write(to: url, options: .atomic)
+                try FileManager.default.removeItem(at: backup)
+            } catch {
+                Diag.error(.editor, "couldn't restore the grade of \(shot.id.uuidString.prefix(8))", error)
+                continue
+            }
+            recipes[shot.id] = r
+            restored += 1
+            if shots.contains(where: { $0.id == shot.id }) { develop(shot.id) }
+        }
+        Diag.log(.editor, "restored \(restored) grades from before the film-engine update; migration off")
+        return restored
+    }
+
+    /// How many shots have a grade backed up from before the film-engine update.
+    func preMigrationBackupCount() -> Int {
+        (shots + trash).filter {
+            FileManager.default.fileExists(atPath: dir($0.id).appendingPathComponent(FilmMigration.backupName).path)
+        }.count
     }
 
     /// Back in the foreground: shots whose graded preview never got rendered (the app was

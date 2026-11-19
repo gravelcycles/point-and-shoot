@@ -401,6 +401,7 @@ struct SettingsView: View {
         }
         DefaultGradeSection(camera: camera)
         EditorControlsSection()
+        FilmUpdateSection()
     }
 
     // MARK: Resets
@@ -527,6 +528,38 @@ struct DefaultGradeSection: View {
         } footer: {
             Text("The look and settings every new photo starts with, and what the editor's Reset This Image restores. Picking another look in the camera starts from that look instead. Changing this doesn't affect photos you've already taken.")
         }
+    }
+}
+
+/// The film-engine migration: on by default; Restore puts back every grade's backup.
+private struct FilmUpdateSection: View {
+    @AppStorage(FilmMigration.enabledKey) private var enabled = true
+    @State private var confirmRestore = false
+    @State private var message: String?
+
+    var body: some View {
+        Section {
+            Toggle("Update Older Edits", isOn: $enabled)
+                .accessibilityIdentifier("settings.migrate")
+            Button("Restore Edits from Before the Update…") { confirmRestore = true }
+                .settingsRow()
+                .confirmationDialog("Restore edits from before the update?", isPresented: $confirmRestore,
+                                    titleVisibility: .visible) {
+                    Button("Restore") {
+                        let n = ShotStore.shared.restorePreMigrationGrades()
+                        message = n == 1 ? "1 edit restored." : "\(n) edits restored."
+                    }
+                } message: {
+                    Text("Photos go back to the grades they had before they were moved to the current film controls, and Update Older Edits turns off.")
+                }
+        } header: {
+            Text("Film Controls Update")
+        } footer: {
+            Text("Edits made with older film controls move to the current ones with settings that match how they looked. The edit from before is kept, so it can be put back.")
+        }
+        .alert("Restore", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(message ?? "") }
     }
 }
 

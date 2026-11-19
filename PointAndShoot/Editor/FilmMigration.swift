@@ -17,6 +17,14 @@ import Foundation
 ///   the very ends. The remaining error is returned (and logged by the store).
 /// - A processed photo (no RAW) on engine 1 keeps its engine: its un-render changed.
 enum FilmMigration {
+    /// Preferences → Processing → "Update Older Edits" (on by default). Off, nothing is
+    /// migrated anywhere; "Restore Edits from Before the Update" turns it off and puts back
+    /// every grade's backup (`ShotStore.restorePreMigrationGrades`).
+    static let enabledKey = "film.migrateOlderEdits"
+    static var isEnabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
+    /// Each shot's grade as it was before its first migration, next to its recipe.json.
+    static let backupName = "recipe.before-migration.json"
+
     struct Result {
         var recipe: EditRecipe
         /// RMS difference on the grey scale (encoded luminance, 0…1) after the fit.
@@ -24,8 +32,8 @@ enum FilmMigration {
         var changed: Bool
     }
 
-    static func migrate(_ r: EditRecipe, developsFromRAW: Bool) -> Result {
-        guard var film = r.film else { return Result(recipe: r, toneError: 0, changed: false) }
+    static func migrate(_ r: EditRecipe, developsFromRAW: Bool, force: Bool = false) -> Result {
+        guard force || isEnabled, var film = r.film else { return Result(recipe: r, toneError: 0, changed: false) }
         let current = FilmRecipe.currentEngine
         let from = film.renderEngine
         guard from < current else { return Result(recipe: r, toneError: 0, changed: false) }
@@ -67,6 +75,13 @@ enum FilmMigration {
         film = out.film ?? film
         film.engine = current
         out.film = film
+        // Never write a broken number: a fit gone wrong leaves the edit as it was.
+        let values = [out.contrast, out.highlights, out.shadows, out.saturation, out.grain, out.grainSizeValue,
+                      out.curveHighlightsValue, out.curveLightsValue, out.curveDarksValue, out.curveShadowsValue, toneError]
+        guard values.allSatisfy(\.isFinite) else {
+            Diag.error(.editor, "film migration produced a non-finite value; edit left as it was")
+            return Result(recipe: r, toneError: 0, changed: false)
+        }
         return Result(recipe: out, toneError: toneError, changed: true)
     }
 

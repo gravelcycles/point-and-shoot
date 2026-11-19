@@ -459,6 +459,13 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
           shapes). Saturation from engines 1–2 on six rich colours. The fit error is logged
           per shot ("grey-scale fit error").
         - A processed photo (no RAW) on engine 1 keeps its engine (its un-render changed).
+        - **Recoverable:** before a shot's grade is first migrated, it's saved next to it as
+          `recipe.before-migration.json` (never overwritten by a later migration). Preferences
+          → Processing → Film Controls Update: "Update Older Edits" (`FilmMigration.enabledKey`,
+          on by default; off, nothing migrates anywhere) and "Restore Edits from Before the
+          Update…" (`ShotStore.restorePreMigrationGrades`: puts every backup back, re-renders,
+          and turns migration off so it isn't redone). A fit that yields a non-finite number
+          leaves the edit as it was.
     - 6 (now): grain sized to the frame and as strong at every size, like Chromagraph's
       (`FilmPipeline.addGrain` `frame`): σ = stock grain size × 3 (‰ of the long side) ×
       the Grain Size slider, std = grain density × 0.88 × amount, no averaging down for
