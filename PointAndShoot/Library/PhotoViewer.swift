@@ -42,6 +42,18 @@ struct PhotoViewer: View {
     private var recentlyPinched: Bool { Date().timeIntervalSince(lastMultiTouch) < 0.6 }
     /// UI tests: the last zoom report (scale @ whether it was for the selected page).
     @State private var zoomProbe = "none"
+    /// The viewer's full-screen frame and where the current photo's grid cell is (global
+    /// coordinates), for the photo flying into its cell when the grid comes back.
+    @State private var screenFrame: CGRect = .zero
+    @State private var gridCellFrame: CGRect = .zero
+    @State private var flight: Flight?
+
+    /// The closing photo on its way into its grid cell (like Photos).
+    struct Flight {
+        let image: UIImage
+        let shot: UUID
+        var frame: CGRect
+    }
 
     private static let pendingID = ViewerSelection.pendingID
 
@@ -76,6 +88,7 @@ struct PhotoViewer: View {
             Color.black
                 .opacity(1 - min(Double(dragY) / 400, 0.7))
                 .ignoresSafeArea()
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { screenFrame = $0 }
 
             Group {
                 if store.shots.isEmpty && !showPending {
@@ -97,18 +110,38 @@ struct PhotoViewer: View {
                 .transition(.opacity)
             }
 
-            if showGrid {
-                RollGrid(store: store, camera: camera, focus: selectedShot?.id, onSelect: { shot in
-                    selectedID = shot.id.uuidString
-                    cameFromGrid = true
-                    withAnimation(.easeOut(duration: 0.2)) { showGrid = false }
-                }, onCamera: {
-                    ViewerEventProbe.shared.add("C")
-                    dismiss()
-                })
+            // Built once and kept behind the photo, already scrolled to it, so it appears
+            // at once (rebuilding it each time lagged, and opened it black or at the end).
+            RollGrid(store: store, camera: camera, focus: selectedShot?.id, visible: showGrid,
+                     hiding: flight?.shot,
+                     onFocusFrame: { gridCellFrame = $0 },
+                     onSelect: { shot in
+                         selectedID = shot.id.uuidString
+                         cameFromGrid = true
+                         withAnimation(.easeOut(duration: 0.2)) { showGrid = false }
+                     }, onCamera: {
+                         ViewerEventProbe.shared.add("C")
+                         dismiss()
+                     })
                 .background(Color.black.ignoresSafeArea())
-                .transition(.opacity)
+                .opacity(showGrid ? 1 : 0)
+                .allowsHitTesting(showGrid)
+                .accessibilityHidden(!showGrid)
                 .zIndex(1)
+
+            if let flight {
+                GeometryReader { geo in
+                    let o = geo.frame(in: .global).origin
+                    Image(uiImage: flight.image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: flight.frame.width, height: flight.frame.height)
+                        .clipped()
+                        .position(x: flight.frame.midX - o.x, y: flight.frame.midY - o.y)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .zIndex(1.5)
             }
 
             if let banner {
@@ -254,8 +287,7 @@ struct PhotoViewer: View {
                     if dragY > 130 || v.predictedEndTranslation.height > 420 && dragY > 40 {
                         if cameFromGrid {
                             cameFromGrid = false
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { dragY = 0 }
-                            withAnimation(.easeOut(duration: 0.2)) { showGrid = true }
+                            returnToGrid()
                         } else {
                             dismissing = true
                             ViewerEventProbe.shared.add("X")
@@ -266,6 +298,40 @@ struct PhotoViewer: View {
                     }
                 }
         )
+    }
+
+    /// Brings the grid back with the photo flying from where it is on screen into its cell,
+    /// like Photos. The grid is already scrolled to it (`RollGrid.focus`); without a cached
+    /// image or a known cell it just fades in.
+    private func returnToGrid() {
+        let drag = dragY
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { dragY = 0 }
+        withAnimation(.easeOut(duration: 0.22)) { showGrid = true }
+        guard let shot = selectedShot,
+              let image = store.cachedImage(shot, .preview) ?? store.cachedImage(shot, .thumb),
+              screenFrame.width > 0, image.size.width > 0, gridCellFrame.width > 0 else { return }
+        // Where the photo is now: fitted to the screen, then the drag's offset and shrink
+        // (`.offset(y:)` then `.scaleEffect` about the screen's centre).
+        let scr = screenFrame
+        let k = min(scr.width / image.size.width, scr.height / image.size.height)
+        let fit = CGRect(x: scr.midX - image.size.width * k / 2, y: scr.midY - image.size.height * k / 2,
+                         width: image.size.width * k, height: image.size.height * k)
+        let s = 1 - min(drag / 2400, 0.12)
+        let from = CGRect(x: scr.midX + s * (fit.minX - scr.midX), y: scr.midY + s * (fit.minY + drag - scr.midY),
+                          width: fit.width * s, height: fit.height * s)
+        flight = Flight(image: image, shot: shot.id, frame: from)
+        // The cell's frame settles after this layout pass.
+        DispatchQueue.main.async {
+            guard flight?.shot == shot.id else { return }
+            let to = gridCellFrame
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                flight?.frame = to
+            } completion: {
+                if flight?.shot == shot.id { flight = nil }
+            }
+        }
     }
 
     private func toggleChrome() {
@@ -379,9 +445,7 @@ struct PhotoViewer: View {
         let shot = selectedShot
         return VStack(spacing: 10) {
             HStack {
-                circleButton("square.grid.2x2", id: "viewer.grid") {
-                    withAnimation(.easeOut(duration: 0.2)) { showGrid = true }
-                }
+                circleButton("square.grid.2x2", id: "viewer.grid") { returnToGrid() }
                 Spacer()
                 Button {
                     if let shot { editing = shot }
