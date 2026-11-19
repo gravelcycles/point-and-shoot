@@ -38,9 +38,22 @@ enum EditPipeline {
             detail: raw.isDetailSupported ? raw.detailAmount : 0)
     }
 
+    /// How far the RAW develop itself exposes; the slider goes to ±6 stops, and Apple
+    /// doesn't document CIRAWFilter's limit, so anything past this is applied right after
+    /// the develop (`rawExposureSplit`).
+    static let rawExposureLimit = 4.0
+
+    /// A RAW edit's exposure (slider, plus a film look's develop exposure): the part the
+    /// develop takes, and what's left to apply to its output.
+    static func rawExposureSplit(_ r: EditRecipe) -> (develop: Double, after: Double) {
+        let total = r.exposure / 50 + (r.film != nil ? r.rawFilmExposure ?? 0 : 0)
+        let develop = min(max(total, -rawExposureLimit), rawExposureLimit)
+        return (develop, total - develop)
+    }
+
     static func configure(_ raw: CIRAWFilter, recipe r: EditRecipe, defaults d: RAWDefaults) {
-        // Under a film look, plus the exposure that matched the shot to the viewfinder.
-        raw.exposure = Float(r.exposure / 50 + (r.film != nil ? r.rawFilmExposure ?? 0 : 0))
+        // Under a film look, plus the film's develop exposure (`rawFilmExposure`).
+        raw.exposure = Float(rawExposureSplit(r).develop)
         raw.neutralTemperature = max(2000, min(50000, d.temperature + Float(r.warmth) * 40))
         raw.neutralTint = max(-150, min(150, d.tint + Float(r.tint) * 1.2))
         if raw.isLuminanceNoiseReductionSupported { raw.luminanceNoiseReductionAmount = Float(r.rawNoiseReduction / 100) }
@@ -144,8 +157,10 @@ enum EditPipeline {
         // Radii are relative to image size so preview and export look the same.
         let unit = max(bounds.width, bounds.height) / 1000
 
-        if !developedFromRAW && r.exposure != 0 && r.film == nil {
-            image = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: r.exposure / 50])
+        // RAW: the develop took the exposure, up to `rawExposureLimit`; the rest goes here.
+        let exposure = developedFromRAW ? rawExposureSplit(r).after : r.exposure / 50
+        if exposure != 0 && r.film == nil {
+            image = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: exposure])
         }
         if !developedFromRAW && (r.warmth != 0 || r.tint != 0) {
             image = image.applyingFilter("CITemperatureAndTint", parameters: [
@@ -163,14 +178,11 @@ enum EditPipeline {
             fs.tuning = FilmStock.resolved(for: r)
             fs.source = developedFromRAW ? .sceneLinear : .displayReferred
             fs.engine = film.renderEngine
-            fs.exposure = developedFromRAW ? 0 : r.exposure / 50   // RAW: already in the develop
+            fs.exposure = exposure   // RAW: in the develop, past ±4 stops here
             fs.halation = film.halation / 50
             fs.grain = r.grain / 50
-            fs.controls = FilmControls(contrast: r.contrast / 100, saturation: r.saturation / 100,
-                                       crossover: film.crossover / 100,
-                                       highlights: r.highlights / 100, shadows: r.shadows / 100,
-                                       subtractiveSaturation: film.renderEngine >= 3,
-                                       strongTone: film.renderEngine >= 4)
+            fs.grainSize = r.grainSizeValue / 100
+            fs.controls = r.filmControls
             fs.animateGrain = animateGrain
             image = FilmPipeline.apply(image, settings: fs, unit: unit)
             // Whites, blacks and fade still apply on top, as a curve.
@@ -250,7 +262,9 @@ enum EditPipeline {
             ])
         }
 
-        if r.grain > 0 && r.film == nil { image = addGrain(image, amount: r.grain / 100, unit: unit) }
+        if r.grain > 0 && r.film == nil {
+            image = addGrain(image, amount: r.grain / 100, unit: unit * CGFloat(r.grainSizeValue / 100))
+        }
 
         return image.cropped(to: bounds)
     }

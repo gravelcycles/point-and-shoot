@@ -524,6 +524,8 @@ def parity():
     ctl = dict(contrast=0.4, saturation=0.5, crossover=-0.5, highlights=0.3, shadows=-0.4)
     ctl2 = dict(ctl, subtractive=True)    # engine 3's Saturation slider
     ctl4 = dict(ctl2, strongTone=True)    # engine 4's Highlights/Shadows
+    ctl5 = dict(ctl4, toneRegions=True, highlights=0.8, shadows=0.6, pivot=-1.5)   # engine 5
+    ctl5b = dict(ctl5, highlights=-1, shadows=1, contrast=-0.6, pivot=2)
     i_neg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
@@ -535,6 +537,7 @@ def parity():
         negde = F.negative_cube(st, "displayReferred", 48, exposure=0.7)
         pc, pcc, pcc2 = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48), F.print_cube(st, ctl2, 48)
         pcc4 = F.print_cube(st, ctl4, 48)
+        pcc5, pcc5b = F.print_cube(st, ctl5, 48), F.print_cube(st, ctl5b, 48)
         checks = {
             "neutral": (s["neutral"], F.neutral_response(stops, st)),
             "neutral_ctl": (s["neutral_ctl"], F.neutral_response(stops, st, ctl)),
@@ -548,6 +551,10 @@ def parity():
             "print_ctl2": (s["print_ctl2"], [pcc2[b, g, r] for r, g, b in i_pr]),
             "print_ctl4": (s["print_ctl4"], [pcc4[b, g, r] for r, g, b in i_pr]),
             "neutral_ctl4": (s["neutral_ctl4"], F.neutral_response(stops, st, ctl4)),
+            "print_ctl5": (s["print_ctl5"], [pcc5[b, g, r] for r, g, b in i_pr]),
+            "print_ctl5b": (s["print_ctl5b"], [pcc5b[b, g, r] for r, g, b in i_pr]),
+            "neutral_ctl5": (s["neutral_ctl5"], F.neutral_response(stops, st, ctl5)),
+            "neutral_ctl5b": (s["neutral_ctl5b"], F.neutral_response(stops, st, ctl5b)),
             "colors_ctl2": (s["colors_ctl2"], F.display(F.negative_density(colors, st), st, ctl2)),
         }
         for k, (a, b) in checks.items():

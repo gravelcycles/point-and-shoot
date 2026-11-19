@@ -280,6 +280,59 @@ struct FilmControls: Hashable {
     var highlightGain: Double { strongTone ? 0.42 : 0.22 }
     var shadowGain: Double { strongTone ? 0.75 : 0.45 }
 
+    /// Film engine 5+: Highlights and Shadows re-expose the scene in broad regions before
+    /// printing, the way Chromagraph's do (measured on the owner's screenshots, 2026-11-19:
+    /// its Highlights +1 lifts everything but the deepest shadows ~3 stops; Shadows −1
+    /// crushes ~1.7, +1 lifts ~0.5–1), and Contrast goes to ×2 and turns about `pivot`.
+    /// An exposure shift that depends smoothly on the scene level keeps the film's own
+    /// curve, colours and grain, and can't fold: `exposureShift` changes slower than the
+    /// scene (slope ≥ ~0.25 at the worst combination). Engines 1–4 keep theirs.
+    var toneRegions = false
+    /// Engine 5+: where Contrast turns, in stops from 18% grey (0 = grey, as before).
+    var pivot: Double = 0
+
+    /// The print-gamma multiplier for Contrast: ±1 → ×0.71…1.41 before engine 5; from
+    /// engine 5 ×0.59…2 (Chromagraph's S-curve contrast goes to about ×2).
+    var contrastGamma: Double {
+        guard toneRegions else { return pow(2, contrast * 0.5) }
+        return pow(2, contrast * (contrast > 0 ? 1 : 0.75))
+    }
+
+    // Engine 5's regions, in stops from 18% grey (logistic masks, width in stops).
+    static let highlightStops = 3.0, highlightCenter = -3.0, highlightWidth = 1.0
+    static let shadowLiftStops = 1.0, shadowCrushStops = 2.2, shadowCenter = 0.75, shadowWidth = 1.0
+
+    /// Engine 5 re-exposes the scene before printing.
+    var shiftsExposure: Bool { toneRegions && (highlights != 0 || shadows != 0 || (pivot != 0 && contrast != 0)) }
+
+    /// Engine 5: stops added to a scene level `x` (stops from grey) before printing.
+    /// - Contrast about `pivot`: the print gamma turns about grey, so a constant shift of
+    ///   pivot·(1/K − 1) first makes the pivot the point that stays put.
+    /// - Highlights: ±3 stops above ~−3 stops (half at −3, full by −1).
+    /// - Shadows: +1 / −2.2 stops below ~+0.75 stops (full by −1, gone by +3).
+    func exposureShift(_ x: Double) -> Double {
+        var d = pivot * (1 / contrastGamma - 1)
+        if highlights != 0 {
+            d += highlights * Self.highlightStops / (1 + exp(-(x - Self.highlightCenter) / Self.highlightWidth))
+        }
+        if shadows != 0 {
+            let amount = shadows > 0 ? Self.shadowLiftStops : Self.shadowCrushStops
+            d += shadows * amount / (1 + exp((x - Self.shadowCenter) / Self.shadowWidth))
+        }
+        return d
+    }
+
+    /// Contrast's Pivot slider (0…100, encoded display brightness like Chromagraph's 0…1;
+    /// 35 ≈ where 18% grey prints) → stops from grey: ~1.44 display stops per scene stop
+    /// (the looks' mid-tone slope), clamped to −3.5…+3 (0 → −3.5, 100 → +2.3).
+    static let defaultPivot: Double = 35
+    static func pivotStops(_ slider: Double) -> Double {
+        func decode(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        let v = min(max(slider / 100, 0), 1)
+        guard v > 0 else { return -3.5 }
+        return min(max(log2(decode(v) / decode(defaultPivot / 100)) / 1.44, -3.5), 3)
+    }
+
     /// The same controls with the engine flag cleared where it changes nothing (Saturation
     /// ≤ 0), so table caches see one key: engine-2 and engine-3 edits share tables, and
     /// prewarmed tables (built with default controls) serve every engine-3 look.
@@ -287,6 +340,9 @@ struct FilmControls: Hashable {
         var c = self
         if !c.saturatesSubtractively { c.subtractiveSaturation = false }
         if c.highlights == 0 && c.shadows == 0 { c.strongTone = false }
+        if c.toneRegions { c.strongTone = false }              // engine 5 replaces engine 4's shift
+        if c.contrast == 0 { c.pivot = 0 }                     // a pivot turns nothing at contrast 0
+        if c.highlights == 0 && c.shadows == 0 && c.contrast == 0 { c.toneRegions = false }
         return c
     }
 }
@@ -303,8 +359,10 @@ enum FilmLUT {
     /// 3: the Saturation slider adds saturation subtractively, like the dyes (richer is
     ///    darker); the un-render is engine 2's.
     /// 4: Highlights and Shadows go about twice as far (`FilmControls.strongTone`).
+    /// 5: Highlights and Shadows re-expose broad scene regions before printing, Contrast
+    ///    goes to ×2 and turns about a pivot (`FilmControls.toneRegions`).
     /// Hue twists and dye saturation need no engine: they're stock fields, off when absent.
-    static let currentEngine = 4
+    static let currentEngine = 5
 
     /// The un-render a given engine uses (1 or 2): engines 2 and up share engine 2's, so
     /// their display-referred tables are the same and share a cache entry.
@@ -558,7 +616,7 @@ enum FilmLUT {
 
     /// The print curves with the user's contrast and crossover applied.
     static func printCurves(stock s: FilmStock, controls c: FilmControls) -> [FilmCurve] {
-        let contrast = pow(2, c.contrast * 0.5)      // ±1 → ×0.71…1.41 print gamma
+        let contrast = c.contrastGamma
         let amount = 1 + c.crossover
         return (0..<3).map { i in
             var curve = s.print[i]
@@ -610,7 +668,8 @@ enum FilmLUT {
             dm = (mean + (dm.0 - mean) * k, mean + (dm.1 - mean) * k, mean + (dm.2 - mean) * k)
         }
         // Highlights / shadows: shift density in the bright or the dark part of the scale.
-        if c.highlights != 0 || c.shadows != 0 {
+        // (Engine 5 re-exposes the negative instead: `display(negative:)`, `printCube`.)
+        if !c.toneRegions && (c.highlights != 0 || c.shadows != 0) {
             let wh = exp(-pow((neutral - 0.25) / 0.45, 2))
             let ws = FilmMath.smoothstep(0.9, 2.4, neutral)
             let shift = -c.highlightGain * c.highlights * wh - c.shadowGain * c.shadows * ws
@@ -626,15 +685,36 @@ enum FilmLUT {
                         controls c: FilmControls = FilmControls()) -> (Double, Double, Double) {
         let curves = printCurves(stock: s, controls: c)
         let grey = s.greyNegativeDensity
+        // Each layer's log exposure (only needed for engine 5's re-exposure or hue protection).
+        var le = (0.0, 0.0, 0.0)
+        var dn = dn
+        if c.shiftsExposure || s.huePreserve > 0 {
+            let inv = s.negative.map { InverseCurve($0) }
+            le = (inv[0].logExposure(dn.0), inv[1].logExposure(dn.1), inv[2].logExposure(dn.2))
+        }
+        if c.shiftsExposure {
+            // Engine 5: re-expose the negative by a smooth function of the neutral scene level.
+            let sh = c.exposureShift((le.0 + le.1 + le.2) / 3 / log10(2.0)) * log10(2.0)
+            le = (le.0 + sh, le.1 + sh, le.2 + sh)
+            dn = (negativeDensity(le.0, channel: 0, stock: s), negativeDensity(le.1, channel: 1, stock: s),
+                  negativeDensity(le.2, channel: 2, stock: s))
+        }
         let dp = (printDensity(dn.0, channel: 0, stock: s, curves: curves, grey: grey),
                   printDensity(dn.1, channel: 1, stock: s, curves: curves, grey: grey),
                   printDensity(dn.2, channel: 2, stock: s, curves: curves, grey: grey))
         let out = display(print: dp, stock: s, curves: curves, controls: c)
         guard s.huePreserve > 0 else { return out }
-        let inv = s.negative.map { InverseCurve($0) }
-        let e = (pow(10, inv[0].logExposure(dn.0)), pow(10, inv[1].logExposure(dn.1)), pow(10, inv[2].logExposure(dn.2)))
+        let e = (pow(10, le.0), pow(10, le.1), pow(10, le.2))
         return protectHue(out, scene: FilmMath.mul(hueMatrix(s), e), neutral: neutralTable(stock: s, controls: c),
                           amount: s.huePreserve)
+    }
+
+    /// A negative layer's density at a log exposure, on the same scale `InverseCurve`
+    /// inverts (gamma 1; the negatives' gammas are all 1, crossover lives in the print).
+    static func negativeDensity(_ logE: Double, channel c: Int, stock s: FilmStock) -> Double {
+        var probe = s.negative[c]
+        probe.gamma = 1
+        return probe.density(logE)
     }
 
     /// RGBA float cube, red fastest. Input: negative density / densityScale. Output:
@@ -685,7 +765,7 @@ enum FilmLUT {
         let b = (exp(base.0 * ln10), exp(base.1 * ln10), exp(base.2 * ln10))
         // Mean density = Σ_j w_j·dp_j (saturation keeps the mean). Highlights/shadows scale
         // transmittance by a smooth function of it, tabulated over the range it spans.
-        let tone = c.highlights != 0 || c.shadows != 0
+        let tone = !c.toneRegions && (c.highlights != 0 || c.shadows != 0)
         var nw = [Double](repeating: 0, count: 3 * n)
         var toneTable = [Double](), toneLo = 0.0, toneScale = 0.0
         let toneSize = 2048
@@ -707,6 +787,45 @@ enum FilmLUT {
                 return exp((c.highlightGain * c.highlights * wh + c.shadowGain * c.shadows * ws) * ln10)
             }
         }
+        // Engine 5 re-exposes the negative per cell by a smooth function of its neutral
+        // scene level (`FilmControls.exposureShift`): each axis's log exposure (inverse
+        // negative curve), a table of the shift over the levels the cube spans, and per
+        // channel a fine table of print density against log exposure.
+        let shifting = c.shiftsExposure
+        let log2v = log10(2.0)
+        var le = [Double](), shiftTable = [Double](), dpTable = [Double]()
+        var xLo = 0.0, xScale = 0.0, lLo = 0.0, lScale = 0.0
+        let shiftSize = 2048, dpSize = 8192
+        if shifting {
+            le = [Double](repeating: 0, count: 3 * n)
+            for j in 0..<3 {
+                let inv = InverseCurve(stock.negative[j])
+                for k in 0..<n { le[j * n + k] = inv.logExposure(Double(k) * step) }
+            }
+            func colMin(_ j: Int) -> Double { le[(j * n)..<(j * n + n)].min() ?? 0 }
+            func colMax(_ j: Int) -> Double { le[(j * n)..<(j * n + n)].max() ?? 0 }
+            xLo = (colMin(0) + colMin(1) + colMin(2)) / 3 / log2v
+            let xHi = (colMax(0) + colMax(1) + colMax(2)) / 3 / log2v
+            xScale = Double(shiftSize) / max(xHi - xLo, 1e-9)
+            shiftTable = (0...shiftSize).map { i in c.exposureShift(xLo + Double(i) / xScale) * log2v }
+            let sMin = shiftTable.min() ?? 0, sMax = shiftTable.max() ?? 0
+            lLo = min(colMin(0), colMin(1), colMin(2)) + sMin
+            let lHi = max(colMax(0), colMax(1), colMax(2)) + sMax
+            lScale = Double(dpSize) / max(lHi - lLo, 1e-9)
+            dpTable = [Double](repeating: 0, count: 3 * (dpSize + 1))
+            for j in 0..<3 {
+                for i in 0...dpSize {
+                    let dn = negativeDensity(lLo + Double(i) / lScale, channel: j, stock: stock)
+                    dpTable[j * (dpSize + 1) + i] = printDensity(dn, channel: j, stock: stock, curves: curves, grey: grey)
+                }
+            }
+        }
+        @inline(__always) func lookup(_ t: [Double], _ offset: Int, _ size: Int, _ u: Double) -> Double {
+            let u = min(max(u, 0), Double(size))
+            let i = min(Int(u), size - 1)
+            return t[offset + i] + (t[offset + i + 1] - t[offset + i]) * (u - Double(i))
+        }
+
         let d = stock.display
         // Highlight hue protection needs the scene color: exposure per axis (inverse
         // negative curve), mixed per cell through the hue matrix.
@@ -741,7 +860,7 @@ enum FilmLUT {
         // least dense (or mean) channel, which isn't a product of per-axis terms: those
         // take a per-cell path (three exps a cell, still a few ms).
         let dye = stock.dyeSaturation ?? 0
-        let perCell = dye != 0 || c.saturatesSubtractively
+        let perCell = dye != 0 || c.saturatesSubtractively || shifting
         let userK = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
         let x0 = x[0], x1 = x[1], x2 = x[2], x3 = x[3], x4 = x[4], x5 = x[5], x6 = x[6], x7 = x[7], x8 = x[8]
         let s0 = stock.shadowTint[0], s1 = stock.shadowTint[1], s2 = stock.shadowTint[2]
@@ -764,10 +883,19 @@ enum FilmLUT {
                         let rs2 = hp > 0 ? sa[5 * n + gi] + sa[8 * n + bi] : 0
                         for ri in 0..<n {
                             var t0: Double, t1: Double, t2: Double
+                            var sceneGain = 1.0
                             if !perCell {
                                 t0 = p0 * f[ri]; t1 = p1 * f[3 * n + ri]; t2 = p2 * f[6 * n + ri]
                             } else {
-                                let q0 = dp[ri], q1 = dp[n + gi], q2 = dp[2 * n + bi]
+                                var q0 = dp[ri], q1 = dp[n + gi], q2 = dp[2 * n + bi]
+                                if shifting {
+                                    let l0 = le[ri], l1 = le[n + gi], l2 = le[2 * n + bi]
+                                    let sh = lookup(shiftTable, 0, shiftSize, ((l0 + l1 + l2) / 3 / log2v - xLo) * xScale)
+                                    q0 = lookup(dpTable, 0, dpSize, (l0 + sh - lLo) * lScale)
+                                    q1 = lookup(dpTable, dpSize + 1, dpSize, (l1 + sh - lLo) * lScale)
+                                    q2 = lookup(dpTable, 2 * (dpSize + 1), dpSize, (l2 + sh - lLo) * lScale)
+                                    sceneGain = exp(sh * ln10)
+                                }
                                 var m = dyeSaturate((x0 * q0 + x1 * q1 + x2 * q2, x3 * q0 + x4 * q1 + x5 * q2,
                                                      x6 * q0 + x7 * q1 + x8 * q2), dye)
                                 if c.saturatesSubtractively {
@@ -792,7 +920,8 @@ enum FilmLUT {
                             // Highlight hue protection (= protectHue, inlined for speed).
                             let yo = lum.0 * rgb.0 + lum.1 * rgb.1 + lum.2 * rgb.2
                             if hp > 0 && yo > 0.2 {
-                                let e0 = max(rs0 + sa[ri], 0), e1 = max(rs1 + sa[n + ri], 0), e2 = max(rs2 + sa[2 * n + ri], 0)
+                                let e0 = max((rs0 + sa[ri]) * sceneGain, 0), e1 = max((rs1 + sa[n + ri]) * sceneGain, 0)
+                                let e2 = max((rs2 + sa[2 * n + ri]) * sceneGain, 0)
                                 let ye = lum.0 * e0 + lum.1 * e1 + lum.2 * e2
                                 let t = min(ye, 100.0).squareRoot().squareRoot() * rootScale
                                 let i = min(Int(t), nSamples - 1), fr = t - Double(i)
