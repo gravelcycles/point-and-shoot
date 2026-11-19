@@ -347,8 +347,16 @@ struct PhotoViewer: View {
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
             VStack(alignment: .leading, spacing: 1) {
-                Text(shot.captured, format: .dateTime.month(.abbreviated).day().year().hour().minute())
-                    .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 4) {
+                    Text(shot.captured, format: .dateTime.month(.abbreviated).day().year().hour().minute())
+                    // The look its grade uses (retired looks keep their names).
+                    if let look = Look.displayName(store.recipe(for: shot.id).look) {
+                        Text("· \(look)").foregroundStyle(Color.tan)
+                            .accessibilityIdentifier("viewer.info.look")
+                    }
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
                 if !shot.exposureLine.isEmpty {
                     Text(shot.exposureLine).font(.system(size: 10)).foregroundStyle(.secondary)
                 }

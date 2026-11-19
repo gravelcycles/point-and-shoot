@@ -22,8 +22,10 @@ enum FilmPipeline {
         var exposure: Double = 0
         /// 0…2, 1 = the look as designed.
         var halation: Double = 1
-        /// 0…2, 1 = the look as designed.
+        /// 0…4, 1 = the look as designed.
         var grain: Double = 1
+        /// Multiplies the look's grain size (0.25…3, 1 = as designed).
+        var grainSize: Double = 1
         var controls = FilmControls()
         /// Moves the grain pattern every call (live viewfinder) instead of keeping it fixed.
         var animateGrain = false
@@ -139,11 +141,7 @@ enum FilmPipeline {
     static func prewarmViewfinder(_ recipe: EditRecipe) {
         guard let film = recipe.film, let stock = FilmStock.resolved(for: recipe) else { return }
         _ = negativeCube(stock, .displayReferred, engine: film.renderEngine, exposure: recipe.exposure / 50 + stock.exposure)
-        _ = printCube(stock, FilmControls(contrast: recipe.contrast / 100, saturation: recipe.saturation / 100,
-                                          crossover: film.crossover / 100,
-                                          highlights: recipe.highlights / 100, shadows: recipe.shadows / 100,
-                                          subtractiveSaturation: film.renderEngine >= 3,
-                                          strongTone: film.renderEngine >= 4))
+        _ = printCube(stock, recipe.filmControls)
     }
 
     // MARK: Render
@@ -187,7 +185,7 @@ enum FilmPipeline {
             ])
 
         if s.grain > 0 {
-            x = addGrain(to: x, stock: stock, amount: s.grain, unit: unit, animate: s.animateGrain)
+            x = addGrain(to: x, stock: stock, amount: s.grain, size: s.grainSize, unit: unit, animate: s.animateGrain)
         }
 
         x = x.applyingFilter("CIColorCube", parameters: [
@@ -275,8 +273,8 @@ enum FilmPipeline {
     /// Every intermediate image is opaque, so nothing depends on how a filter treats alpha.
     /// (CIRandomGenerator's alpha is random too; a filter that un-premultiplies would divide
     /// by it and turn the grain into heavy-tailed speckle.)
-    private static func addGrain(to image: CIImage, stock: FilmStock, amount: Double, unit: CGFloat,
-                                 animate: Bool) -> CIImage {
+    private static func addGrain(to image: CIImage, stock: FilmStock, amount: Double, size: Double = 1,
+                                 unit: CGFloat, animate: Bool) -> CIImage {
         guard var noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
         let bounds = image.extent
         if animate {
@@ -291,7 +289,7 @@ enum FilmPipeline {
         // where Core Image's Gaussian blur isn't guaranteed to blur by exactly σ, and the
         // amplitude below assumes it does. So small sizes use an explicit 3×3 Gaussian whose
         // effect on the noise (Σw² of the 1-D taps) is known exactly.
-        let sigmaPx = max(0.35, Double(unit) * stock.grainSize)
+        let sigmaPx = max(0.35, Double(unit) * stock.grainSize * size)
         let stdFactor: Double
         if sigmaPx < 1 {
             let w1 = exp(-1 / (2 * sigmaPx * sigmaPx))

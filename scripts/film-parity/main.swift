@@ -13,6 +13,10 @@ var ctl2 = ctl      // engine 3: the Saturation slider adds saturation subtracti
 ctl2.subtractiveSaturation = true
 var ctl4 = ctl2     // engine 4: Highlights and Shadows go further
 ctl4.strongTone = true
+var ctl5 = ctl2     // engine 5: Highlights/Shadows re-expose regions, Contrast ×2 about a pivot
+ctl5.strongTone = true; ctl5.toneRegions = true; ctl5.highlights = 0.8; ctl5.shadows = 0.6; ctl5.pivot = -1.5
+var ctl5b = ctl5    // the opposite extremes (the fold-prone combination) and contrast below 0
+ctl5b.highlights = -1; ctl5b.shadows = 1; ctl5b.contrast = -0.6; ctl5b.pivot = 2
 
 var out: [String: Any] = [:]
 var timing: [String: [Double]] = [:]
@@ -46,6 +50,8 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
     let t4 = Date()
     let pcCtl2 = FilmLUT.printCube(stock: s, controls: ctl2)
     let pcCtl4 = FilmLUT.printCube(stock: s, controls: ctl4)
+    let pcCtl5 = FilmLUT.printCube(stock: s, controls: ctl5)
+    let pcCtl5b = FilmLUT.printCube(stock: s, controls: ctl5b)
     timing[id] = [t1, t2, t3, t4].enumerated().map { i, t in t.timeIntervalSince([t0, t1, t2, t3][i]) * 1000 }
     out[id] = [
         "neutral": neutral, "neutral_ctl": neutralCtl, "colors": colors,
@@ -57,6 +63,12 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
         "print_ctl": sample(pcCtl, FilmLUT.printDimension, idxPrint),
         "print_ctl2": sample(pcCtl2, FilmLUT.printDimension, idxPrint),
         "print_ctl4": sample(pcCtl4, FilmLUT.printDimension, idxPrint),
+        "print_ctl5": sample(pcCtl5, FilmLUT.printDimension, idxPrint),
+        "print_ctl5b": sample(pcCtl5b, FilmLUT.printDimension, idxPrint),
+        "neutral_ctl5": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
+            let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl5); return [v.0, v.1, v.2] },
+        "neutral_ctl5b": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
+            let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl5b); return [v.0, v.1, v.2] },
         "neutral_ctl4": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
             let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl4); return [v.0, v.1, v.2] },
         "colors_ctl2": colors2,

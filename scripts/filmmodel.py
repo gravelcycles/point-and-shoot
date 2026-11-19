@@ -98,7 +98,8 @@ def scene_from_display(x):
 LUM2020 = np.array([0.2627, 0.6780, 0.0593])
 
 
-CURRENT_ENGINE = 4   # FilmLUT.currentEngine (3: subtractive Saturation slider; 4: stronger Highlights/Shadows; the un-render is engine 2's)
+CURRENT_ENGINE = 5   # FilmLUT.currentEngine (3: subtractive Saturation slider; 4: stronger Highlights/Shadows;
+                     # 5: Highlights/Shadows re-expose scene regions, Contrast to x2 with a pivot; the un-render is engine 2's)
 
 # Engine 2: the inverse of Apple's rendering, measured (FilmLUT.unrender*; docs/film-looks.md §5¾).
 UNRENDER_DISPLAY_Y = np.array([0.0025, 0.004, 0.006, 0.01, 0.016, 0.025, 0.04, 0.06, 0.09, 0.13, 0.2,
@@ -186,8 +187,38 @@ def grey_negative_density(stock):
     return np.array([float(curve_density(stock["negative"][c], 0.0)) for c in range(3)])
 
 
+def contrast_gamma(controls):
+    """FilmControls.contrastGamma: ±1 → ×0.71…1.41; engine 5 (toneRegions) ×0.59…2."""
+    c = controls.get("contrast", 0)
+    if controls.get("toneRegions", False):
+        return 2 ** (c * (1.0 if c > 0 else 0.75))
+    return 2 ** (c * 0.5)
+
+
+# Engine 5's regions (FilmControls), stops from 18% grey.
+HIGHLIGHT_STOPS, HIGHLIGHT_CENTER, HIGHLIGHT_WIDTH = 3.0, -3.0, 1.0
+SHADOW_LIFT, SHADOW_CRUSH, SHADOW_CENTER, SHADOW_WIDTH = 1.0, 2.2, 0.75, 1.0
+
+
+def shifts_exposure(controls):
+    return controls.get("toneRegions", False) and (
+        controls.get("highlights", 0) != 0 or controls.get("shadows", 0) != 0
+        or (controls.get("pivot", 0) != 0 and controls.get("contrast", 0) != 0))
+
+
+def exposure_shift(x, controls):
+    """FilmControls.exposureShift: stops added to scene level x (stops from grey)."""
+    h, s = controls.get("highlights", 0), controls.get("shadows", 0)
+    d = controls.get("pivot", 0) * (1 / contrast_gamma(controls) - 1) + np.zeros_like(x)
+    if h != 0:
+        d = d + h * HIGHLIGHT_STOPS / (1 + np.exp(-(x - HIGHLIGHT_CENTER) / HIGHLIGHT_WIDTH))
+    if s != 0:
+        d = d + s * (SHADOW_LIFT if s > 0 else SHADOW_CRUSH) / (1 + np.exp((x - SHADOW_CENTER) / SHADOW_WIDTH))
+    return d
+
+
 def print_curves(stock, controls):
-    contrast = 2 ** (controls.get("contrast", 0) * 0.5)
+    contrast = contrast_gamma(controls)
     split = stock["crossover"]
     amount = 1 + controls.get("crossover", 0)
     curves = []
@@ -222,13 +253,21 @@ def neutral_lookup(table, y):
 def display(dn, stock, controls=None):
     """Negative density (...x3) -> linear Display P3 (white = 1)."""
     controls = controls or {}
+    hp = stock.get("huePreserve", 0.0)
+    shift = shifts_exposure(controls)
+    if shift or hp > 0:
+        le = np.stack([neg_log_exposure(stock["negative"][c], dn[..., c]) for c in range(3)], -1)
+    if shift:
+        # Engine 5: re-expose the negative by a smooth function of the neutral scene level.
+        sh = exposure_shift(le.mean(axis=-1) / np.log10(2.0), controls) * np.log10(2.0)
+        le = le + sh[..., None]
+        dn = np.stack([curve_density(dict(stock["negative"][c], gamma=1.0), le[..., c]) for c in range(3)], -1)
     out = _display_core(dn, stock, controls)
     # Highlight hue protection: film's per-channel shoulder turns bright warm colors
     # yellow (red compresses first). Blend toward the scene's own hue — carrying the
     # stock's own neutral cast at that brightness — scaled to the same luminance.
-    hp = stock.get("huePreserve", 0.0)
     if hp > 0:
-        e = 10.0 ** np.stack([neg_log_exposure(stock["negative"][c], dn[..., c]) for c in range(3)], -1)
+        e = 10.0 ** le
         e = np.maximum(e @ hue_matrix(stock).T, 0)     # scene color (P3), saturation boost undone
         ye = e @ LUM_P3
         tgt = e / np.maximum(ye, 1e-9)[..., None] * neutral_lookup(neutral_table(stock, controls), ye)
@@ -281,7 +320,7 @@ def _display_core(dn, stock, controls):
         k = 1 + sat * (0.6 if sat > 0 else 1.0)
         dm = mean + (dm - mean) * k
     h, s = controls.get("highlights", 0), controls.get("shadows", 0)
-    if h != 0 or s != 0:
+    if (h != 0 or s != 0) and not controls.get("toneRegions", False):
         wh = np.exp(-((neutral - 0.25) / 0.45) ** 2)
         t = np.clip((neutral - 0.9) / (2.4 - 0.9), 0, 1)
         ws = t * t * (3 - 2 * t)
@@ -393,6 +432,7 @@ def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0,
     controls = dict(controls or {})
     controls.setdefault("subtractive", engine >= 3)      # engine 3's Saturation slider, like the app
     controls.setdefault("strongTone", engine >= 4)       # engine 4's Highlights/Shadows
+    controls.setdefault("toneRegions", engine >= 5)      # engine 5's regions, contrast and pivot
     ev = exposure_ev + stock.get("exposure", 0.0)
     after = source != "sceneLinear" and engine >= 2      # engine 2: expose after un-rendering
     x = lin_srgb * (1.0 if after else 2.0 ** ev)
