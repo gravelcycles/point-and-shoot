@@ -803,6 +803,14 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     straight back to shooting; tapping a photo opens it, and swiping that photo down
     returns to the grid, scrolled to that photo (`RollGrid.focus`). Like Photos, oldest at
     the top and newest at the bottom right; it opens at the bottom.
+    - The viewer keeps the grid built behind the photo (`visible` false: opacity 0, no
+      hit testing, hidden from accessibility, no nav bar), following the current photo,
+      so it appears at once. Rebuilding it each time lagged, and `defaultScrollAnchor(.bottom)`
+      on the lazy grid with pinned headers left it black until the first scroll: it scrolls
+      explicitly (`RollGrid.scroll`).
+    - Going back to the grid (swipe down, or the grid button) flies the photo from where it
+      is on screen into its cell (`PhotoViewer.returnToGrid`, `Flight`; the cell stays empty
+      until it lands: `hiding`), like Photos.
   - Zoom like Photos (`ZoomableImageView`, a UIScrollView): pinch anchored under the
     fingers with pan at the same time, rubber-banding, double-tap fit ↔ 2.5×, up to 2×
     native pixels (4–8×). At 1× the scroll view has nothing to scroll, so swipes page and
