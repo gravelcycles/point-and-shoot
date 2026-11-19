@@ -154,6 +154,8 @@ enum EditPipeline {
             image = crop(image, to: r.crop)
         }
         let bounds = image.extent
+        // The framed source, before any grade: what the subject mask is found in.
+        let framed = image
         // Radii are relative to image size so preview and export look the same.
         let unit = max(bounds.width, bounds.height) / 1000
 
@@ -182,6 +184,9 @@ enum EditPipeline {
             fs.halation = film.halation / 50
             fs.grain = r.grain / 50
             fs.grainSize = r.grainSizeValue / 100
+            fs.grainColor = (film.grainColor ?? 0) / 100
+            fs.halationSize = r.filmHalationSize / 100
+            fs.halationColor = (film.halationColor ?? 0) / 100
             fs.controls = r.filmControls
             fs.animateGrain = animateGrain
             image = FilmPipeline.apply(image, settings: fs, unit: unit)
@@ -213,6 +218,20 @@ enum EditPipeline {
                 .applyingFilter("CISRGBToneCurveToLinear")
         }
 
+        // Dehaze, then the masks' own exposure and saturation (sky found in the graded
+        // picture, the subject in the framed source).
+        image = ExtraGrades.dehaze(image, amount: r.dehazeValue / 100, unit: unit)
+        if r.skyExposureValue != 0 || r.skySaturationValue != 0 {
+            image = ExtraGrades.adjust(image, mask: ExtraGrades.skyMask(image, unit: unit),
+                                       exposure: r.skyExposureValue / 50, saturation: r.skySaturationValue / 100)
+        }
+        if r.subjectExposureValue != 0 || r.subjectSaturationValue != 0,
+           let mask = ExtraGrades.subjectMask(source: base, framed: framed,
+                                              key: "\(r.crop)|\(r.quarterTurns)|\(r.flipped)|\(r.straighten)|\(applyCrop)") {
+            image = ExtraGrades.adjust(image, mask: mask,
+                                       exposure: r.subjectExposureValue / 50, saturation: r.subjectSaturationValue / 100)
+        }
+
         // Color mixer before mono, so in B&W it works like darkroom color filters.
         if let mixer = r.mixer, mixer.contains(where: { $0 != 0 }) {
             image = image.applyingFilter("CIColorCubeWithColorSpace", parameters: [
@@ -239,6 +258,9 @@ enum EditPipeline {
         } else if r.saturation != 0 && r.film == nil {
             image = image.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1 + r.saturation / 100])
         }
+
+        // Colour grading and the parametric tone curve, one cube.
+        image = ExtraGrades.applyGrade(image, r.gradeParams)
 
         if r.structure != 0 {
             image = image.applyingFilter("CIUnsharpMask", parameters: [

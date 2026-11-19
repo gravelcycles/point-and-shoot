@@ -410,6 +410,7 @@ struct SettingsView: View {
             Text("For every export and share. Export Size is the longest side; Actual Size keeps each photo's own (cropped) resolution.")
         }
         DefaultGradeSection(camera: camera)
+        EditorControlsSection()
     }
 
     /// "Importing 3 of 12" and a bar, under the import buttons while an import runs.
@@ -544,6 +545,35 @@ struct DefaultGradeSection: View {
             Text("Default Grade")
         } footer: {
             Text("The look and settings every new photo starts with, and what the editor's Reset This Image restores. Picking another look in the camera starts from that look instead. Changing this doesn't affect photos you've already taken.")
+        }
+    }
+}
+
+/// Which of the editor's optional controls show (all by default). Stored in the same
+/// place the editor reads (`EditorExtra.storageKey`).
+private struct EditorControlsSection: View {
+    @AppStorage(EditorExtra.storageKey) private var hidden = ""
+
+    var body: some View {
+        Section {
+            ForEach(EditorExtra.allCases) { extra in
+                Toggle(isOn: Binding(get: { !EditorExtra.hidden(hidden).contains(extra) },
+                                     set: { on in
+                                         var set = EditorExtra.hidden(hidden)
+                                         if on { set.remove(extra) } else { set.insert(extra) }
+                                         hidden = EditorExtra.store(set)
+                                     })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(extra.name)
+                        Text(extra.detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("settings.extra.\(extra.rawValue)")
+            }
+        } header: {
+            Text("Editor Controls")
+        } footer: {
+            Text("Extra controls in the editor. Turning one off hides it; photos already edited with it keep the edit.")
         }
     }
 }

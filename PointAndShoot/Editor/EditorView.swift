@@ -3,7 +3,7 @@ import SwiftUI
 /// The editor's tools, Chromagraph-style: each has sub-tabs, each sub-tab one to three
 /// labelled sliders (or toggles) under the photo.
 enum EditorTool: String, CaseIterable, Identifiable {
-    case looks, tone, color, texture, crop
+    case looks, tone, color, texture, film, crop
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -11,6 +11,7 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .tone: "Tone"
         case .color: "Color"
         case .texture: "Texture"
+        case .film: "Film"
         case .crop: "Crop"
         }
     }
@@ -20,8 +21,53 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .tone: "chart.line.uptrend.xyaxis"
         case .color: "paintpalette"
         case .texture: "circle.dotted"
+        case .film: "film"
         case .crop: "crop.rotate"
         }
+    }
+}
+
+/// The editor's optional controls, each switchable in Preferences → Processing → Editor
+/// Controls (`@AppStorage("editor.hiddenControls")`, a comma-separated list of hidden ids;
+/// everything shows by default). The film ones live in the Film tool (film looks only).
+enum EditorExtra: String, CaseIterable, Identifiable {
+    case printer, process, silver, halation, grading, curve, dehaze, masks
+    var id: String { rawValue }
+    static let storageKey = "editor.hiddenControls"
+
+    var name: String {
+        switch self {
+        case .printer: "Printer Lights"
+        case .process: "Push / Pull & Flashing"
+        case .silver: "Silver Retention & Grain Colour"
+        case .halation: "Halation Size & Colour"
+        case .grading: "Colour Grading"
+        case .curve: "Tone Curve"
+        case .dehaze: "Dehaze"
+        case .masks: "Sky & Subject"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .printer: "Film tool: time the print warmer, cooler, greener or more magenta, like a lab's printer points."
+        case .process: "Film tool: push or pull the negative's development, and flash it to lift the shadows."
+        case .silver: "Film tool: leave silver in the print (bleach bypass) and set how coloured the grain is."
+        case .halation: "Film tool: how far the glow around lights spreads, and its colour."
+        case .grading: "Color: a tint each for shadows, midtones and highlights."
+        case .curve: "Tone: Lightroom-style curve for highlights, lights, darks and shadows."
+        case .dehaze: "Texture: clear haze, or add it."
+        case .masks: "Tone: exposure and saturation for just the sky, or just the subject."
+        }
+    }
+
+    var isFilm: Bool { [.printer, .process, .silver, .halation].contains(self) }
+
+    static func hidden(_ stored: String) -> Set<EditorExtra> {
+        Set(stored.split(separator: ",").compactMap { EditorExtra(rawValue: String($0)) })
+    }
+    static func store(_ hidden: Set<EditorExtra>) -> String {
+        hidden.map(\.rawValue).sorted().joined(separator: ",")
     }
 }
 
@@ -64,6 +110,14 @@ struct EditorView: View {
     @State private var showFilterGuide = false
     /// The named set of looks the Looks tool shows (`LookSet` id, "all" = every look).
     @AppStorage("editor.lookSet") private var lookSet = "all"
+    /// Optional controls switched off in Preferences.
+    @AppStorage(EditorExtra.storageKey) private var hiddenExtras = ""
+    private func shows(_ extra: EditorExtra) -> Bool { !EditorExtra.hidden(hiddenExtras).contains(extra) }
+    /// The tools on the bar: Film only under a film look with any of its controls on.
+    private var tools: [EditorTool] {
+        let film = isFilm && EditorExtra.allCases.contains { $0.isFilm && shows($0) }
+        return EditorTool.allCases.filter { $0 != .film || film }
+    }
 
     /// Called with a short message ("Saved") after a successful save.
     private let onSaved: (String) -> Void
@@ -107,6 +161,18 @@ struct EditorView: View {
             if isFilm {
                 tabs.insert(EditorSubTab(id: "fade", name: "Fade", controls: [.slider(adj("fade"))]), at: 4)
             }
+            if shows(.curve) {
+                tabs.append(EditorSubTab(id: "curveLights", name: "Curve Lights",
+                                         controls: [.slider(adj("curveHighlights")), .slider(adj("curveLights"))]))
+                tabs.append(EditorSubTab(id: "curveDarks", name: "Curve Darks",
+                                         controls: [.slider(adj("curveDarks")), .slider(adj("curveShadows"))]))
+            }
+            if shows(.masks) {
+                tabs.append(EditorSubTab(id: "sky", name: "Sky",
+                                         controls: [.slider(adj("skyExposure")), .slider(adj("skySaturation"))]))
+                tabs.append(EditorSubTab(id: "subject", name: "Subject",
+                                         controls: [.slider(adj("subjectExposure")), .slider(adj("subjectSaturation"))]))
+            }
             if session.hasRAW {
                 tabs.append(EditorSubTab(id: "raw", name: "RAW", controls: [
                     .slider(adj("rawLTM")), .slider(adj("rawBoost")),
@@ -126,6 +192,15 @@ struct EditorView: View {
             }
             tabs.append(EditorSubTab(id: "mixer", name: "Mixer",
                                      controls: [.bands] + Adjustment.mixer(colorBand).map { .slider($0) }))
+            // After the existing tabs, so they keep their places on the pill row.
+            if shows(.grading) {
+                tabs.append(EditorSubTab(id: "gradeShadows", name: "Shadows Tint",
+                                         controls: [.slider(adj("gradeShadowHue")), .slider(adj("gradeShadowAmount"))]))
+                tabs.append(EditorSubTab(id: "gradeMids", name: "Midtones Tint",
+                                         controls: [.slider(adj("gradeMidHue")), .slider(adj("gradeMidAmount"))]))
+                tabs.append(EditorSubTab(id: "gradeHighlights", name: "Highlights Tint",
+                                         controls: [.slider(adj("gradeHighlightHue")), .slider(adj("gradeHighlightAmount"))]))
+            }
             return tabs
         case .texture:
             var tabs = [EditorSubTab(id: "grain", name: "Grain", controls: [.slider(adj("grain")), .slider(adj("grainSize"))])]
@@ -133,9 +208,31 @@ struct EditorView: View {
                 tabs.append(EditorSubTab(id: "halation", name: "Halation", controls: [.slider(adj("halation"))]))
             }
             tabs.append(EditorSubTab(id: "detail", name: "Detail", controls: [.slider(adj("structure")), .slider(adj("sharpen"))]))
+            if shows(.dehaze) {
+                tabs.append(EditorSubTab(id: "dehaze", name: "Dehaze", controls: [.slider(adj("dehaze"))]))
+            }
             tabs.append(EditorSubTab(id: "vignette", name: "Vignette", controls: [.slider(adj("vignette"))]))
             if session.hasRAW {
                 tabs.append(EditorSubTab(id: "noise", name: "Noise", controls: [.slider(adj("rawNR"))]))
+            }
+            return tabs
+        case .film:
+            var tabs: [EditorSubTab] = []
+            if shows(.printer) {
+                tabs.append(EditorSubTab(id: "printer", name: "Printer Lights",
+                                         controls: [.slider(adj("printerWarm")), .slider(adj("printerMagenta"))]))
+            }
+            if shows(.process) {
+                tabs.append(EditorSubTab(id: "process", name: "Push / Pull",
+                                         controls: [.slider(adj("push")), .slider(adj("flash"))]))
+            }
+            if shows(.silver) {
+                tabs.append(EditorSubTab(id: "silver", name: "Silver",
+                                         controls: [.slider(adj("silver")), .slider(adj("grainColor"))]))
+            }
+            if shows(.halation) {
+                tabs.append(EditorSubTab(id: "halationShape", name: "Halation",
+                                         controls: [.slider(adj("halationSize")), .slider(adj("halationColor"))]))
             }
             return tabs
         }
@@ -162,6 +259,10 @@ struct EditorView: View {
         .statusBarHidden()
         .task { await session.load(maxPixels: 2400) }
         .sensoryFeedback(.selection, trigger: selectionTick)
+        // The Film tool leaves the bar when the look stops being a film look.
+        .onChange(of: tools) { _, available in
+            if !available.contains(tool) { withAnimation(.snappy(duration: 0.25)) { tool = .tone } }
+        }
         .interactiveDismissDisabled(session.hasChanges)
         .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Save") { Task { await saveAndClose() } }
@@ -358,7 +459,7 @@ struct EditorView: View {
         switch tool {
         case .looks:
             looksPanel
-        case .tone, .color, .texture:
+        case .tone, .color, .texture, .film:
             gradePanel
         case .crop:
             cropPanel
@@ -633,7 +734,7 @@ struct EditorView: View {
 
     private var toolTabs: some View {
         HStack(spacing: 0) {
-            ForEach(EditorTool.allCases) { t in
+            ForEach(tools) { t in
                 Button {
                     withAnimation(.snappy(duration: 0.25)) { tool = t }
                 } label: {

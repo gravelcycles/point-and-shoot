@@ -32,6 +32,29 @@ struct EditRecipe: Codable, Equatable {
     /// Where Contrast turns (film looks, engine 5+): 0…100 display brightness, like
     /// Chromagraph's Pivot 0…1. nil = 35, about where 18% grey prints (as before).
     var contrastPivot: Double?
+    /// Colour grading: the shadows' tint hue (degrees) and amount (0…100); midtones, highlights.
+    /// nil = the default (210), so older edits decode and an untouched slider changes nothing.
+    var gradeShadowHue: Double?
+    var gradeShadowAmount: Double?
+    var gradeMidHue: Double?
+    var gradeMidAmount: Double?
+    var gradeHighlightHue: Double?
+    var gradeHighlightAmount: Double?
+    /// Parametric tone curve, −100…100 each (Lightroom's Highlights, Lights, Darks, Shadows).
+    /// nil = the default (0), so older edits decode and an untouched slider changes nothing.
+    var curveHighlights: Double?
+    var curveLights: Double?
+    var curveDarks: Double?
+    var curveShadows: Double?
+    /// Dehaze, −100…100.
+    /// nil = the default (0), so older edits decode and an untouched slider changes nothing.
+    var dehaze: Double?
+    /// Masks: exposure (50 per stop, ±2) and saturation (−100…100) of the sky and of the subject.
+    /// nil = the default (0), so older edits decode and an untouched slider changes nothing.
+    var skyExposure: Double?
+    var skySaturation: Double?
+    var subjectExposure: Double?
+    var subjectSaturation: Double?
     var vignette: Double = 0
     var mono: Bool = false
     var look: String?
@@ -143,6 +166,99 @@ struct EditRecipe: Codable, Equatable {
     }
 
     /// Slider views of the optional fields: the default is stored as nil.
+    var gradeShadowHueValue: Double {
+        get { gradeShadowHue ?? 210 }
+        set { gradeShadowHue = newValue == 210 ? nil : newValue }
+    }
+    var gradeShadowAmountValue: Double {
+        get { gradeShadowAmount ?? 0 }
+        set { gradeShadowAmount = newValue == 0 ? nil : newValue }
+    }
+    var gradeMidHueValue: Double {
+        get { gradeMidHue ?? 30 }
+        set { gradeMidHue = newValue == 30 ? nil : newValue }
+    }
+    var gradeMidAmountValue: Double {
+        get { gradeMidAmount ?? 0 }
+        set { gradeMidAmount = newValue == 0 ? nil : newValue }
+    }
+    var gradeHighlightHueValue: Double {
+        get { gradeHighlightHue ?? 45 }
+        set { gradeHighlightHue = newValue == 45 ? nil : newValue }
+    }
+    var gradeHighlightAmountValue: Double {
+        get { gradeHighlightAmount ?? 0 }
+        set { gradeHighlightAmount = newValue == 0 ? nil : newValue }
+    }
+    var curveHighlightsValue: Double {
+        get { curveHighlights ?? 0 }
+        set { curveHighlights = newValue == 0 ? nil : newValue }
+    }
+    var curveLightsValue: Double {
+        get { curveLights ?? 0 }
+        set { curveLights = newValue == 0 ? nil : newValue }
+    }
+    var curveDarksValue: Double {
+        get { curveDarks ?? 0 }
+        set { curveDarks = newValue == 0 ? nil : newValue }
+    }
+    var curveShadowsValue: Double {
+        get { curveShadows ?? 0 }
+        set { curveShadows = newValue == 0 ? nil : newValue }
+    }
+    var dehazeValue: Double {
+        get { dehaze ?? 0 }
+        set { dehaze = newValue == 0 ? nil : newValue }
+    }
+    var skyExposureValue: Double {
+        get { skyExposure ?? 0 }
+        set { skyExposure = newValue == 0 ? nil : newValue }
+    }
+    var skySaturationValue: Double {
+        get { skySaturation ?? 0 }
+        set { skySaturation = newValue == 0 ? nil : newValue }
+    }
+    var subjectExposureValue: Double {
+        get { subjectExposure ?? 0 }
+        set { subjectExposure = newValue == 0 ? nil : newValue }
+    }
+    var subjectSaturationValue: Double {
+        get { subjectSaturation ?? 0 }
+        set { subjectSaturation = newValue == 0 ? nil : newValue }
+    }
+    var filmPrinterWarm: Double {
+        get { film?.printerWarm ?? 0 }
+        set { film?.printerWarm = newValue == 0 ? nil : newValue }
+    }
+    var filmPrinterMagenta: Double {
+        get { film?.printerMagenta ?? 0 }
+        set { film?.printerMagenta = newValue == 0 ? nil : newValue }
+    }
+    var filmPush: Double {
+        get { film?.push ?? 0 }
+        set { film?.push = newValue == 0 ? nil : newValue }
+    }
+    var filmFlash: Double {
+        get { film?.flash ?? 0 }
+        set { film?.flash = newValue == 0 ? nil : newValue }
+    }
+    var filmSilver: Double {
+        get { film?.silver ?? 0 }
+        set { film?.silver = newValue == 0 ? nil : newValue }
+    }
+    var filmGrainColor: Double {
+        get { film?.grainColor ?? 0 }
+        set { film?.grainColor = newValue == 0 ? nil : newValue }
+    }
+    var filmHalationSize: Double {
+        get { film?.halationSize ?? 100 }
+        set { film?.halationSize = newValue == 100 ? nil : newValue }
+    }
+    var filmHalationColor: Double {
+        get { film?.halationColor ?? 0 }
+        set { film?.halationColor = newValue == 0 ? nil : newValue }
+    }
+
     var grainSizeValue: Double {
         get { grainSize ?? 100 }
         set { grainSize = newValue == 100 ? nil : newValue }
@@ -161,6 +277,15 @@ struct EditRecipe: Codable, Equatable {
                             subtractiveSaturation: engine >= 3, strongTone: engine >= 4,
                             toneRegions: engine >= 5,
                             pivot: engine >= 5 ? FilmControls.pivotStops(contrastPivotValue) : 0)
+            .withFilmTool(film)
+    }
+
+    /// The colour grade and tone curve for `ExtraGrades.applyGrade`.
+    var gradeParams: ExtraGrades.GradeParams {
+        ExtraGrades.GradeParams(
+            curve: [curveHighlightsValue, curveLightsValue, curveDarksValue, curveShadowsValue].map { $0 / 100 },
+            tints: [gradeShadowHueValue, gradeShadowAmountValue / 100, gradeMidHueValue, gradeMidAmountValue / 100,
+                    gradeHighlightHueValue, gradeHighlightAmountValue / 100])
     }
 
     /// Whether moving this film edit to the current engine changes nothing it renders:
@@ -326,6 +451,22 @@ struct FilmRecipe: Codable, Equatable {
     /// -100 = none, +100 = double.
     var crossover: Double = 0
 
+    // The Film tool (nil = off; older edits decode, untouched sliders change nothing).
+    /// Printer lights: warm/cool and magenta/green, −100…100 (±2 printer points).
+    var printerWarm: Double?
+    var printerMagenta: Double?
+    /// Push/pull, −100…100 = −2…+2 stops of development.
+    var push: Double?
+    /// Flashing, 0…100 (a pre-exposure up to 8% of grey's).
+    var flash: Double?
+    /// Silver retention (bleach bypass), 0…100.
+    var silver: Double?
+    /// Grain colour, −100 (monochrome) … 0 (the look's) … 100 (strongly coloured).
+    var grainColor: Double?
+    /// Halation spread in percent (25…300, nil = 100) and colour (−100 red … 100 warm white).
+    var halationSize: Double?
+    var halationColor: Double?
+
     /// Grain amount the look starts with (EditRecipe.grain, 0…200; 50 = as designed).
     static let defaultGrain: Double = 50
 }
@@ -437,9 +578,43 @@ struct Adjustment: Identifiable {
     /// Every slider by id (the editor's sub-tabs pick from these).
     static let catalog: [String: Adjustment] = {
         var out: [String: Adjustment] = [:]
-        for a in tune + filmDetails + details + raw where out[a.id] == nil { out[a.id] = a }
+        for a in tune + filmDetails + details + raw + filmTool + extras where out[a.id] == nil { out[a.id] = a }
         return out
     }()
+
+    static func degrees(_ v: Double) -> String { "\(Int(v.rounded()))°" }
+    static func times(_ v: Double) -> String { String(format: "%.2f×", v / 100) }
+
+    /// The Film tool (film looks only).
+    static let filmTool: [Adjustment] = [
+        .init(id: "printerWarm", name: "Warm / Cool", range: -100...100, keyPath: \.filmPrinterWarm),
+        .init(id: "printerMagenta", name: "Magenta / Green", range: -100...100, keyPath: \.filmPrinterMagenta),
+        .init(id: "push", name: "Push / Pull", range: -100...100, keyPath: \.filmPush, format: Adjustment.stops),
+        .init(id: "flash", name: "Flashing", range: 0...100, keyPath: \.filmFlash),
+        .init(id: "silver", name: "Silver Retention", range: 0...100, keyPath: \.filmSilver),
+        .init(id: "grainColor", name: "Grain Colour", range: -100...100, keyPath: \.filmGrainColor),
+        .init(id: "halationSize", name: "Halation Size", range: 25...300, keyPath: \.filmHalationSize, format: Adjustment.times),
+        .init(id: "halationColor", name: "Halation Colour", range: -100...100, keyPath: \.filmHalationColor),
+    ]
+
+    /// Colour grading, tone curve, dehaze and masks (every look).
+    static let extras: [Adjustment] = [
+        .init(id: "gradeShadowHue", name: "Shadows Hue", range: 0...360, keyPath: \.gradeShadowHueValue, format: Adjustment.degrees),
+        .init(id: "gradeShadowAmount", name: "Shadows Tint", range: 0...100, keyPath: \.gradeShadowAmountValue),
+        .init(id: "gradeMidHue", name: "Midtones Hue", range: 0...360, keyPath: \.gradeMidHueValue, format: Adjustment.degrees),
+        .init(id: "gradeMidAmount", name: "Midtones Tint", range: 0...100, keyPath: \.gradeMidAmountValue),
+        .init(id: "gradeHighlightHue", name: "Highlights Hue", range: 0...360, keyPath: \.gradeHighlightHueValue, format: Adjustment.degrees),
+        .init(id: "gradeHighlightAmount", name: "Highlights Tint", range: 0...100, keyPath: \.gradeHighlightAmountValue),
+        .init(id: "curveHighlights", name: "Curve Highlights", range: -100...100, keyPath: \.curveHighlightsValue),
+        .init(id: "curveLights", name: "Curve Lights", range: -100...100, keyPath: \.curveLightsValue),
+        .init(id: "curveDarks", name: "Curve Darks", range: -100...100, keyPath: \.curveDarksValue),
+        .init(id: "curveShadows", name: "Curve Shadows", range: -100...100, keyPath: \.curveShadowsValue),
+        .init(id: "dehaze", name: "Dehaze", range: -100...100, keyPath: \.dehazeValue),
+        .init(id: "skyExposure", name: "Sky Exposure", range: -100...100, keyPath: \.skyExposureValue, format: Adjustment.stops),
+        .init(id: "skySaturation", name: "Sky Saturation", range: -100...100, keyPath: \.skySaturationValue),
+        .init(id: "subjectExposure", name: "Subject Exposure", range: -100...100, keyPath: \.subjectExposureValue, format: Adjustment.stops),
+        .init(id: "subjectSaturation", name: "Subject Saturation", range: -100...100, keyPath: \.subjectSaturationValue),
+    ]
 
     static let raw: [Adjustment] = [
         .init(id: "rawNR", name: "Noise Reduction", range: 0...100, keyPath: \.rawNoiseReduction),
@@ -647,5 +822,21 @@ extension FilmStock {
     static func namedOrRetired(_ id: String?) -> FilmStock {
         if let id, all[id] == nil, let retired = Legacy.v2[id] { return retired }
         return named(id)
+    }
+}
+
+// FilmModel.swift stays Foundation-only (parity compiles it alone), so the recipe →
+// controls glue lives here.
+extension FilmControls {
+    /// These controls with the Film tool's settings from a photo's film recipe.
+    func withFilmTool(_ f: FilmRecipe?) -> FilmControls {
+        guard let f else { return self }
+        var c = self
+        (c.printerR, c.printerG, c.printerB) = FilmControls.printerLights(warm: (f.printerWarm ?? 0) / 100,
+                                                                          magenta: (f.printerMagenta ?? 0) / 100)
+        c.push = (f.push ?? 0) / 50
+        c.flash = 0.08 * (f.flash ?? 0) / 100
+        c.silver = (f.silver ?? 0) / 100
+        return c
     }
 }

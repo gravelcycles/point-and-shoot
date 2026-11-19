@@ -26,6 +26,12 @@ enum FilmPipeline {
         var grain: Double = 1
         /// Multiplies the look's grain size (0.25…3, 1 = as designed).
         var grainSize: Double = 1
+        /// −1…1: monochrome grain … the look's … strongly coloured (Film tool).
+        var grainColor: Double = 0
+        /// Multiplies the halation's spread (0.25…3) and moves its colour: −1 pure red,
+        /// 0 the look's, +1 a warm white bloom (Film tool).
+        var halationSize: Double = 1
+        var halationColor: Double = 0
         var controls = FilmControls()
         /// Moves the grain pattern every call (live viewfinder) instead of keeping it fixed.
         var animateGrain = false
@@ -161,7 +167,8 @@ enum FilmPipeline {
             x = x.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: ev])
         }
         if s.halation > 0 {
-            x = addHalation(x, stock: stock, amount: s.halation, source: s.source, unit: unit)
+            x = addHalation(x, stock: stock, amount: s.halation, size: s.halationSize, color: s.halationColor,
+                            source: s.source, unit: unit)
         }
 
         // Shaper: → Rec.2020, ÷ scale, clamp to 0…1, ^(1/power). Matches FilmLUT.shaped.
@@ -185,7 +192,8 @@ enum FilmPipeline {
             ])
 
         if s.grain > 0 {
-            x = addGrain(to: x, stock: stock, amount: s.grain, size: s.grainSize, unit: unit, animate: s.animateGrain)
+            x = addGrain(to: x, stock: stock, amount: s.grain, size: s.grainSize, color: s.grainColor,
+                         unit: unit, animate: s.animateGrain)
         }
 
         x = x.applyingFilter("CIColorCube", parameters: [
@@ -208,8 +216,8 @@ enum FilmPipeline {
     /// bright edges. Energy-conserving, E' = (E + a·glow) / (1 + a), so flat areas keep
     /// their color and only edges next to bright light pick up the glow. Highlights near
     /// clipping are boosted first, since the sensor clips where film wouldn't.
-    private static func addHalation(_ image: CIImage, stock: FilmStock, amount: Double, source: FilmLUT.Source,
-                                    unit: CGFloat) -> CIImage {
+    private static func addHalation(_ image: CIImage, stock: FilmStock, amount: Double, size: Double = 1,
+                                    color: Double = 0, source: FilmLUT.Source, unit: CGFloat) -> CIImage {
         let bounds = image.extent
         let spread = stock.halationSpread
         let threshold = CGFloat(source == .sceneLinear ? spread.threshold : spread.displayThreshold)
@@ -237,19 +245,38 @@ enum FilmPipeline {
         var glow: CIImage?
         for (sigma, weight) in zip(spread.sigmas, spread.weights) {
             let blurred = small
-                .applyingGaussianBlur(sigma: max(0.5, sigma * Double(unit / down)))
+                .applyingGaussianBlur(sigma: max(0.5, sigma * size * Double(unit / down)))
                 .applyingFilter("CIColorMatrix", parameters: scale(CGFloat(weight), CGFloat(weight), CGFloat(weight)))
             glow = glow.map { blurred.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: $0]) } ?? blurred
         }
         guard let glow else { return image }
 
-        let a = stock.halation.map { CGFloat($0 * amount) }
+        let a = halationStrengths(stock.halation, amount: amount, color: color).map { CGFloat($0) }
         let keep = image.applyingFilter("CIColorMatrix", parameters: scale(1 / (1 + a[0]), 1 / (1 + a[1]), 1 / (1 + a[2]), alpha: 1))
         let halo = glow
             .transformed(by: CGAffineTransform(scaleX: down, y: down))
             .applyingFilter("CIColorMatrix", parameters: scale(a[0] / (1 + a[0]), a[1] / (1 + a[1]), a[2] / (1 + a[2])))
             .cropped(to: bounds)
         return halo.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: keep])
+    }
+
+    /// Per-channel halation strength: the look's, times the amount, with its colour moved
+    /// toward pure red (−1: green and blue gone) or a warm white bloom (+1: green 60% and
+    /// blue 30% of red), so the overall glow stays about as strong.
+    static func halationStrengths(_ h: [Double], amount: Double, color c: Double) -> [Double] {
+        var r = h[0], g = h[1], b = h[2]
+        if c < 0 {
+            g *= 1 + c; b *= 1 + c
+        } else if c > 0 {
+            g += c * (0.6 * r - g); b += c * (0.3 * r - b)
+        }
+        return [r * amount, g * amount, b * amount]
+    }
+
+    /// Grain colour: the share of independent per-layer grain, from the look's own
+    /// (`color` 0) down to monochrome (−1) or up to 0.8 (+1).
+    static func grainChroma(_ base: Double, color c: Double) -> Double {
+        c < 0 ? base * (1 + c) : base + (0.8 - base) * c
     }
 
     /// CIColorMatrix parameters for a per-channel gain.
@@ -274,7 +301,7 @@ enum FilmPipeline {
     /// (CIRandomGenerator's alpha is random too; a filter that un-premultiplies would divide
     /// by it and turn the grain into heavy-tailed speckle.)
     private static func addGrain(to image: CIImage, stock: FilmStock, amount: Double, size: Double = 1,
-                                 unit: CGFloat, animate: Bool) -> CIImage {
+                                 color: Double = 0, unit: CGFloat, animate: Bool) -> CIImage {
         guard var noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
         let bounds = image.extent
         if animate {
@@ -307,7 +334,7 @@ enum FilmPipeline {
         // Mix the three independent channels into per-layer grain with the stock's
         // covariance: mostly shared (monochrome), `grainChroma` per layer. The covariance
         // α·J + β·I (J = all ones) is M² for the symmetric M = p·I + q·J.
-        let c = stock.grainChroma
+        let c = grainChroma(stock.grainChroma, color: color)
         let norm2 = (1 - c) * (1 - c) + c * c
         let alpha = (1 - c) * (1 - c) / norm2, beta = c * c / norm2
         let p = beta.squareRoot()
