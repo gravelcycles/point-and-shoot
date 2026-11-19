@@ -190,6 +190,9 @@ struct EditorView: View {
             if isFilm {
                 tabs.append(EditorSubTab(id: "crossover", name: "Crossover", controls: [.slider(adj("crossover"))]))
             }
+            tabs.append(EditorSubTab(id: "mixer", name: "Mixer",
+                                     controls: [.bands] + Adjustment.mixer(colorBand).map { .slider($0) }))
+            // After the existing tabs, so they keep their places on the pill row.
             if shows(.grading) {
                 tabs.append(EditorSubTab(id: "gradeShadows", name: "Shadows Tint",
                                          controls: [.slider(adj("gradeShadowHue")), .slider(adj("gradeShadowAmount"))]))
@@ -198,8 +201,6 @@ struct EditorView: View {
                 tabs.append(EditorSubTab(id: "gradeHighlights", name: "Highlights Tint",
                                          controls: [.slider(adj("gradeHighlightHue")), .slider(adj("gradeHighlightAmount"))]))
             }
-            tabs.append(EditorSubTab(id: "mixer", name: "Mixer",
-                                     controls: [.bands] + Adjustment.mixer(colorBand).map { .slider($0) }))
             return tabs
         case .texture:
             var tabs = [EditorSubTab(id: "grain", name: "Grain",

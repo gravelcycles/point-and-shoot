@@ -6,11 +6,19 @@ import SwiftUI
 /// The Trash (shots deleted, or past their 30 days) is one tap away.
 /// Like Photos: oldest at the top, newest at the bottom right, opened at the bottom, or on
 /// the photo the viewer was showing (`focus`).
+/// The viewer keeps it built behind the photo (`visible` false: invisible, untouchable, no
+/// toolbar), so it appears at once, already scrolled, and the closing photo can fly into
+/// its cell (`onFocusFrame`, `hiding`).
 struct RollGrid: View {
     let store: ShotStore
     let camera: CameraController
     /// The photo to open on (the one the viewer showed); nil = the newest.
     var focus: UUID? = nil
+    var visible = true
+    /// A cell left empty while the viewer's photo flies into it.
+    var hiding: UUID? = nil
+    /// Where `focus`'s cell is on screen (global coordinates), whenever it moves.
+    var onFocusFrame: ((CGRect) -> Void)? = nil
     let onSelect: (Shot) -> Void
     /// Back to the camera.
     let onCamera: () -> Void
@@ -53,7 +61,14 @@ struct RollGrid: View {
                     LazyVGrid(columns: columns, spacing: 2, pinnedViews: [.sectionHeaders]) {
                         ForEach(days) { group in
                             Section {
-                                ForEach(group.shots) { shot in cell(shot).id(shot.id) }
+                                ForEach(group.shots) { shot in
+                                    cell(shot)
+                                        .opacity(shot.id == hiding ? 0 : 1)
+                                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                                            if shot.id == focus { onFocusFrame?(frame) }
+                                        }
+                                        .id(shot.id)
+                                }
                             } header: {
                                 Text(dayTitle(group.day))
                                     .font(.system(size: 15, weight: .semibold))
@@ -64,12 +79,11 @@ struct RollGrid: View {
                         }
                     }
                 }
-                .defaultScrollAnchor(.bottom)
-                .onAppear {
-                    // Back from a photo: show that photo, not the end of the roll.
-                    guard let focus, focus != store.shots.first?.id else { return }
-                    DispatchQueue.main.async { proxy.scrollTo(focus, anchor: .center) }
-                }
+                // Scrolled explicitly, not with defaultScrollAnchor(.bottom): on a lazy grid
+                // with pinned headers that left the grid black until the first scroll.
+                .onAppear { DispatchQueue.main.async { scroll(proxy) } }
+                .onChange(of: visible) { _, shown in if shown { scroll(proxy) } }
+                .onChange(of: focus) { _, _ in if !visible { scroll(proxy) } }
             }
             .overlay {
                 if store.isLoaded && store.shots.isEmpty {
@@ -87,6 +101,7 @@ struct RollGrid: View {
             .navigationTitle(selecting ? (selected.isEmpty ? "Select Items" : "\(selected.count) Selected") : "Library")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
+            .toolbar(visible ? .visible : .hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
             .onChange(of: store.shots.map(\.id)) { _, ids in
                 // Trashed elsewhere (or by the 30-day sweep): drop it from the selection.
@@ -115,6 +130,15 @@ struct RollGrid: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// Shows the photo the viewer was on (centred), or the newest at the bottom, at once.
+    private func scroll(_ proxy: ScrollViewProxy) {
+        let newest = store.shots.first?.id
+        guard let target = focus ?? newest else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { proxy.scrollTo(target, anchor: target == newest ? .bottom : .center) }
     }
 
     private func cell(_ shot: Shot) -> some View {
