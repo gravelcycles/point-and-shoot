@@ -2,11 +2,15 @@ import SwiftUI
 
 /// The whole library, by day, as its own screen (the viewer swaps it in). Tap a photo to
 /// open it, the camera button to go straight back to shooting, or Select to pick several
-/// and export, share, keep, paste a grade onto or trash them together. The Trash (shots
-/// deleted, or past their 30 days) is one tap away.
+/// and export, share, keep, apply a look or paste a grade onto, or trash them together.
+/// The Trash (shots deleted, or past their 30 days) is one tap away.
+/// Like Photos: oldest at the top, newest at the bottom right, opened at the bottom, or on
+/// the photo the viewer was showing (`focus`).
 struct RollGrid: View {
     let store: ShotStore
     let camera: CameraController
+    /// The photo to open on (the one the viewer showed); nil = the newest.
+    var focus: UUID? = nil
     let onSelect: (Shot) -> Void
     /// Back to the camera.
     let onCamera: () -> Void
@@ -19,6 +23,7 @@ struct RollGrid: View {
     @State private var showTrash = false
     @State private var confirmArchive = false
     @State private var confirmTrash = false
+    @State private var showLookPicker = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
 
@@ -30,11 +35,11 @@ struct RollGrid: View {
         var id: Date { day }
     }
 
-    /// Shots grouped by calendar day, newest day first.
+    /// Shots grouped by calendar day, oldest first (newest at the bottom right).
     private var days: [DayGroup] {
         let cal = Calendar.current
         var out: [DayGroup] = []
-        for shot in store.shots {
+        for shot in store.shots.reversed() {
             let day = cal.startOfDay(for: shot.captured)
             if out.last?.day == day { out[out.count - 1].shots.append(shot) } else { out.append(DayGroup(day: day, shots: [shot])) }
         }
@@ -43,19 +48,27 @@ struct RollGrid: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 2, pinnedViews: [.sectionHeaders]) {
-                    ForEach(days) { group in
-                        Section {
-                            ForEach(group.shots) { shot in cell(shot) }
-                        } header: {
-                            Text(dayTitle(group.day))
-                                .font(.system(size: 15, weight: .semibold))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12).padding(.vertical, 8)
-                                .background(.bar)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 2, pinnedViews: [.sectionHeaders]) {
+                        ForEach(days) { group in
+                            Section {
+                                ForEach(group.shots) { shot in cell(shot).id(shot.id) }
+                            } header: {
+                                Text(dayTitle(group.day))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(.bar)
+                            }
                         }
                     }
+                }
+                .defaultScrollAnchor(.bottom)
+                .onAppear {
+                    // Back from a photo: show that photo, not the end of the roll.
+                    guard let focus, focus != store.shots.first?.id else { return }
+                    DispatchQueue.main.async { proxy.scrollTo(focus, anchor: .center) }
                 }
             }
             .overlay {
@@ -85,6 +98,13 @@ struct RollGrid: View {
                     ActivityView(items: item.urls).presentationDetents([.medium, .large]).ignoresSafeArea()
                 }
                 Color.clear.sheet(isPresented: $showTrash) { TrashView(store: store) }
+                Color.clear.sheet(isPresented: $showLookPicker) {
+                    LookPickerSheet(count: selected.count) { look in
+                        showLookPicker = false
+                        applyLook(look)
+                    }
+                    .presentationDetents([.medium, .large])
+                }
             }
             .confirmationDialog(selected.count == 1 ? "Archive 1 RAW Photo" : "Archive \(selected.count) RAW Photos",
                                 isPresented: $confirmArchive, titleVisibility: .visible) {
@@ -185,6 +205,9 @@ struct RollGrid: View {
                 Button { confirmArchive = true } label: { Label("Archive RAW…", systemImage: "archivebox") }
                     .accessibilityIdentifier("grid.archive")
                 Divider()
+                // A look onto every selected photo (a sheet: 20 looks don't fit a submenu).
+                Button { showLookPicker = true } label: { Label("Apply Look…", systemImage: "camera.filters") }
+                    .accessibilityIdentifier("grid.applyLook")
                 Button {
                     if let first = selectedShots.first { EditClipboard.recipe = store.recipe(for: first.id) }
                 } label: { Label("Copy Grade", systemImage: "doc.on.doc") }
@@ -217,6 +240,14 @@ struct RollGrid: View {
         .background(.bar)
     }
 
+    private func applyLook(_ look: Look) {
+        let shots = selectedShots
+        var applied = 0
+        for shot in shots where store.setRecipe(store.recipe(for: shot.id).withLook(look), for: shot.id) { applied += 1 }
+        Diag.log(.editor, "look \(look.id) applied to \(applied) of \(shots.count) photos")
+        flash(applied == 1 ? "\(look.name) applied" : "\(look.name) applied to \(applied)")
+    }
+
     private func tap(_ shot: Shot) {
         if selecting {
             if selected.contains(shot.id) { selected.remove(shot.id) } else { selected.insert(shot.id) }
@@ -236,7 +267,7 @@ struct RollGrid: View {
     private func flash(_ text: String) {
         withAnimation { message = text }
         Task {
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(TestHooks.isUITest ? 6 : 2))
             withAnimation { message = nil }
         }
     }
@@ -307,6 +338,41 @@ struct RollGrid: View {
 }
 
 /// Shots deleted, or past their 30 days without Keep. Each stays 30 days, then it's gone.
+/// Apply Look: every look by set, with its description. Picking one applies it to the
+/// selected photos as the editor's Looks tool would (tone and colour reset to the look;
+/// crop and RAW develop kept).
+private struct LookPickerSheet: View {
+    let count: Int
+    let onPick: (Look) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(LookSet.allCases) { set in
+                    Section(set.name) {
+                        ForEach(Look.all.filter { $0.set == set }) { look in
+                            Button { onPick(look) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(look.name).foregroundStyle(.primary)
+                                    Text(look.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                            .accessibilityIdentifier("grid.look.\(look.id)")
+                        }
+                    }
+                }
+            }
+            .navigationTitle(count == 1 ? "Apply Look" : "Apply Look to \(count)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+
 struct TrashView: View {
     let store: ShotStore
     @Environment(\.dismiss) private var dismiss

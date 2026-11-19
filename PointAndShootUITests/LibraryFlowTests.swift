@@ -210,6 +210,26 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["viewer.edit"].waitForExistence(timeout: 6), "✓ didn't close the editor")
     }
 
+    /// Select → ⋯ → Apply Look puts one look on several photos at once.
+    func testGridAppliesALookToSeveralPhotos() {
+        openViewer()
+        app.buttons["viewer.grid"].tap()
+        XCTAssertTrue(app.buttons["grid.select"].waitForExistence(timeout: 4))
+        app.buttons["grid.select"].tap()
+        let cells = app.descendants(matching: .any).matching(identifier: "grid.cell")
+        XCTAssertGreaterThanOrEqual(cells.count, 2)
+        cells.element(boundBy: 0).tap()
+        cells.element(boundBy: 1).tap()
+        app.buttons["grid.more"].tap()
+        let applyLook = app.buttons["Apply Look…"]   // menu items are found by label
+        XCTAssertTrue(applyLook.waitForExistence(timeout: 3), "the ⋯ menu has no Apply Look")
+        applyLook.tap()
+        let print = app.buttons["grid.look.print"]
+        XCTAssertTrue(print.waitForExistence(timeout: 4), "Apply Look doesn't list Print")
+        print.tap()
+        XCTAssertTrue(app.staticTexts["Print applied to 2"].waitForExistence(timeout: 4), "no confirmation that the look was applied")
+    }
+
     func testGridSelectTrashTwoThenRestoreFromTheTrash() {
         openViewer()
         let before = rollCount()

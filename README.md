@@ -162,8 +162,9 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
   - **Keep** (bookmark) saves a photo from the 30-day clean-up. **Trash** asks first, then
     offers Undo. **⋯** has Copy/Paste Grade and Archive RAW. **Export** (tan) saves the
     finished photo to Photos; **Share** sends it anywhere.
-  - **Grid** (bottom left): the whole library by day, as its own screen, with a camera
-    button straight back to shooting. **Select** to export, share, keep, paste a grade,
+  - **Grid** (bottom left): the whole library by day, newest at the bottom right, as its
+    own screen, with a camera button straight back to shooting; it opens on the photo you
+    were looking at. **Select** to export, share, keep, apply a look, paste a grade,
     archive or trash several at once. The **Trash** keeps photos 30 days.
 - **30 days by default**: photos you haven't tagged Keep move to the Trash 30 days after
   you took them (Preferences → General → Store New Photos Forever turns that off).

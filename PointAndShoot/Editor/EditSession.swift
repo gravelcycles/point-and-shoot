@@ -259,11 +259,7 @@ final class EditSession {
     }
 
     func apply(look: Look) {
-        var r = recipe
-        r.resetTone()
-        look.apply(&r)
-        r.look = look.id == "none" ? nil : look.id
-        recipe = r
+        recipe = recipe.withLook(look)
         Diag.log(.editor, "look picked on \(shot.id.uuidString.prefix(8)) (\(shot.kind.rawValue)): \(recipe.developSummary)")
     }
 
