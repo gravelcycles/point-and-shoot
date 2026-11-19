@@ -202,15 +202,32 @@ final class EditSession {
 
     // MARK: Rendering
 
-    /// The source before any edit (for press-and-hold compare).
-    var originalPreview: CIImage? { (useDetail ? detailBase : nil) ?? previewBase ?? placeholder }
-
     /// Source with geometry but no crop — what the crop tool draws on.
     func uncroppedPreview() -> CIImage? {
         guard let base = sourcePreview() else { return nil }
         var r = recipe
         r.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
         return EditPipeline.apply(r, to: base, developedFromRAW: developsFromRAW, applyCrop: false)
+    }
+
+    /// The photo with nothing done to it, for press-and-hold compare: no look, every slider
+    /// at zero, no crop or rotation, and the RAW developed with the camera's own settings
+    /// (the owner: "hold press should show original image without anything"). It used to
+    /// show the camera's processed quick preview, which isn't the original.
+    func untouchedPreview() -> CIImage? {
+        var o = EditRecipe()
+        o.useRAW = recipe.useRAW
+        o.rawInitialized = true
+        o.rawNoiseReduction = rawDefault("rawNR") ?? o.rawNoiseReduction
+        o.rawLocalTone = rawDefault("rawLTM") ?? o.rawLocalTone
+        o.rawBoost = rawDefault("rawBoost") ?? o.rawBoost
+        if developsFromRAW, let raw = (useDetail ? detailRAW : nil) ?? previewRAW {
+            EditPipeline.configure(raw, recipe: o, defaults: rawDefaults)
+            guard let developed = raw.outputImage else { return placeholder }
+            return EditPipeline.apply(o, to: developed, developedFromRAW: true)
+        }
+        guard let base = (useDetail ? detailBase : nil) ?? previewBase else { return placeholder }
+        return EditPipeline.apply(o, to: base, developedFromRAW: false)
     }
 
     func editedPreview() -> CIImage? {

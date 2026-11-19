@@ -163,6 +163,48 @@ final class ExtraControlsTests: XCTestCase {
         XCTAssertLessThan(mean(CGRect(x: 0, y: 0, width: 64, height: 12)), 0.1, "not the warm wall")
     }
 
+    /// The colour mixer visibly changes its colour family, on a saturated and on a muted
+    /// colour, with and without a film look (the owner saw no difference on device).
+    func testMixerChangesItsColours() {
+        func render(_ r: EditRecipe, _ c: CIColor) -> [Float] {
+            let img = CIImage(color: c).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+            let out = EditPipeline.apply(r, to: img, developedFromRAW: false)
+            var px = [Float](repeating: 0, count: 8 * 8 * 4)
+            EditPipeline.context.render(out.cropped(to: img.extent), toBitmap: &px, rowBytes: 8 * 16, bounds: img.extent,
+                                        format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+            return Array(px[0..<3])
+        }
+        for start in [EditRecipe(), printRecipe] {
+            var start = start
+            start.grain = 0
+            for (colour, band) in [(CIColor(red: 0.8, green: 0.2, blue: 0.1), ColorBand.red),
+                                   (CIColor(red: 0.62, green: 0.55, blue: 0.48), .orange)] {
+                let base = render(start, colour)
+                for k in 0..<3 {
+                    var r = start
+                    r.mixerValues[band.rawValue * 3 + k] = 100
+                    let moved = render(r, colour)
+                    let d = zip(moved, base).map { abs($0 - $1) }.max() ?? 0
+                    XCTAssertGreaterThan(d, 0.02, "\(band) channel \(k) on \(start.look ?? "original"): \(base) → \(moved)")
+                }
+            }
+        }
+    }
+
+    /// Every slider and toggle has an ⓘ explanation (the colour mixer's per-band sliders are
+    /// covered by the band picker's).
+    func testEveryControlIsExplained() {
+        let all = Adjustment.tune + Adjustment.details + Adjustment.filmDetails + Adjustment.raw
+            + Adjustment.filmTool + Adjustment.extras
+        for a in all {
+            XCTAssertNotNil(EditorHelp.controls[a.id], "\(a.id) has no ⓘ text")
+        }
+        for id in ["mono", "pixelGrain", "mixerBands"] { XCTAssertNotNil(EditorHelp.controls[id], id) }
+        for tab in ["contrast", "shadowHighlight", "grain", "printer", "process", "silver", "curveLights", "sky"] {
+            XCTAssertNotNil(EditorHelp.together(tab, isFilm: true), tab)
+        }
+    }
+
     func testEditorExtrasStorage() {
         XCTAssertEqual(EditorExtra.hidden(""), [])
         let stored = EditorExtra.store([.masks, .printer])

@@ -77,12 +77,25 @@ enum EditorControl: Identifiable {
     case toggle(id: String, name: String, keyPath: WritableKeyPath<EditRecipe, Bool>)
     /// The color mixer's band picker.
     case bands
+    /// The mixer's Hue / Saturation / Luminance switch (one slider at a time fits any phone).
+    case mixChannel
 
     var id: String {
         switch self {
         case .slider(let a): a.id
         case .toggle(let id, _, _): id
         case .bands: "bands"
+        case .mixChannel: "mixChannel"
+        }
+    }
+
+    /// (help id, name) for the ⓘ card (`EditorHelp.controls`).
+    var help: (id: String, name: String) {
+        switch self {
+        case .slider(let a): (a.id, a.name)
+        case .toggle(let id, let name, _): (id, name)
+        case .bands: ("mixerBands", "Colour Band")
+        case .mixChannel: ("mixerChannel", "Hue · Saturation · Luminance")
         }
     }
 }
@@ -107,7 +120,12 @@ struct EditorView: View {
     @State private var selectionTick = 0
     @State private var confirmDiscard = false
     @State private var colorBand: ColorBand = .red
+    /// The mixer slider shown: 0 hue, 1 saturation, 2 luminance (all three didn't fit an
+    /// iPhone 12 Pro's panel: Luminance was cut off).
+    @State private var mixerChannel = 0
     @State private var showFilterGuide = false
+    /// The ⓘ card for the current sub-tab.
+    @State private var showControlHelp = false
     /// The named set of looks the Looks tool shows (`LookSet` id, "all" = every look).
     @AppStorage("editor.lookSet") private var lookSet = "all"
     /// Optional controls switched off in Preferences.
@@ -191,7 +209,7 @@ struct EditorView: View {
                 tabs.append(EditorSubTab(id: "crossover", name: "Crossover", controls: [.slider(adj("crossover"))]))
             }
             tabs.append(EditorSubTab(id: "mixer", name: "Mixer",
-                                     controls: [.bands] + Adjustment.mixer(colorBand).map { .slider($0) }))
+                                     controls: [.bands, .mixChannel, .slider(Adjustment.mixer(colorBand)[mixerChannel])]))
             // After the existing tabs, so they keep their places on the pill row.
             if shows(.grading) {
                 tabs.append(EditorSubTab(id: "gradeShadows", name: "Shadows Tint",
@@ -414,7 +432,7 @@ struct EditorView: View {
     // MARK: Canvas
 
     private var displayImage: CIImage? {
-        showOriginal ? session.originalPreview
+        showOriginal ? session.untouchedPreview()
             : (tool == .crop ? session.uncroppedPreview() : session.editedPreview())
     }
 
@@ -427,7 +445,12 @@ struct EditorView: View {
                                zoomable: tool != .crop && !session.isLoading,
                                oneFingerPan: true,
                                pixelSize: session.pixelSize,
-                               onZoom: zoomChanged)
+                               onZoom: zoomChanged,
+                               // Press and hold the photo: the untouched original (not in Crop).
+                               onHold: tool == .crop ? nil : { held in
+                                   if held { Haptics.selectionChanged() }
+                                   showOriginal = held
+                               })
 
                 if tool == .crop, !showOriginal, let image {
                     CropOverlay(crop: $session.recipe.crop,
@@ -472,6 +495,7 @@ struct EditorView: View {
         let tabs = subTabs(tool)
         let current = currentSubTab
         return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(tabs) { tab in
@@ -490,7 +514,28 @@ struct EditorView: View {
                         .accessibilityIdentifier("editor.sub.\(tab.id)")
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.leading, 16)
+                .padding(.trailing, 8)
+            }
+            // What this tab's controls do and how they work together.
+            if let current {
+                Button { showControlHelp = true } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .frame(width: 40, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressScaleStyle())
+                .padding(.trailing, 8)
+                .accessibilityIdentifier("editor.info")
+                .accessibilityLabel("About these controls")
+                // Its own anchor (one presentation per view).
+                .sheet(isPresented: $showControlHelp) {
+                    ControlHelpSheet(title: current.name, tabID: current.id,
+                                     controls: current.controls.map(\.help), isFilm: isFilm)
+                }
+            }
             }
             if let current {
                 VStack(spacing: 10) {
@@ -535,6 +580,14 @@ struct EditorView: View {
             .accessibilityIdentifier("editor.toggle.\(id)")
         case .bands:
             colorBandPicker
+        case .mixChannel:
+            Picker("Channel", selection: $mixerChannel) {
+                Text("Hue").tag(0)
+                Text("Saturation").tag(1)
+                Text("Luminance").tag(2)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("editor.mixChannel")
         }
     }
 

@@ -319,6 +319,32 @@ final class ShotStoreTests: XCTestCase {
         XCTAssertEqual(again.recipe(for: shot.id).film?.engine, 4, "restored edits aren't migrated again")
     }
 
+    /// Press-and-hold compare shows the photo with nothing done to it: no look, no sliders,
+    /// no crop (it used to show the camera's processed preview, uncropped but not "original").
+    func testHoldShowsTheUntouchedOriginal() async throws {
+        let shot = try await addShot(recipe: filmGrade)
+        let session = EditSession(shot: shot, store: store)
+        await session.load(maxPixels: 512)
+        var graded = session.recipe
+        graded.crop = CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5)
+        graded.exposure = 80
+        session.recipe = graded
+        let held = try XCTUnwrap(session.untouchedPreview())
+        let edited = try XCTUnwrap(session.editedPreview())
+        XCTAssertGreaterThan(held.extent.width, edited.extent.width * 1.5, "the original isn't cropped")
+        session.recipe = EditRecipe()
+        let plain = try XCTUnwrap(session.editedPreview())
+        XCTAssertEqual(held.extent, plain.extent)
+        func pixel(_ image: CIImage) -> [Float] {
+            var px = [Float](repeating: 0, count: 4)
+            let p = CGRect(x: image.extent.midX, y: image.extent.midY, width: 1, height: 1)
+            EditPipeline.context.render(image, toBitmap: &px, rowBytes: 16, bounds: p, format: .RGBAf, colorSpace: nil)
+            return px
+        }
+        let a = pixel(held), b = pixel(plain)
+        for i in 0..<3 { XCTAssertEqual(a[i], b[i], accuracy: 1e-3, "the original has no grade") }
+    }
+
     /// On device: picking Phromagraph in the editor showed a dark photo, and Save stored a
     /// +1.86 one ("a nice dark photo … I click save and it's this overexposed monstrosity").
     /// Picking left the film exposure unset and the preview rendered it as 0 EV. Whatever
