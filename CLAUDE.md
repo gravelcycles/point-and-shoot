@@ -186,6 +186,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Editor/EditPipeline.swift       the edit as a Core Image graph (geometry → tone → color → detail → fx)
   Editor/EditRecipe.swift         Codable recipe, Adjustment lists, Looks, ColorBand, CropAspect
   Editor/ColorMixer.swift         8-band HSL → cached 32³ color cube
+  Editor/ExtraGrades.swift        colour grading + parametric curve (one cube), dehaze, sky/subject masks
   Editor/RecipeBaker.swift        applies a recipe to a library asset (capture Looks; film looks from the DNG)
   Editor/FilmModel.swift          Print look math: film curves, LUT builders (Foundation only, testable anywhere)
   Editor/FilmStock+Stocks.swift   GENERATED film stocks: Print + every look (from scripts/*.json)
@@ -819,7 +820,30 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     RAW) · Color (Balance, Saturation + B&W, Crossover, Mixer) · Texture (Grain amount 0–200
     = up to 4× the look's + Grain Size 0.25–3×, Halation, Detail, Vignette, Noise) · Crop.
     Ranges follow Chromagraph's (the owner's screenshots, 2026-11-19); film engine 5 has
-    the tone details. Each tool has
+    the tone details.
+  - **Optional controls** (the owner: "let's work on all the ideas. allow turning them on
+    off in settings"): `EditorExtra`, each switchable in Preferences → Processing → Editor
+    Controls (`@AppStorage("editor.hiddenControls")`, hidden ids; all on by default). Every
+    one is nil = off in the recipe, so older grades decode and render unchanged (no engine).
+    - **Film tool** (film looks only; its own tool on the bar): Printer Lights (warm/cool,
+      magenta/green: ±2 printer points of log exposure per print layer, `printerR/G/B`),
+      Push/Pull (negative contrast ×2^(0.2·stops) about grey, grain scales with it; fog was
+      tried and brightened everything) and Flashing (a pre-exposure up to 8% of grey's, in
+      log exposure), Silver Retention (dyes pulled −0.35 toward their mean + 0.1 × neutral
+      density; per-cell print-cube path) and Grain Colour (`FilmPipeline.grainChroma`),
+      Halation Size and Colour (`halationStrengths`). Printer/push/flash/silver are
+      `FilmControls` fields in the film math, mirrored in `filmmodel.py` and covered by
+      parity (`ctl6`, `ctl6b`); the recipe → controls glue is `FilmControls.withFilmTool`
+      in EditRecipe.swift (FilmModel.swift stays Foundation-only).
+    - **Every look** (`ExtraGrades`): Colour Grading (Shadows/Midtones/Highlights Tint: hue +
+      amount, luminance-neutral tints weighted by luminance) and the parametric Tone Curve
+      (Highlights/Lights/Darks/Shadows, monotone, black and white fixed) baked into one 33³
+      sRGB cube; Dehaze (wide unsharp mask + black point + saturation, or a blue-grey veil);
+      Sky and Subject masks with exposure (±2 stops) and saturation. The sky is found by
+      colour (bright, not warm, not green) and position (top), blurred; the subject by
+      Vision's foreground instance mask on the framed source (iOS 17), cached per source
+      image and framing (`NSMapTable`, weak keys), and a no-op where Vision finds nothing.
+  - Each tool has
     sub-tab pills and labelled `GradeSlider`s: a default mark and detent, double-tap to
     reset, one undo step per drag.
   - ✓ saves the grade. ⋯ offers Copy/Paste Grade, Set as Default Grade, Reset This Image,

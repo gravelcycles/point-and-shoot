@@ -526,6 +526,8 @@ def parity():
     ctl4 = dict(ctl2, strongTone=True)    # engine 4's Highlights/Shadows
     ctl5 = dict(ctl4, toneRegions=True, highlights=0.8, shadows=0.6, pivot=-1.5)   # engine 5
     ctl5b = dict(ctl5, highlights=-1, shadows=1, contrast=-0.6, pivot=2)
+    ctl6 = dict(ctl5, printer=F.printer_lights(0.6, -0.4), push=1.5, flash=0.03, silver=0.7)   # the Film tool
+    ctl6b = dict(printer=F.printer_lights(-0.5, 0.8), push=-1.2, flash=0.05)
     i_neg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
@@ -538,6 +540,7 @@ def parity():
         pc, pcc, pcc2 = F.print_cube(st, None, 48), F.print_cube(st, ctl, 48), F.print_cube(st, ctl2, 48)
         pcc4 = F.print_cube(st, ctl4, 48)
         pcc5, pcc5b = F.print_cube(st, ctl5, 48), F.print_cube(st, ctl5b, 48)
+        pcc6, pcc6b = F.print_cube(st, ctl6, 48), F.print_cube(st, ctl6b, 48)
         checks = {
             "neutral": (s["neutral"], F.neutral_response(stops, st)),
             "neutral_ctl": (s["neutral_ctl"], F.neutral_response(stops, st, ctl)),
@@ -555,6 +558,10 @@ def parity():
             "print_ctl5b": (s["print_ctl5b"], [pcc5b[b, g, r] for r, g, b in i_pr]),
             "neutral_ctl5": (s["neutral_ctl5"], F.neutral_response(stops, st, ctl5)),
             "neutral_ctl5b": (s["neutral_ctl5b"], F.neutral_response(stops, st, ctl5b)),
+            "print_ctl6": (s["print_ctl6"], [pcc6[b, g, r] for r, g, b in i_pr]),
+            "print_ctl6b": (s["print_ctl6b"], [pcc6b[b, g, r] for r, g, b in i_pr]),
+            "neutral_ctl6": (s["neutral_ctl6"], F.neutral_response(stops, st, ctl6)),
+            "neutral_ctl6b": (s["neutral_ctl6b"], F.neutral_response(stops, st, ctl6b)),
             "colors_ctl2": (s["colors_ctl2"], F.display(F.negative_density(colors, st), st, ctl2)),
         }
         for k, (a, b) in checks.items():

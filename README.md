@@ -173,6 +173,11 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
   - **Looks**: Print, Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks;
     Movie; and Grades, with live thumbnails and a set menu. Every look develops from the
     RAW.
+  - **Optional controls** (each can be switched off in Preferences → Processing → Editor
+    Controls): a **Film** tool for film looks (Printer Lights, Push/Pull, Flashing, Silver
+    Retention, Grain Colour, Halation Size and Colour), plus **Colour Grading**, a **Tone
+    Curve**, **Dehaze**, and **Sky** / **Subject** masks with their own exposure and
+    saturation.
   - Ranges like Chromagraph's: **Exposure ±6 stops**; under a film look **Highlights** and
     **Shadows** re-expose whole regions of the scene (up to ±3 stops) and **Contrast** goes
     to ×2 around a **Pivot**; **Grain** up to 4× with its own **Grain Size**.

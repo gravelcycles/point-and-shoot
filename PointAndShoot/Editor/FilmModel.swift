@@ -291,6 +291,42 @@ struct FilmControls: Hashable {
     /// Engine 5+: where Contrast turns, in stops from 18% grey (0 = grey, as before).
     var pivot: Double = 0
 
+    // The Film tool (all 0 = off, so they need no engine: older photos never had them).
+    /// Printer lights, in log exposure added to each print layer (a lab's printer points:
+    /// 1 point = 0.025). More exposure on a layer = more of its dye = less of that colour.
+    var printerR: Double = 0
+    var printerG: Double = 0
+    var printerB: Double = 0
+    /// Push (+) / pull (−) processing in stops, −2…2: development scales the negative's
+    /// contrast about grey (×2^(0.2·push)), so grey stays put while blacks and highlights
+    /// spread (or close up). Grain, added to the negative, scales with it. (Fog was tried:
+    /// on the print's steep curve it brightened everything.)
+    var push: Double = 0
+    /// Flashing: a uniform pre-exposure of the negative, as a fraction of 18% grey's
+    /// exposure (0…0.08): lifts and softens the toe, the cinematographer's trick.
+    var flash: Double = 0
+    /// Silver retention (bleach bypass), 0…1: dyes pulled toward their mean (less colour)
+    /// and silver adding density in proportion to it (denser shadows, more contrast).
+    var silver: Double = 0
+
+    /// Printer lights from the sliders (−1…1): warm (less cyan, more yellow dye) and
+    /// magenta (more magenta dye), up to 2 printer points (the print's steep curve makes
+    /// that ~⅓ stop of colour at grey).
+    static func printerLights(warm: Double, magenta: Double) -> (Double, Double, Double) {
+        (-0.05 * warm, 0.05 * magenta, 0.05 * warm)
+    }
+
+    /// The negative's development: push/pull scales its contrast about grey (per layer).
+    func develop(_ dn: Double, grey: Double) -> Double {
+        guard push != 0 else { return dn }
+        return grey + (dn - grey) * pow(2, 0.2 * push)
+    }
+
+    /// Flashing adds a uniform exposure to the negative (log exposure in, log exposure out).
+    func flashed(_ logE: Double) -> Double {
+        flash > 0 ? log10(pow(10, logE) + flash) : logE
+    }
+
     /// The print-gamma multiplier for Contrast: ±1 → ×0.71…1.41 before engine 5; from
     /// engine 5 ×0.59…2 (Chromagraph's S-curve contrast goes to about ×2).
     var contrastGamma: Double {
@@ -493,14 +529,15 @@ enum FilmLUT {
     static func neutralTable(stock s: FilmStock, controls c: FilmControls) -> [Double] {
         let curves = printCurves(stock: s, controls: c)
         let grey = s.greyNegativeDensity
+        let pg = printGrey(stock: s, controls: c)
         let n = neutralSamples
         var table = [Double](repeating: 0, count: 3 * (n + 1))
         for k in 0...n {
             let r = neutralRoot * Double(k) / Double(n)
-            let u = max(log10(max(r * r * r * r, 1e-12)), -6.0)
-            let dp = (printDensity(s.negative[0].density(u), channel: 0, stock: s, curves: curves, grey: grey),
-                      printDensity(s.negative[1].density(u), channel: 1, stock: s, curves: curves, grey: grey),
-                      printDensity(s.negative[2].density(u), channel: 2, stock: s, curves: curves, grey: grey))
+            let u = c.flashed(max(log10(max(r * r * r * r, 1e-12)), -6.0))
+            let dp = (printDensity(c.develop(s.negative[0].density(u), grey: grey.0), channel: 0, stock: s, curves: curves, grey: pg),
+                      printDensity(c.develop(s.negative[1].density(u), grey: grey.1), channel: 1, stock: s, curves: curves, grey: pg),
+                      printDensity(c.develop(s.negative[2].density(u), grey: grey.2), channel: 2, stock: s, curves: curves, grey: pg))
             let out = display(print: dp, stock: s, curves: curves, controls: c)
             table[3 * k] = out.0; table[3 * k + 1] = out.1; table[3 * k + 2] = out.2
         }
@@ -625,6 +662,13 @@ enum FilmLUT {
         }
     }
 
+    /// The grey negative density the print is timed for, moved by the printer lights
+    /// (printing sees grey − negative density + printer offset).
+    static func printGrey(stock s: FilmStock, controls c: FilmControls) -> (Double, Double, Double) {
+        let g = s.greyNegativeDensity
+        return (g.0 + c.printerR, g.1 + c.printerG, g.2 + c.printerB)
+    }
+
     /// Print density per channel for a negative density (printing is per channel).
     static func printDensity(_ dn: Double, channel c: Int, stock s: FilmStock, curves: [FilmCurve],
                              grey: (Double, Double, Double)) -> Double {
@@ -648,6 +692,15 @@ enum FilmLUT {
         return (pivot + (d.0 - pivot) * k, pivot + (d.1 - pivot) * k, pivot + (d.2 - pivot) * k)
     }
 
+    /// Silver retention (bleach bypass): the dyes pull toward their mean, and the silver
+    /// left in adds density in proportion to the print's neutral density.
+    static func retainSilver(_ d: (Double, Double, Double), neutral: Double, _ amount: Double) -> (Double, Double, Double) {
+        guard amount > 0 else { return d }
+        let m = dyeSaturate(d, -0.35 * amount)
+        let add = 0.1 * amount * neutral
+        return (m.0 + add, m.1 + add, m.2 + add)
+    }
+
     /// Print density → linear Display P3 (dye crosstalk, saturation, highlights/shadows).
     static func display(print dp: (Double, Double, Double), stock s: FilmStock, curves: [FilmCurve],
                         controls c: FilmControls) -> (Double, Double, Double) {
@@ -658,6 +711,7 @@ enum FilmLUT {
         // (linear in the print densities, so printCube can tabulate it).
         let neutral = (dm.0 + dm.1 + dm.2) / 3
         dm = dyeSaturate(dm, s.dyeSaturation ?? 0)
+        dm = retainSilver(dm, neutral: neutral, c.silver)
         // Saturation in density space (the user's slider): from engine 3, more saturation
         // is subtractive like the dyes; less, or engines 1–2, goes about the mean.
         if c.saturatesSubtractively {
@@ -685,10 +739,12 @@ enum FilmLUT {
                         controls c: FilmControls = FilmControls()) -> (Double, Double, Double) {
         let curves = printCurves(stock: s, controls: c)
         let grey = s.greyNegativeDensity
-        // Each layer's log exposure (only needed for engine 5's re-exposure or hue protection).
+        let pg = printGrey(stock: s, controls: c)
+        // Each layer's log exposure (needed for engine 5's re-exposure, flashing or hue
+        // protection).
         var le = (0.0, 0.0, 0.0)
         var dn = dn
-        if c.shiftsExposure || s.huePreserve > 0 {
+        if c.shiftsExposure || c.flash > 0 || s.huePreserve > 0 {
             let inv = s.negative.map { InverseCurve($0) }
             le = (inv[0].logExposure(dn.0), inv[1].logExposure(dn.1), inv[2].logExposure(dn.2))
         }
@@ -696,12 +752,14 @@ enum FilmLUT {
             // Engine 5: re-expose the negative by a smooth function of the neutral scene level.
             let sh = c.exposureShift((le.0 + le.1 + le.2) / 3 / log10(2.0)) * log10(2.0)
             le = (le.0 + sh, le.1 + sh, le.2 + sh)
-            dn = (negativeDensity(le.0, channel: 0, stock: s), negativeDensity(le.1, channel: 1, stock: s),
-                  negativeDensity(le.2, channel: 2, stock: s))
         }
-        let dp = (printDensity(dn.0, channel: 0, stock: s, curves: curves, grey: grey),
-                  printDensity(dn.1, channel: 1, stock: s, curves: curves, grey: grey),
-                  printDensity(dn.2, channel: 2, stock: s, curves: curves, grey: grey))
+        if c.shiftsExposure || c.flash > 0 {
+            dn = (negativeDensity(c.flashed(le.0), channel: 0, stock: s), negativeDensity(c.flashed(le.1), channel: 1, stock: s),
+                  negativeDensity(c.flashed(le.2), channel: 2, stock: s))
+        }
+        let dp = (printDensity(c.develop(dn.0, grey: grey.0), channel: 0, stock: s, curves: curves, grey: pg),
+                  printDensity(c.develop(dn.1, grey: grey.1), channel: 1, stock: s, curves: curves, grey: pg),
+                  printDensity(c.develop(dn.2, grey: grey.2), channel: 2, stock: s, curves: curves, grey: pg))
         let out = display(print: dp, stock: s, curves: curves, controls: c)
         guard s.huePreserve > 0 else { return out }
         let e = (pow(10, le.0), pow(10, le.1), pow(10, le.2))
@@ -733,13 +791,19 @@ enum FilmLUT {
         let step = densityScale / Double(n - 1)
         let curves = printCurves(stock: stock, controls: c)
         let grey = stock.greyNegativeDensity
+        let pg = printGrey(stock: stock, controls: c)
+        let negGrey = [grey.0, grey.1, grey.2]
         let ln10 = log(10.0)
 
-        // Print density along each axis.
+        // Print density along each axis (each layer flashed, developed and printed on its
+        // own, so these stay per-axis).
         var dp = [Double](repeating: 0, count: 3 * n)
         for ch in 0..<3 {
+            let inv = c.flash > 0 ? InverseCurve(stock.negative[ch]) : nil
             for i in 0..<n {
-                dp[ch * n + i] = printDensity(Double(i) * step, channel: ch, stock: stock, curves: curves, grey: grey)
+                var dn = Double(i) * step
+                if let inv { dn = negativeDensity(c.flashed(inv.logExposure(dn)), channel: ch, stock: stock) }
+                dp[ch * n + i] = printDensity(c.develop(dn, grey: negGrey[ch]), channel: ch, stock: stock, curves: curves, grey: pg)
             }
         }
         // Density mixing: crosstalk, then saturation about the mean (S = k·I + (1−k)/3·1).
@@ -815,8 +879,9 @@ enum FilmLUT {
             dpTable = [Double](repeating: 0, count: 3 * (dpSize + 1))
             for j in 0..<3 {
                 for i in 0...dpSize {
-                    let dn = negativeDensity(lLo + Double(i) / lScale, channel: j, stock: stock)
-                    dpTable[j * (dpSize + 1) + i] = printDensity(dn, channel: j, stock: stock, curves: curves, grey: grey)
+                    let dn = negativeDensity(c.flashed(lLo + Double(i) / lScale), channel: j, stock: stock)
+                    dpTable[j * (dpSize + 1) + i] = printDensity(c.develop(dn, grey: negGrey[j]), channel: j,
+                                                                 stock: stock, curves: curves, grey: pg)
                 }
             }
         }
@@ -860,7 +925,7 @@ enum FilmLUT {
         // least dense (or mean) channel, which isn't a product of per-axis terms: those
         // take a per-cell path (three exps a cell, still a few ms).
         let dye = stock.dyeSaturation ?? 0
-        let perCell = dye != 0 || c.saturatesSubtractively || shifting
+        let perCell = dye != 0 || c.saturatesSubtractively || shifting || c.silver > 0
         let userK = 1 + c.saturation * (c.saturation > 0 ? 0.6 : 1)
         let x0 = x[0], x1 = x[1], x2 = x[2], x3 = x[3], x4 = x[4], x5 = x[5], x6 = x[6], x7 = x[7], x8 = x[8]
         let s0 = stock.shadowTint[0], s1 = stock.shadowTint[1], s2 = stock.shadowTint[2]
@@ -896,8 +961,10 @@ enum FilmLUT {
                                     q2 = lookup(dpTable, 2 * (dpSize + 1), dpSize, (l2 + sh - lLo) * lScale)
                                     sceneGain = exp(sh * ln10)
                                 }
-                                var m = dyeSaturate((x0 * q0 + x1 * q1 + x2 * q2, x3 * q0 + x4 * q1 + x5 * q2,
-                                                     x6 * q0 + x7 * q1 + x8 * q2), dye)
+                                let mixed = (x0 * q0 + x1 * q1 + x2 * q2, x3 * q0 + x4 * q1 + x5 * q2,
+                                             x6 * q0 + x7 * q1 + x8 * q2)
+                                var m = dyeSaturate(mixed, dye)
+                                m = retainSilver(m, neutral: (mixed.0 + mixed.1 + mixed.2) / 3, c.silver)
                                 if c.saturatesSubtractively {
                                     m = dyeSaturate(m, 0.6 * c.saturation)
                                 } else if userK != 1 {

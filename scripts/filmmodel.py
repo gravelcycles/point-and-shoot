@@ -217,6 +217,33 @@ def exposure_shift(x, controls):
     return d
 
 
+def printer_lights(warm, magenta):
+    """FilmControls.printerLights: log exposure per print layer (8 printer points at ±1)."""
+    return (-0.05 * warm, 0.05 * magenta, 0.05 * warm)
+
+
+def develop(dn, grey, controls):
+    """FilmControls.develop: push/pull scales the negative's contrast about grey (per layer)."""
+    p = controls.get("push", 0)
+    if p == 0:
+        return dn
+    return grey + (dn - grey) * 2 ** (0.2 * p)
+
+
+def flashed(le, controls):
+    """FilmControls.flashed: a uniform pre-exposure (fraction of grey's exposure)."""
+    f = controls.get("flash", 0)
+    return np.log10(10.0 ** le + f) if f > 0 else le
+
+
+def retain_silver(dm, neutral, amount):
+    """FilmLUT.retainSilver: dyes pulled toward their mean, plus silver density in
+    proportion to the print's neutral density."""
+    if amount <= 0:
+        return dm
+    return dye_saturate(dm, -0.35 * amount) + 0.1 * amount * neutral
+
+
 def print_curves(stock, controls):
     contrast = contrast_gamma(controls)
     split = stock["crossover"]
@@ -238,7 +265,7 @@ def neutral_table(stock, controls):
     [NEUTRAL_SAMPLES + 1, 3] linear P3, sampled evenly in exposure^(1/4) (cheap to index:
     two square roots). Hue protection keeps this cast."""
     s = NEUTRAL_ROOT * np.arange(NEUTRAL_SAMPLES + 1) / NEUTRAL_SAMPLES
-    u = np.maximum(np.log10(np.maximum(s ** 4, 1e-12)), -6.0)
+    u = flashed(np.maximum(np.log10(np.maximum(s ** 4, 1e-12)), -6.0), controls)
     dn = np.stack([curve_density(stock["negative"][c], u) for c in range(3)], -1)
     return _display_core(dn, stock, controls)
 
@@ -255,13 +282,16 @@ def display(dn, stock, controls=None):
     controls = controls or {}
     hp = stock.get("huePreserve", 0.0)
     shift = shifts_exposure(controls)
-    if shift or hp > 0:
+    flash = controls.get("flash", 0) > 0
+    if shift or flash or hp > 0:
         le = np.stack([neg_log_exposure(stock["negative"][c], dn[..., c]) for c in range(3)], -1)
     if shift:
         # Engine 5: re-expose the negative by a smooth function of the neutral scene level.
         sh = exposure_shift(le.mean(axis=-1) / np.log10(2.0), controls) * np.log10(2.0)
         le = le + sh[..., None]
-        dn = np.stack([curve_density(dict(stock["negative"][c], gamma=1.0), le[..., c]) for c in range(3)], -1)
+    if shift or flash:
+        lf = flashed(le, controls)
+        dn = np.stack([curve_density(dict(stock["negative"][c], gamma=1.0), lf[..., c]) for c in range(3)], -1)
     out = _display_core(dn, stock, controls)
     # Highlight hue protection: film's per-channel shoulder turns bright warm colors
     # yellow (red compresses first). Blend toward the scene's own hue — carrying the
@@ -298,9 +328,11 @@ def _display_core(dn, stock, controls):
     curves = print_curves(stock, controls)
     grey = grey_negative_density(stock)
     printer = stock.get("printer", [0.0, 0.0, 0.0])
+    lights = controls.get("printer", (0.0, 0.0, 0.0))     # the user's printer lights
     dp = np.empty_like(dn)
     for c in range(3):
-        dp[..., c] = curve_density(curves[c], grey[c] - dn[..., c] + printer[c])
+        d = develop(dn[..., c], grey[c], controls)
+        dp[..., c] = curve_density(curves[c], grey[c] + lights[c] - d + printer[c])
     X = np.array(stock["crosstalk"]).reshape(3, 3)
     dm = dp @ X.T
     base = X @ np.array([curves[c]["y"][0] for c in range(3)])
@@ -308,6 +340,7 @@ def _display_core(dn, stock, controls):
     # saturation (linear in the print densities, so the Swift cube can tabulate it).
     neutral = dm.mean(axis=-1, keepdims=True)
     dm = dye_saturate(dm, stock.get("dyeSaturation") or 0.0)
+    dm = retain_silver(dm, neutral, controls.get("silver", 0))
     # The user's Saturation slider. From film engine 3 (`subtractive`), more saturation
     # works like the dyes: about each color's least dense channel, so richer is darker.
     # Engines 1-2 spread about the mean, which brightens saturated colors; older photos keep
