@@ -98,7 +98,7 @@ struct PhotoViewer: View {
             }
 
             if showGrid {
-                RollGrid(store: store, camera: camera, onSelect: { shot in
+                RollGrid(store: store, camera: camera, focus: selectedShot?.id, onSelect: { shot in
                     selectedID = shot.id.uuidString
                     cameFromGrid = true
                     withAnimation(.easeOut(duration: 0.2)) { showGrid = false }

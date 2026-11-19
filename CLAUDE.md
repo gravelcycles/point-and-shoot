@@ -770,15 +770,17 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     the filmstrip), edit and export (tan).
   - The grid is its own screen inside the viewer (not a sheet), with a camera button
     straight back to shooting; tapping a photo opens it, and swiping that photo down
-    returns to the grid.
+    returns to the grid, scrolled to that photo (`RollGrid.focus`). Like Photos, oldest at
+    the top and newest at the bottom right; it opens at the bottom.
   - Zoom like Photos (`ZoomableImageView`, a UIScrollView): pinch anchored under the
     fingers with pan at the same time, rubber-banding, double-tap fit ↔ 2.5×, up to 2×
     native pixels (4–8×). At 1× the scroll view has nothing to scroll, so swipes page and
     swipe-down dismisses; zoomed in, drags pan and never dismiss. A full-size copy (long
     side ≤ 4096), rendered from the RAW with its grade, loads once zoomed past 1.3× and is
     dropped when the page leaves.
-  - Grid by day; Select → export, share, Keep, copy/paste grade, Archive RAW, trash; Trash
-    view.
+  - Grid by day; Select → export, share, Keep, Apply Look (any look onto every selected
+    photo, as the editor's Looks tool would: `EditRecipe.withLook`), copy/paste grade,
+    Archive RAW, trash; Trash view.
   - Import RAW Photos (system picker, no permission) and Import Archive in Preferences →
     General.
 - **Editor:**

@@ -184,6 +184,16 @@ struct EditRecipe: Codable, Equatable {
 
     /// This recipe's look (tone, color, detail, effects) on top of `target`'s crop and RAW
     /// settings — for pasting an edit onto another photo.
+    /// This edit with a look picked: tone and colour reset to the look's, crop and RAW
+    /// develop kept (the editor's Looks tool, and Apply Look on several photos).
+    func withLook(_ look: Look) -> EditRecipe {
+        var r = self
+        r.resetTone()
+        look.apply(&r)
+        r.look = look.id == "none" ? nil : look.id
+        return r
+    }
+
     func look(appliedTo target: EditRecipe) -> EditRecipe {
         var r = self
         r.crop = target.crop
