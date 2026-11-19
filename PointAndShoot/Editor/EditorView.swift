@@ -432,7 +432,7 @@ struct EditorView: View {
     // MARK: Canvas
 
     private var displayImage: CIImage? {
-        showOriginal ? session.originalPreview
+        showOriginal ? session.untouchedPreview()
             : (tool == .crop ? session.uncroppedPreview() : session.editedPreview())
     }
 
@@ -445,7 +445,12 @@ struct EditorView: View {
                                zoomable: tool != .crop && !session.isLoading,
                                oneFingerPan: true,
                                pixelSize: session.pixelSize,
-                               onZoom: zoomChanged)
+                               onZoom: zoomChanged,
+                               // Press and hold the photo: the untouched original (not in Crop).
+                               onHold: tool == .crop ? nil : { held in
+                                   if held { Haptics.selectionChanged() }
+                                   showOriginal = held
+                               })
 
                 if tool == .crop, !showOriginal, let image {
                     CropOverlay(crop: $session.recipe.crop,

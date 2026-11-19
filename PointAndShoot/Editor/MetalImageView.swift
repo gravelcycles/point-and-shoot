@@ -30,6 +30,9 @@ struct MetalImageView: UIViewRepresentable {
     var onZoom: (CGFloat) -> Void = { _ in }
     /// A two-finger gesture started or ended (the editor ignores its own drag meanwhile).
     var onPinch: (Bool) -> Void = { _ in }
+    /// Press and hold on the photo (true while held, false on lift): the editor shows the
+    /// untouched original meanwhile. nil = off (Crop).
+    var onHold: ((Bool) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -61,6 +64,7 @@ struct MetalImageView: UIViewRepresentable {
         c.pixelSize = pixelSize
         c.onZoom = onZoom
         c.onPinch = onPinch
+        c.onHold = onHold
         // Zoom off (Crop, still loading): back to fit, so the crop handles line up.
         if !zoomable { c.reset() }
         c.updateGestures()
@@ -87,6 +91,7 @@ struct MetalImageView: UIViewRepresentable {
         var pixelSize: CGSize = .zero
         var onZoom: (CGFloat) -> Void = { _ in }
         var onPinch: (Bool) -> Void = { _ in }
+        var onHold: ((Bool) -> Void)?
 
         private(set) var zoom = ZoomState.identity
         private weak var view: MTKView?
@@ -94,6 +99,7 @@ struct MetalImageView: UIViewRepresentable {
         private let twoFingerPan = UIPanGestureRecognizer()
         private let oneFingerPanRecognizer = UIPanGestureRecognizer()
         private let doubleTap = UITapGestureRecognizer()
+        private let hold = UILongPressGestureRecognizer()
         private var activeGestures = 0
         /// The pinch's scale before rubber-banding.
         private var rawScale: CGFloat = 1
@@ -116,7 +122,10 @@ struct MetalImageView: UIViewRepresentable {
             oneFingerPanRecognizer.maximumNumberOfTouches = 1
             doubleTap.addTarget(self, action: #selector(handleDoubleTap(_:)))
             doubleTap.numberOfTapsRequired = 2
-            for g in [pinch, twoFingerPan, oneFingerPanRecognizer, doubleTap] as [UIGestureRecognizer] {
+            hold.addTarget(self, action: #selector(handleHold(_:)))
+            hold.minimumPressDuration = 0.3
+            hold.allowableMovement = 12
+            for g in [pinch, twoFingerPan, oneFingerPanRecognizer, doubleTap, hold] as [UIGestureRecognizer] {
                 g.delegate = self
                 // Never swallow touches the SwiftUI gestures (the adjust drag) also need.
                 g.cancelsTouchesInView = false
@@ -130,6 +139,15 @@ struct MetalImageView: UIViewRepresentable {
             twoFingerPan.isEnabled = zoomable
             doubleTap.isEnabled = zoomable
             oneFingerPanRecognizer.isEnabled = zoomable && oneFingerPan && zoom.isZoomed
+            hold.isEnabled = onHold != nil
+        }
+
+        @objc private func handleHold(_ g: UILongPressGestureRecognizer) {
+            switch g.state {
+            case .began: onHold?(true)
+            case .ended, .cancelled, .failed: onHold?(false)
+            default: break
+            }
         }
 
         func gestureRecognizer(_ g: UIGestureRecognizer,

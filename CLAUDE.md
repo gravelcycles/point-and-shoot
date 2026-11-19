@@ -894,7 +894,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     (was 22%, invisible on muted film-graded photos), hue ±40°, luminance ±0.4.
   - ✓ saves the grade. ⋯ offers Copy/Paste Grade, Set as Default Grade, Reset This Image,
     Reset to Original and Discard. The export button sits in the tool bar. Undo,
-    hold-to-compare.
+    hold-to-compare: press and hold the photo (or the compare button) for the untouched
+    original (`EditSession.untouchedPreview`: no look, no sliders, no crop, the RAW with
+    the camera's own develop settings); it used to show the camera's processed preview.
   - Zoom: pinch + two-finger pan (UIKit recognizers on `MetalImageView`), double-tap fit ↔
     2.5×; one finger pans when zoomed. Zoom is a transform in the renderer, so Core Image renders
     only the visible region; zoomed in, `EditSession` switches to a sharper source
