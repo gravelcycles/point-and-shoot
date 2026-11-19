@@ -351,8 +351,9 @@ final class FrozenTuningTests: XCTestCase {
                 for s in [-1.0, 0, 1] {
                     let c = FilmControls(highlights: h, shadows: s, subtractiveSaturation: true, strongTone: true)
                     var last = -1.0
+                    let ramp = FilmLUT.neutralRamp(stops: (0...600).map { -8 + Double($0) * 0.025 }, stock: stock, controls: c)
                     for i in 0...600 {
-                        let v = FilmLUT.neutralResponse(stops: -8 + Double(i) * 0.025, stock: stock, controls: c)
+                        let v = ramp[i]
                         let y = 0.2290 * v.0 + 0.6917 * v.1 + 0.0793 * v.2
                         if y > 1.0 / 255 && last > 1.0 / 255 {
                             if y / last < worst { worst = y / last; worstAt = "\(stock.id) h \(h) s \(s)" }
@@ -410,8 +411,9 @@ final class FrozenTuningTests: XCTestCase {
                         let c = FilmControls(contrast: k, highlights: h, shadows: s, subtractiveSaturation: true,
                                              strongTone: true, toneRegions: true, pivot: p)
                         var last = -1.0
+                        let ramp = FilmLUT.neutralRamp(stops: (0...300).map { -8 + Double($0) * 0.05 }, stock: stock, controls: c)
                         for i in 0...300 {
-                            let v = FilmLUT.neutralResponse(stops: -8 + Double(i) * 0.05, stock: stock, controls: c)
+                            let v = ramp[i]
                             let y = 0.2290 * v.0 + 0.6917 * v.1 + 0.0793 * v.2
                             if y > 1.0 / 255 && last > 1.0 / 255 {
                                 if y / last < worst { worst = y / last; worstAt = "\(stock.id) h \(h) s \(s) c \(k) p \(p)" }
