@@ -165,6 +165,11 @@ struct EditRecipe: Codable, Equatable {
         set { film?.crossover = newValue }
     }
 
+    var filmPixelGrain: Bool {
+        get { film?.pixelGrain ?? false }
+        set { film?.pixelGrain = newValue ? true : nil }
+    }
+
     /// Slider views of the optional fields: the default is stored as nil.
     var gradeShadowHueValue: Double {
         get { gradeShadowHue ?? 210 }
@@ -286,26 +291,6 @@ struct EditRecipe: Codable, Equatable {
             curve: [curveHighlightsValue, curveLightsValue, curveDarksValue, curveShadowsValue].map { $0 / 100 },
             tints: [gradeShadowHueValue, gradeShadowAmountValue / 100, gradeMidHueValue, gradeMidAmountValue / 100,
                     gradeHighlightHueValue, gradeHighlightAmountValue / 100])
-    }
-
-    /// Whether moving this film edit to the current engine changes nothing it renders:
-    /// each engine only changed sliders away from 0 (3: Saturation above 0; 4: Highlights
-    /// and Shadows; 5: those and Contrast). Engine 1 (and unversioned) edits stay, since
-    /// engine 2 changed how processed photos un-render at any setting.
-    var canMoveToCurrentFilmEngine: Bool {
-        guard let e = film?.engine, e >= 2 else { return false }
-        if e >= FilmRecipe.currentEngine { return true }
-        if e < 3 && saturation > 0 { return false }
-        return highlights == 0 && shadows == 0 && contrast == 0
-    }
-
-    /// This edit on the current film engine where that changes nothing yet (the editor
-    /// does this before a slider moves, so an older photo gets today's slider ranges).
-    func onCurrentFilmEngineIfUnchanged() -> EditRecipe {
-        guard canMoveToCurrentFilmEngine, film?.engine != FilmRecipe.currentEngine else { return self }
-        var r = self
-        r.film?.engine = FilmRecipe.currentEngine
-        return r
     }
 
     /// Always-24-values view of the mixer, for key-path based sliders.
@@ -466,6 +451,8 @@ struct FilmRecipe: Codable, Equatable {
     /// Halation spread in percent (25…300, nil = 100) and colour (−100 red … 100 warm white).
     var halationSize: Double?
     var halationColor: Double?
+    /// Grain one pixel across at any size (Chromagraph's "Force Pixel Size Grain"). nil = off.
+    var pixelGrain: Bool?
 
     /// Grain amount the look starts with (EditRecipe.grain, 0…200; 50 = as designed).
     static let defaultGrain: Double = 50
@@ -526,14 +513,20 @@ struct Adjustment: Identifiable {
 
     /// Exposure is stored 50 per stop: ±6 stops, like Chromagraph's.
     static func stops(_ v: Double) -> String { String(format: "%+.1f", v / 50) }
+    /// Chromagraph's scales, so numbers can be compared slider for slider: Contrast ±4.00
+    /// (our +100 measured like its S-Curve 4.00), Highlights/Shadows ±1.00, grain amplitude
+    /// 0…5.00 (our 50 = its 1.25).
+    static func contrastScale(_ v: Double) -> String { String(format: "%+.2f", v / 25) }
+    static func unitScale(_ v: Double) -> String { String(format: "%+.2f", v / 100) }
+    static func grainScale(_ v: Double) -> String { String(format: "%.2f", v / 40) }
 
     static let tune: [Adjustment] = [
         .init(id: "exposure", name: "Exposure", range: -300...300, keyPath: \.exposure, format: Adjustment.stops),
-        .init(id: "contrast", name: "Contrast", range: -100...100, keyPath: \.contrast),
+        .init(id: "contrast", name: "Contrast", range: -100...100, keyPath: \.contrast, format: Adjustment.contrastScale),
         .init(id: "pivot", name: "Pivot", range: 0...100, keyPath: \.contrastPivotValue,
               format: { String(format: "%.2f", $0 / 100) }),
-        .init(id: "highlights", name: "Highlights", range: -100...100, keyPath: \.highlights),
-        .init(id: "shadows", name: "Shadows", range: -100...100, keyPath: \.shadows),
+        .init(id: "highlights", name: "Highlights", range: -100...100, keyPath: \.highlights, format: Adjustment.unitScale),
+        .init(id: "shadows", name: "Shadows", range: -100...100, keyPath: \.shadows, format: Adjustment.unitScale),
         .init(id: "whites", name: "Whites", range: -100...100, keyPath: \.whites),
         .init(id: "blacks", name: "Blacks", range: -100...100, keyPath: \.blacks),
         .init(id: "saturation", name: "Saturation", range: -100...100, keyPath: \.saturation),
@@ -546,7 +539,7 @@ struct Adjustment: Identifiable {
         .init(id: "structure", name: "Structure", range: -100...100, keyPath: \.structure),
         .init(id: "sharpen", name: "Sharpening", range: 0...100, keyPath: \.sharpen),
         .init(id: "fade", name: "Fade", range: 0...100, keyPath: \.fade),
-        .init(id: "grain", name: "Grain", range: 0...200, keyPath: \.grain),
+        .init(id: "grain", name: "Grain", range: 0...200, keyPath: \.grain, format: Adjustment.grainScale),
         .init(id: "grainSize", name: "Grain Size", range: 25...300, keyPath: \.grainSizeValue,
               format: { String(format: "%.2f×", $0 / 100) }),
         .init(id: "vignette", name: "Vignette", range: -100...100, keyPath: \.vignette),
@@ -554,7 +547,7 @@ struct Adjustment: Identifiable {
 
     /// Details for a film look: the film's own grain and halation come first.
     static let filmDetails: [Adjustment] = [
-        .init(id: "grain", name: "Grain", range: 0...200, keyPath: \.grain),
+        .init(id: "grain", name: "Grain", range: 0...200, keyPath: \.grain, format: Adjustment.grainScale),
         .init(id: "grainSize", name: "Grain Size", range: 25...300, keyPath: \.grainSizeValue,
               format: { String(format: "%.2f×", $0 / 100) }),
         .init(id: "halation", name: "Halation", range: 0...100, keyPath: \.filmHalation),

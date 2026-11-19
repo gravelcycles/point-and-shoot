@@ -444,11 +444,42 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
         and `canonical` gives table caches the same keys.
       - The print cube takes the per-cell path while it re-exposes (a 2048-step shift table
         and an 8192-step print-density table per channel; parity < 1e-6).
-      - **Older photos move up when nothing changes:** before a slider moves, the editor
-        calls `EditRecipe.onCurrentFilmEngineIfUnchanged()`: an engine-2+ edit whose
-        engine-gated sliders are all at 0 (Highlights, Shadows, Contrast; Saturation ≤ 0
-        from engine 2) moves to the current engine, since that renders identically. Others
-        keep theirs (the Pivot slider is greyed out) until the look is picked again.
+      - **Older photos are migrated, not kept on old controls** (the owner: "can't you pick a
+        setting in the new version that matched the old version?"): `FilmMigration.migrate`
+        moves an edit to the current engine with the sliders that match its old look, at
+        launch for every shot (`ShotStore.migrateFilmEngines`, re-rendering those whose
+        sliders changed), on paste and import (`setRecipe`, `add`), for the Default Grade
+        (`startingGrade`), and in the editor before a slider moves.
+        - Exact: Contrast (old 2^(c/2) print gamma = new c/2, or 2c/3 below 0), grain (same
+          σ and std at a 4032 px export: amount ÷ 0.88, size ÷ 3), engine 1 → 2 for photos
+          developed from RAW.
+        - Fitted on the stock's grey scale (−7…+5 stops, encoded luminance; hue protection
+          off): Highlights/Shadows on a 21×21 grid then ±10 at 2, each with the tone curve's
+          four sliders solved by least squares where the edit has no curve. Shadows land
+          within ~1–4%; strong old Highlights stay ~5–20% off at the very ends (different
+          shapes). Saturation from engines 1–2 on six rich colours. The fit error is logged
+          per shot ("grey-scale fit error").
+        - A processed photo (no RAW) on engine 1 keeps its engine (its un-render changed).
+        - **Recoverable:** before a shot's grade is first migrated, it's saved next to it as
+          `recipe.before-migration.json` (never overwritten by a later migration). Preferences
+          → Processing → Film Controls Update: "Update Older Edits" (`FilmMigration.enabledKey`,
+          on by default; off, nothing migrates anywhere) and "Restore Edits from Before the
+          Update…" (`ShotStore.restorePreMigrationGrades`: puts every backup back, re-renders,
+          and turns migration off so it isn't redone). A fit that yields a non-finite number
+          leaves the edit as it was.
+    - 6 (now): grain sized to the frame and as strong at every size, like Chromagraph's
+      (`FilmPipeline.addGrain` `frame`): σ = stock grain size × 3 (‰ of the long side) ×
+      the Grain Size slider, std = grain density × 0.88 × amount, no averaging down for
+      smaller renders. Before, grain was ~½ px at 4032 px and scaled down with resolution,
+      so on screen it all but vanished ("they look totally different"). Calibrated on the
+      owner's screenshots of Chromagraph at amplitude 1.25: σ ≈ 0.5‰ (autocorrelation 0.44
+      at 1 px on a 1230 px tall photo), ~3.7/255 high-passed in the mid-tones, fading to
+      black and white; Phromagraph at 50 lands there. "Pixel Size Grain" (Chromagraph's
+      Force Pixel Size Grain, `FilmRecipe.pixelGrain`) makes it ½ px at any size. The film
+      math (tables) is engine 5's; at grain 0 engine 6 renders exactly like 5.
+    - Slider labels use Chromagraph's scales: Contrast ±4.00 (our +100 measured like its
+      S-Curve 4.00), Highlights/Shadows ±1.00, Grain 0…5.00 (our 50 = its 1.25), Exposure
+      ±6.0, Pivot 0…1.
     - Engines 2+ share engine 2's un-render and its tables (`FilmLUT.unrenderEngine`). At
       Saturation 0, engine 3 renders exactly like engine 2.
     - `freezeFilmTuning` pins engine 1 on unversioned edits, never the current engine.
@@ -709,7 +740,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
-  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 5;
+  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 6;
     `renderEngine` treats nil as 1, and `freezeFilmTuning` pins nil as 1). Pinning
     freezes a stock's numbers, not the code: a change to the math that would alter older
     photos must keep the old behaviour for older engines (engines 2 and 3 did: see

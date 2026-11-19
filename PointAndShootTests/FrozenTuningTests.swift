@@ -369,9 +369,8 @@ final class FrozenTuningTests: XCTestCase {
     /// engine 4; Highlights and Shadows go much further (whole regions re-exposed);
     /// Contrast goes further and turns about its Pivot, which does nothing at Contrast 0.
     func testEngineFiveReExposesRegionsAndPivotsContrast() {
-        XCTAssertEqual(FilmRecipe.currentEngine, 5)
-        let r = printRecipe
-        XCTAssertEqual(r.film?.engine, 5, "new looks pin engine 5")
+        var r = printRecipe
+        r.film?.engine = 5
         var engine4 = r
         engine4.film?.engine = 4
         XCTAssertLessThan(maxDiff(pixels(engine4), pixels(r)), 1e-4, "engine 5 must render like engine 4 at the defaults")
@@ -426,26 +425,75 @@ final class FrozenTuningTests: XCTestCase {
         }
     }
 
-    /// An older photo moves to the current engine (and its slider ranges) only while that
-    /// changes nothing it renders.
-    func testOlderEditsMoveToTheCurrentEngineOnlyWhenNothingChanges() {
-        var r = printRecipe
-        r.film?.engine = 3
-        XCTAssertEqual(r.onCurrentFilmEngineIfUnchanged().film?.engine, FilmRecipe.currentEngine)
-        var moved = r
-        moved.highlights = 20
-        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, 3, "Highlights already moved")
-        moved = r
-        moved.contrast = -10
-        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, 3, "Contrast already moved")
-        moved = r
-        moved.film?.engine = 2
-        moved.saturation = 30
-        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, 2, "Saturation already raised on engine 2")
-        moved.saturation = -30
-        XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, FilmRecipe.currentEngine)
-        moved.film?.engine = nil
-        XCTAssertNil(moved.onCurrentFilmEngineIfUnchanged().film?.engine, "unversioned edits stay on engine 1")
+    /// Engine 6 only changes grain (sized to the frame, as strong at every size): with grain
+    /// off it renders exactly like engine 5, and new looks pin it.
+    func testEngineSixChangesOnlyGrain() {
+        XCTAssertEqual(FilmRecipe.currentEngine, 6)
+        let r = printRecipe
+        XCTAssertEqual(r.film?.engine, 6, "new looks pin engine 6")
+        var five = r
+        five.film?.engine = 5
+        XCTAssertLessThan(maxDiff(pixels(five), pixels(r)), 1e-4, "engine 6 must render like engine 5 without grain")
+        // Chromagraph's scales on the labels.
+        XCTAssertEqual(Adjustment.catalog["contrast"]!.label(100), "+4.00")
+        XCTAssertEqual(Adjustment.catalog["shadows"]!.label(-100), "-1.00")
+        XCTAssertEqual(Adjustment.catalog["grain"]!.label(50), "1.25")
+    }
+
+    private func meanDiff(_ a: [Float], _ b: [Float]) -> Float {
+        var s: Float = 0
+        for i in 0..<min(a.count, b.count) { s += abs(a[i] - b[i]) }
+        return s / Float(min(a.count, b.count))
+    }
+
+    /// Migration moves older edits to today's engine with sliders that match their look:
+    /// exactly for contrast and grain, as closely as possible for highlights/shadows.
+    func testMigrationKeepsTheLook() {
+        var old = printRecipe
+        old.film?.engine = 4
+        old.contrast = 40
+        let c = FilmMigration.migrate(old, developsFromRAW: true)
+        XCTAssertTrue(c.changed)
+        XCTAssertEqual(c.recipe.film?.engine, FilmRecipe.currentEngine)
+        XCTAssertEqual(c.recipe.contrast, 20, accuracy: 0.01)
+        XCTAssertLessThan(maxDiff(pixels(c.recipe), pixels(old)), 2e-3, "contrast migrates exactly")
+        old.contrast = -30
+        XCTAssertEqual(FilmMigration.migrate(old, developsFromRAW: true).recipe.contrast, -20, accuracy: 0.01)
+
+        for (h, s) in [(0.0, 50.0), (0, -60), (50, 0), (-40, 30)] {
+            var tone = printRecipe
+            tone.film?.engine = 4
+            tone.highlights = h; tone.shadows = s
+            let m = FilmMigration.migrate(tone, developsFromRAW: true)
+            var naive = tone
+            naive.film?.engine = FilmRecipe.currentEngine
+            let fitted = meanDiff(pixels(m.recipe), pixels(tone)), unfitted = meanDiff(pixels(naive), pixels(tone))
+            XCTAssertLessThan(fitted, unfitted, "h \(h) s \(s): the fit should look closer than keeping the numbers (\(fitted) vs \(unfitted))")
+            XCTAssertLessThan(m.toneError, 0.08, "h \(h) s \(s)")
+        }
+
+        var grain = printRecipe
+        grain.film?.engine = 5
+        grain.grain = 50
+        let g = FilmMigration.migrate(grain, developsFromRAW: true).recipe
+        XCTAssertEqual(g.grain, (50 / FilmPipeline.frameGrainGain).rounded())
+        XCTAssertEqual(g.grainSizeValue, (100 / FilmPipeline.frameGrainScale).rounded())
+
+        var processed = printRecipe
+        processed.film?.engine = nil
+        XCTAssertFalse(FilmMigration.migrate(processed, developsFromRAW: false).changed, "a processed engine-1 photo keeps its un-render")
+        XCTAssertEqual(FilmMigration.migrate(processed, developsFromRAW: true).recipe.film?.engine, FilmRecipe.currentEngine)
+        XCTAssertFalse(FilmMigration.migrate(printRecipe, developsFromRAW: true).changed, "already current")
+
+        // A Default Grade saved with older math starts new shots on today's engine.
+        var settings = CameraSettings()
+        settings.mode = .photo
+        settings.captureLook = CameraSettings.printLookID
+        var grade = printRecipe
+        grade.film?.engine = 4
+        grade.shadows = 30
+        settings.defaultGrade = grade
+        XCTAssertEqual(settings.startingGrade?.film?.engine, FilmRecipe.currentEngine)
     }
 
     /// The editor's ranges: Exposure ±6 stops (Chromagraph's), grain up to 4× the look's, and

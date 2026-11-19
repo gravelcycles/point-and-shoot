@@ -501,7 +501,9 @@ extension CameraSettings {
         guard mode.isStill else { return nil }   // video records no grade
         // "none" and nil both mean no look.
         func norm(_ id: String?) -> String? { id == "none" ? nil : id }
-        if let g = defaultGrade, norm(g.look) == norm(activeLook) { return g }
+        // On today's film engine: a grade saved with older math moves to it with the sliders
+        // that match its look (`FilmMigration`), so new shots get today's controls.
+        if let g = defaultGrade, norm(g.look) == norm(activeLook) { return FilmMigration.migrate(g, developsFromRAW: true).recipe }
         return Look.named(activeLook)?.recipe
     }
 

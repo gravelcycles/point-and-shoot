@@ -203,7 +203,9 @@ struct EditorView: View {
             }
             return tabs
         case .texture:
-            var tabs = [EditorSubTab(id: "grain", name: "Grain", controls: [.slider(adj("grain")), .slider(adj("grainSize"))])]
+            var tabs = [EditorSubTab(id: "grain", name: "Grain",
+                                     controls: [.slider(adj("grain")), .slider(adj("grainSize"))]
+                                        + (isFilm ? [.toggle(id: "pixelGrain", name: "Pixel Size Grain", keyPath: \.filmPixelGrain)] : []))]
             if isFilm {
                 tabs.append(EditorSubTab(id: "halation", name: "Halation", controls: [.slider(adj("halation"))]))
             }
@@ -251,7 +253,7 @@ struct EditorView: View {
             infoRow
             canvas
             toolPanel
-                .frame(height: 170)
+                .frame(height: 190)
             toolTabs
         }
         .background(Color.black.ignoresSafeArea())
@@ -508,16 +510,15 @@ struct EditorView: View {
         switch control {
         case .slider(let a):
             let rawOnly = ["rawLTM", "rawBoost", "rawNR"].contains(a.id)
-            // Pivot needs film engine 5; an older edit with Contrast or Highlights/Shadows
-            // already moved keeps its engine (picking the look again updates it).
-            let off = (rawOnly && !session.developsFromRAW)
-                || (a.id == "pivot" && (session.recipe.film?.renderEngine ?? 0) < 5 && !session.recipe.canMoveToCurrentFilmEngine)
+            let off = rawOnly && !session.developsFromRAW
             GradeSlider(adjustment: a,
                         value: Binding(get: { session.recipe[keyPath: a.keyPath] },
                                        set: { v in
-                                           // An older photo moves to today's film engine (and
-                                           // its slider ranges) when that changes nothing yet.
-                                           var r = session.recipe.onCurrentFilmEngineIfUnchanged()
+                                           // An edit still on older film math moves to today's
+                                           // with the sliders that match its look (the store
+                                           // does this at launch; this covers the rest).
+                                           var r = FilmMigration.migrate(session.recipe,
+                                                                         developsFromRAW: session.developsFromRAW).recipe
                                            r[keyPath: a.keyPath] = v
                                            session.recipe = r
                                        }),
