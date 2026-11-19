@@ -739,15 +739,33 @@ enum FilmLUT {
     /// Negative density (per layer) → linear Display P3.
     static func display(negative dn: (Double, Double, Double), stock s: FilmStock,
                         controls c: FilmControls = FilmControls()) -> (Double, Double, Double) {
-        let curves = printCurves(stock: s, controls: c)
+        display(negative: dn, stock: s, controls: c, context: DisplayContext(stock: s, controls: c))
+    }
+
+    /// What `display(negative:)` works out once per stock and controls (print curves, the
+    /// negative's inverse, hue protection's neutral table), so a sweep of many values
+    /// doesn't rebuild them per value (a ramp through the reference was ~1 ms a point).
+    struct DisplayContext {
+        let curves: [FilmCurve]
+        let inverse: [InverseCurve]?
+        let neutral: [Double]?
+        init(stock s: FilmStock, controls c: FilmControls) {
+            curves = FilmLUT.printCurves(stock: s, controls: c)
+            inverse = c.shiftsExposure || c.flash > 0 || s.huePreserve > 0 ? s.negative.map { InverseCurve($0) } : nil
+            neutral = s.huePreserve > 0 ? FilmLUT.neutralTable(stock: s, controls: c) : nil
+        }
+    }
+
+    static func display(negative dn: (Double, Double, Double), stock s: FilmStock,
+                        controls c: FilmControls, context ctx: DisplayContext) -> (Double, Double, Double) {
+        let curves = ctx.curves
         let grey = s.greyNegativeDensity
         let pg = printGrey(stock: s, controls: c)
         // Each layer's log exposure (needed for engine 5's re-exposure, flashing or hue
         // protection).
         var le = (0.0, 0.0, 0.0)
         var dn = dn
-        if c.shiftsExposure || c.flash > 0 || s.huePreserve > 0 {
-            let inv = s.negative.map { InverseCurve($0) }
+        if let inv = ctx.inverse {
             le = (inv[0].logExposure(dn.0), inv[1].logExposure(dn.1), inv[2].logExposure(dn.2))
         }
         if c.shiftsExposure {
@@ -765,7 +783,7 @@ enum FilmLUT {
         let out = display(print: dp, stock: s, curves: curves, controls: c)
         guard s.huePreserve > 0 else { return out }
         let e = (pow(10, le.0), pow(10, le.1), pow(10, le.2))
-        return protectHue(out, scene: FilmMath.mul(hueMatrix(s), e), neutral: neutralTable(stock: s, controls: c),
+        return protectHue(out, scene: FilmMath.mul(hueMatrix(s), e), neutral: ctx.neutral ?? neutralTable(stock: s, controls: c),
                           amount: s.huePreserve)
     }
 
@@ -1029,5 +1047,15 @@ enum FilmLUT {
                                 controls: FilmControls = FilmControls()) -> (Double, Double, Double) {
         let x = 0.18 * pow(2, stops)
         return display(negative: negativeDensity((x, x, x), stock: stock), stock: stock, controls: controls)
+    }
+
+    /// `neutralResponse` at many exposures, sharing the per-stock work (same values).
+    static func neutralRamp(stops: [Double], stock: FilmStock,
+                            controls: FilmControls = FilmControls()) -> [(Double, Double, Double)] {
+        let ctx = DisplayContext(stock: stock, controls: controls)
+        return stops.map { st in
+            let x = 0.18 * pow(2, st)
+            return display(negative: negativeDensity((x, x, x), stock: stock), stock: stock, controls: controls, context: ctx)
+        }
     }
 }
