@@ -369,9 +369,8 @@ final class FrozenTuningTests: XCTestCase {
     /// engine 4; Highlights and Shadows go much further (whole regions re-exposed);
     /// Contrast goes further and turns about its Pivot, which does nothing at Contrast 0.
     func testEngineFiveReExposesRegionsAndPivotsContrast() {
-        XCTAssertEqual(FilmRecipe.currentEngine, 5)
-        let r = printRecipe
-        XCTAssertEqual(r.film?.engine, 5, "new looks pin engine 5")
+        var r = printRecipe
+        r.film?.engine = 5
         var engine4 = r
         engine4.film?.engine = 4
         XCTAssertLessThan(maxDiff(pixels(engine4), pixels(r)), 1e-4, "engine 5 must render like engine 4 at the defaults")
@@ -446,6 +445,36 @@ final class FrozenTuningTests: XCTestCase {
         XCTAssertEqual(moved.onCurrentFilmEngineIfUnchanged().film?.engine, FilmRecipe.currentEngine)
         moved.film?.engine = nil
         XCTAssertNil(moved.onCurrentFilmEngineIfUnchanged().film?.engine, "unversioned edits stay on engine 1")
+    }
+
+    /// Engine 6 only changes grain (sized to the frame, as strong at every size): with grain
+    /// off it renders exactly like engine 5; new looks and Default Grades pin it; moving a
+    /// slider whose behaviour an engine changed moves any photo to it.
+    func testEngineSixChangesOnlyGrainAndSlidersMovePhotosToIt() {
+        XCTAssertEqual(FilmRecipe.currentEngine, 6)
+        let r = printRecipe
+        XCTAssertEqual(r.film?.engine, 6, "new looks pin engine 6")
+        var five = r
+        five.film?.engine = 5
+        XCTAssertLessThan(maxDiff(pixels(five), pixels(r)), 1e-4, "engine 6 must render like engine 5 without grain")
+        var old = r
+        old.film?.engine = 4
+        old.shadows = 30
+        XCTAssertEqual(old.onCurrentFilmEngine().film?.engine, 6)
+        XCTAssertEqual(old.onCurrentFilmEngineIfUnchanged().film?.engine, 4)
+        for id in ["highlights", "shadows", "contrast", "pivot", "grain", "grainSize"] {
+            XCTAssertTrue(EditRecipe.engineGatedSliders.contains(id), id)
+        }
+        var s = CameraSettings()
+        s.mode = .photo
+        s.captureLook = CameraSettings.printLookID
+        old.look = CameraSettings.printLookID
+        s.defaultGrade = old
+        XCTAssertEqual(s.startingGrade?.film?.engine, 6, "a Default Grade saved with older math starts new shots on today's")
+        // Chromagraph's scales on the labels.
+        XCTAssertEqual(Adjustment.catalog["contrast"]!.label(100), "+4.00")
+        XCTAssertEqual(Adjustment.catalog["shadows"]!.label(-100), "-1.00")
+        XCTAssertEqual(Adjustment.catalog["grain"]!.label(50), "1.25")
     }
 
     /// The editor's ranges: Exposure ±6 stops (Chromagraph's), grain up to 4× the look's, and

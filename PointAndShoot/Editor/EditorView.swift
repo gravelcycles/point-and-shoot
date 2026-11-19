@@ -202,7 +202,9 @@ struct EditorView: View {
                                      controls: [.bands] + Adjustment.mixer(colorBand).map { .slider($0) }))
             return tabs
         case .texture:
-            var tabs = [EditorSubTab(id: "grain", name: "Grain", controls: [.slider(adj("grain")), .slider(adj("grainSize"))])]
+            var tabs = [EditorSubTab(id: "grain", name: "Grain",
+                                     controls: [.slider(adj("grain")), .slider(adj("grainSize"))]
+                                        + (isFilm ? [.toggle(id: "pixelGrain", name: "Pixel Size Grain", keyPath: \.filmPixelGrain)] : []))]
             if isFilm {
                 tabs.append(EditorSubTab(id: "halation", name: "Halation", controls: [.slider(adj("halation"))]))
             }
@@ -250,7 +252,7 @@ struct EditorView: View {
             infoRow
             canvas
             toolPanel
-                .frame(height: 170)
+                .frame(height: 190)
             toolTabs
         }
         .background(Color.black.ignoresSafeArea())
@@ -507,16 +509,16 @@ struct EditorView: View {
         switch control {
         case .slider(let a):
             let rawOnly = ["rawLTM", "rawBoost", "rawNR"].contains(a.id)
-            // Pivot needs film engine 5; an older edit with Contrast or Highlights/Shadows
-            // already moved keeps its engine (picking the look again updates it).
-            let off = (rawOnly && !session.developsFromRAW)
-                || (a.id == "pivot" && (session.recipe.film?.renderEngine ?? 0) < 5 && !session.recipe.canMoveToCurrentFilmEngine)
+            let off = rawOnly && !session.developsFromRAW
             GradeSlider(adjustment: a,
                         value: Binding(get: { session.recipe[keyPath: a.keyPath] },
                                        set: { v in
-                                           // An older photo moves to today's film engine (and
-                                           // its slider ranges) when that changes nothing yet.
-                                           var r = session.recipe.onCurrentFilmEngineIfUnchanged()
+                                           // An older photo moves to today's film engine when
+                                           // that changes nothing yet, or when this slider is
+                                           // one whose behaviour an engine changed.
+                                           var r = EditRecipe.engineGatedSliders.contains(a.id)
+                                               ? session.recipe.onCurrentFilmEngine()
+                                               : session.recipe.onCurrentFilmEngineIfUnchanged()
                                            r[keyPath: a.keyPath] = v
                                            session.recipe = r
                                        }),

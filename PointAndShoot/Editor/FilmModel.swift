@@ -397,8 +397,10 @@ enum FilmLUT {
     /// 4: Highlights and Shadows go about twice as far (`FilmControls.strongTone`).
     /// 5: Highlights and Shadows re-expose broad scene regions before printing, Contrast
     ///    goes to ×2 and turns about a pivot (`FilmControls.toneRegions`).
+    /// 6: grain sized to the frame and as strong at every size, like Chromagraph's
+    ///    (`FilmPipeline.addGrain`); the tables are engine 5's.
     /// Hue twists and dye saturation need no engine: they're stock fields, off when absent.
-    static let currentEngine = 5
+    static let currentEngine = 6
 
     /// The un-render a given engine uses (1 or 2): engines 2 and up share engine 2's, so
     /// their display-referred tables are the same and share a cache entry.

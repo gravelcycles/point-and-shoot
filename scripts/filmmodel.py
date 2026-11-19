@@ -98,7 +98,7 @@ def scene_from_display(x):
 LUM2020 = np.array([0.2627, 0.6780, 0.0593])
 
 
-CURRENT_ENGINE = 5   # FilmLUT.currentEngine (3: subtractive Saturation slider; 4: stronger Highlights/Shadows;
+CURRENT_ENGINE = 6   # FilmLUT.currentEngine (6: frame-sized grain, FilmPipeline only) (3: subtractive Saturation slider; 4: stronger Highlights/Shadows;
                      # 5: Highlights/Shadows re-expose scene regions, Contrast to x2 with a pivot; the un-render is engine 2's)
 
 # Engine 2: the inverse of Apple's rendering, measured (FilmLUT.unrender*; docs/film-looks.md §5¾).
@@ -440,14 +440,19 @@ def halation(lin_srgb, stock, strength=1.0, source="sceneLinear"):
     return (lin_srgb + a * glow) / (1 + a)
 
 
-def grain_field(shape, stock, strength, seed=7):
+FRAME_GRAIN_SCALE, FRAME_GRAIN_GAIN = 3.0, 0.88   # FilmPipeline.frameGrainScale / frameGrainGain
+
+
+def grain_field(shape, stock, strength, seed=7, engine=CURRENT_ENGINE):
     """Zero-mean grain in negative density: a shared (monochrome) part plus a per-layer
-    part, blurred to the grain size. Amplitude is defined at a 4032 px long side and
-    scales down with resolution (smaller renders average the grain)."""
+    part, blurred to the grain size. Engine 6: sized to the frame and as strong at every
+    size (Chromagraph's). Before: amplitude defined at a 4032 px long side, scaled down
+    with resolution (smaller renders average the grain)."""
     from scipy.ndimage import gaussian_filter
     h, w = shape
     unit = max(h, w) / 1000.0
-    sigma_px = max(0.35, stock["grain_size"] * unit)
+    frame = engine >= 6
+    sigma_px = max(0.35, stock["grain_size"] * unit * (FRAME_GRAIN_SCALE if frame else 1.0))
     rng = np.random.default_rng(seed)
     def field():
         f = gaussian_filter(rng.standard_normal((h, w)), sigma_px)
@@ -455,7 +460,7 @@ def grain_field(shape, stock, strength, seed=7):
     shared = field()
     c = stock["grainChroma"]
     norm = math.sqrt((1 - c) ** 2 + c ** 2)
-    sigma = stock["grainDensity"] * strength * min(1.0, unit / 4.032)
+    sigma = stock["grainDensity"] * strength * (FRAME_GRAIN_GAIN if frame else min(1.0, unit / 4.032))
     return np.stack([((1 - c) * shared + c * field()) / norm for _ in range(3)], -1) * sigma
 
 
@@ -479,7 +484,7 @@ def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0,
     rgb2020 = np.clip(rgb2020, 0, SHAPER_SCALE)
     dn = negative_density(rgb2020, stock)
     if grain_amount > 0:
-        dn = dn + grain_field(dn.shape[:2], stock, grain_amount)
+        dn = dn + grain_field(dn.shape[:2], stock, grain_amount, engine=engine)
     return decode_srgb(split_tone(encode_srgb(display(dn, stock, controls)), stock))
 
 

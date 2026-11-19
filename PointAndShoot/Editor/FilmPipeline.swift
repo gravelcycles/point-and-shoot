@@ -28,6 +28,8 @@ enum FilmPipeline {
         var grainSize: Double = 1
         /// −1…1: monochrome grain … the look's … strongly coloured (Film tool).
         var grainColor: Double = 0
+        /// Grain one pixel across at any size (Chromagraph's "Force Pixel Size Grain").
+        var pixelGrain = false
         /// Multiplies the halation's spread (0.25…3) and moves its colour: −1 pure red,
         /// 0 the look's, +1 a warm white bloom (Film tool).
         var halationSize: Double = 1
@@ -193,7 +195,7 @@ enum FilmPipeline {
 
         if s.grain > 0 {
             x = addGrain(to: x, stock: stock, amount: s.grain, size: s.grainSize, color: s.grainColor,
-                         unit: unit, animate: s.animateGrain)
+                         frame: s.engine >= 6, pixel: s.pixelGrain, unit: unit, animate: s.animateGrain)
         }
 
         x = x.applyingFilter("CIColorCube", parameters: [
@@ -297,11 +299,24 @@ enum FilmPipeline {
     /// Amplitude is defined for a 4032 px long side; smaller renders average it down the
     /// way a downscaled photo would.
     ///
+    /// Film engine 6 (`frame`): like Chromagraph's, the grain's size is a share of the frame
+    /// and its strength is the same at every size, so it reads the same on screen, in the
+    /// viewer and in an export. The old way it was ~half a pixel at 4032 px and averaged
+    /// down for previews: on screen it all but vanished (the owner: "they look totally
+    /// different"). Measured on the owner's screenshots of Chromagraph at amplitude 1.25
+    /// (2026-11-19): ~0.5‰ of the long side (σ), ~3.7/255 high-passed in the mid-tones.
+    /// `frameGrainScale` and `frameGrainGain` map the stocks' numbers onto that, so
+    /// Phromagraph at 50 (Chromagraph's 1.25) lands on it. `pixel`: one pixel at any size.
+    ///
     /// Every intermediate image is opaque, so nothing depends on how a filter treats alpha.
     /// (CIRandomGenerator's alpha is random too; a filter that un-premultiplies would divide
     /// by it and turn the grain into heavy-tailed speckle.)
+    static let frameGrainScale = 3.0
+    static let frameGrainGain = 0.88
+
     private static func addGrain(to image: CIImage, stock: FilmStock, amount: Double, size: Double = 1,
-                                 color: Double = 0, unit: CGFloat, animate: Bool) -> CIImage {
+                                 color: Double = 0, frame: Bool = false, pixel: Bool = false,
+                                 unit: CGFloat, animate: Bool) -> CIImage {
         guard var noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
         let bounds = image.extent
         if animate {
@@ -316,7 +331,8 @@ enum FilmPipeline {
         // where Core Image's Gaussian blur isn't guaranteed to blur by exactly σ, and the
         // amplitude below assumes it does. So small sizes use an explicit 3×3 Gaussian whose
         // effect on the noise (Σw² of the 1-D taps) is known exactly.
-        let sigmaPx = max(0.35, Double(unit) * stock.grainSize * size)
+        let sigmaPx = pixel ? 0.5
+            : max(0.35, Double(unit) * stock.grainSize * size * (frame ? frameGrainScale : 1))
         let stdFactor: Double
         if sigmaPx < 1 {
             let w1 = exp(-1 / (2 * sigmaPx * sigmaPx))
@@ -339,7 +355,9 @@ enum FilmPipeline {
         let alpha = (1 - c) * (1 - c) / norm2, beta = c * c / norm2
         let p = beta.squareRoot()
         let q = (-2 * p + (4 * p * p + 12 * alpha).squareRoot()) / 6
-        let resolution = min(1, Double(unit) / 4.032)
+        // Engine 6 and pixel grain keep their strength at every size; before, smaller
+        // renders averaged it down.
+        let resolution = frame || pixel ? frameGrainGain : min(1, Double(unit) / 4.032)
         let target = stock.grainDensity * amount * resolution / FilmLUT.densityScale
         let k = target / ((1 / 12.0.squareRoot()) * stdFactor)
         let d = CGFloat(k * (p + q)), o = CGFloat(k * q)

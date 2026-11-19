@@ -185,6 +185,7 @@ enum EditPipeline {
             fs.grain = r.grain / 50
             fs.grainSize = r.grainSizeValue / 100
             fs.grainColor = (film.grainColor ?? 0) / 100
+            fs.pixelGrain = film.pixelGrain ?? false
             fs.halationSize = r.filmHalationSize / 100
             fs.halationColor = (film.halationColor ?? 0) / 100
             fs.controls = r.filmControls
