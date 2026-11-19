@@ -886,6 +886,12 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Each tool has
     sub-tab pills and labelled `GradeSlider`s: a default mark and detent, double-tap to
     reset, one undo step per drag.
+  - **ⓘ on every tab** (`EditorHelp`, `ControlHelpSheet`): what each control does (film and
+    Original wording where they differ) and how the tab's controls work together. Every
+    slider and toggle must have an entry (`testEveryControlIsExplained`).
+  - The Mixer shows one slider at a time (a Hue / Saturation / Luminance switch): all three
+    didn't fit an iPhone 12 Pro's panel. It reaches full strength from 12% saturation
+    (was 22%, invisible on muted film-graded photos), hue ±40°, luminance ±0.4.
   - ✓ saves the grade. ⋯ offers Copy/Paste Grade, Set as Default Grade, Reset This Image,
     Reset to Original and Discard. The export button sits in the tool bar. Undo,
     hold-to-compare.

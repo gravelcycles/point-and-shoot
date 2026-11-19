@@ -43,14 +43,17 @@ enum ColorMixer {
                     if s > 0.0001 {
                         let (i, j, t) = neighbors(of: h, centers: centers)
                         func blend(_ k: Int) -> Double { (m[i * 3 + k] * (1 - t) + m[j * 3 + k] * t) / 100 }
-                        // Fade the effect in with saturation so neutrals stay neutral.
-                        let strength = smoothstep(0.0, 0.22, s)
-                        h += blend(0) * 30 * strength
+                        // Fade the effect in with saturation so neutrals stay neutral. Full
+                        // strength from 12% saturation (was 22%): on muted, film-graded photos
+                        // most colours sit below that and the mixer barely did anything (the
+                        // owner: "i can't see any difference when changing mixer").
+                        let strength = smoothstep(0.0, 0.12, s)
+                        h += blend(0) * 40 * strength
                         h = h.truncatingRemainder(dividingBy: 360)
                         if h < 0 { h += 360 }
                         s = min(1, max(0, s * (1 + blend(1) * strength)))
                         let headroom = 1 - abs(2 * l - 1) * 0.5
-                        l = min(1, max(0, l + blend(2) * 0.32 * strength * headroom))
+                        l = min(1, max(0, l + blend(2) * 0.4 * strength * headroom))
                         rgb = hslToRGB(h, s, l)
                     }
                     cube.append(Float(rgb.0))

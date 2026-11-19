@@ -197,6 +197,11 @@ final class LibraryFlowTests: XCTestCase {
         exposure.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
             .press(forDuration: 0.05, thenDragTo: exposure.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.75)))
         XCTAssertTrue(app.buttons["editor.undo"].isEnabled, "dragging the slider made no edit")
+        // ⓘ explains the tab's controls.
+        app.buttons["editor.info"].tap()
+        XCTAssertTrue(app.staticTexts["How they work together"].waitForExistence(timeout: 3)
+                      || app.staticTexts["HOW THEY WORK TOGETHER"].exists, "no ⓘ card")
+        app.buttons["Done"].firstMatch.tap()
         // Every tool's sub-tabs exist.
         app.buttons["editor.tool.color"].tap()
         XCTAssertTrue(app.buttons["editor.sub.balance"].waitForExistence(timeout: 2))
