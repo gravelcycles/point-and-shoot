@@ -6,6 +6,7 @@
 #   TEAM=ABCDE12345 DEVICE=<udid> scripts/deploy-iphone.sh
 #   BUNDLE_ID=com.yourname.pointandshoot scripts/deploy-iphone.sh   # if the default ID is taken
 #   CONFIG=Debug scripts/deploy-iphone.sh        # default Release (what "smooth" should feel like)
+#   ACTIVATE=0 scripts/deploy-iphone.sh                     # launch in the background, not in front
 #
 # BUNDLE_ID sets the project's APP_BUNDLE_ID, so the extensions become $BUNDLE_ID.widgets and
 # $BUNDLE_ID.lockedcapture. Never override PRODUCT_BUNDLE_IDENTIFIER: the extensions would get the app's ID.
@@ -111,7 +112,9 @@ APP="$DERIVED/Build/Products/$CONFIG-iphoneos/PointAndShoot.app"
 say "Installing"
 xcrun devicectl device install app --device "$DEVICE" "$APP"
 say "Launching"
-if ! xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID"; then
+# ACTIVATE=0 launches in the background (no app popping up), e.g. for unattended renewals.
+ACTIVATION=$([ "${ACTIVATE:-1}" = 0 ] && echo --no-activate || echo --activate)
+if ! xcrun devicectl device process launch --device "$DEVICE" $ACTIVATION "$BUNDLE_ID"; then
   echo
   echo "Installed, but iOS refused to launch it. If this is the first install from this Apple ID:"
   echo "  iPhone → Settings → General → VPN & Device Management → (your Apple ID) → Trust, then open Point & Shoot."
