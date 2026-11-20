@@ -5,9 +5,10 @@ import Foundation
 /// has today's controls without changing how it looks (the owner, 2026-11-19: "can't you
 /// pick a setting in the new version that matched the old version?").
 ///
-/// - Exact: Contrast (the same print gamma on the new scale), grain (the same size and
-///   strength at a 4032 px export), engine 1 → 2 for photos developed from their RAW (the
-///   two differ only for processed input).
+/// - Exact: Contrast (the same print gamma on the new scale), engine 1 → 2 for photos
+///   developed from their RAW (the two differ only for processed input).
+/// - Grain (engine 7, `matchGrain`): the same luminance strength on grey and fineness at a
+///   4032 px export, within the sliders' reach (engine 6's coarse grain gets Size 3).
 /// - Fitted, on the stock's grey scale (−7…+5 stops, encoded luminance) and a few rich
 ///   colours: Saturation from engines 1–2 (it spread about the mean, brightening), and
 ///   Highlights/Shadows from engines 1–4 (they shifted print density at the ends of the
@@ -66,10 +67,11 @@ enum FilmMigration {
             toneError = fit.error
         }
 
-        // Grain: frame-sized from engine 6. Same size and strength at a 4032 px export.
-        if from < 6 && r.grain > 0 {
-            out.grain = min(200, (r.grain / FilmPipeline.frameGrainGain).rounded())
-            out.grainSizeValue = min(300, max(25, (r.grainSizeValue / FilmPipeline.frameGrainScale).rounded()))
+        // Grain: engine 7's measured grain. The same strength (luminance on grey) and
+        // fineness at a 4032 px export, as far as the sliders reach.
+        if from < 7 && r.grain > 0, let grainStock = FilmStock.resolved(for: r) {
+            let g = matchGrain(r, from: from, stock: grainStock)
+            out.grain = g.grain; out.grainSizeValue = g.size
         }
 
         film = out.film ?? film
@@ -83,6 +85,50 @@ enum FilmMigration {
             return Result(recipe: r, toneError: 0, changed: false)
         }
         return Result(recipe: out, toneError: toneError, changed: true)
+    }
+
+    // MARK: Grain
+
+    /// Engine 7's Grain and Grain Size for an older engine's grain, at a 4032 px export:
+    /// the size whose grain is as fine (lag-1 autocorrelation), then the amount that gives
+    /// the same luminance std on the stock's grey. Engines 1–5 (σ ≈ ½ px) land near the
+    /// smallest size; engine 6's grain (σ ≈ 2 px at Size 1, far coarser than Chromagraph's)
+    /// is past engine 7's largest, so it gets Size 3. Pixel Size Grain keeps its size (it
+    /// has no cell; engine 7 ignores Size there).
+    static func matchGrain(_ r: EditRecipe, from engine: Int, stock: FilmStock,
+                           unit: Double = 4.032) -> (grain: Double, size: Double) {
+        let pixel = r.film?.pixelGrain ?? false
+        let chroma = FilmPipeline.grainChroma(stock.grainChroma, color: (r.film?.grainColor ?? 0) / 100)
+        let old = FilmGrain.legacyGrain(engine: engine, size: r.grainSizeValue / 100, pixel: pixel,
+                                        stockSize: stock.grainSize, unit: unit)
+        let oldLuma = old.std * stock.grainDensity * (r.grain / 50)
+            * FilmGrain.lumaStd(stock: stock, gains: (1, 1, 1), chroma: chroma)
+
+        var size = r.grainSizeValue / 100
+        if !pixel {
+            let target = FilmGrain.lag1(FilmGrain.legacyKernel(sigma: old.sigma))
+            func lag1(_ s: Double) -> Double { FilmGrain.lag1(FilmGrain.kernel(cell: FilmGrain.cellPixels(size: s, unit: unit))) }
+            // Below this size the cell is at its floor and only the strength changes.
+            let floor = min(3, max(0.25, pow(FilmGrain.minimumCellPixels / (unit * FilmGrain.cellPermille),
+                                             1 / FilmGrain.cellExponent)))
+            if target <= lag1(floor) {
+                size = floor
+            } else if target >= lag1(3) {
+                size = 3
+            } else {
+                var lo = floor, hi = 3.0
+                for _ in 0..<40 {
+                    let mid = (lo + hi) / 2
+                    if lag1(mid) < target { lo = mid } else { hi = mid }
+                }
+                size = (lo + hi) / 2
+            }
+            size = (size * 100).rounded() / 100
+        }
+        let newLuma = stock.grainDensity * FilmGrain.outputGain * (pixel ? 1 : FilmGrain.strength(size: size))
+            * FilmGrain.lumaStd(stock: stock, gains: FilmPipeline.layerGains(stock), chroma: chroma)
+        let amount = newLuma > 0 ? oldLuma / newLuma : 0
+        return (min(200, max(0, (amount * 50).rounded())), min(300, max(25, (size * 100).rounded())))
     }
 
     // MARK: Grey scale

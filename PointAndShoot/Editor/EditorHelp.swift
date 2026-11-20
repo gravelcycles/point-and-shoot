@@ -66,9 +66,11 @@ enum EditorHelp {
         // Texture
         "grain": Entry(
             text: "Adds fine film grain. Shown on Chromagraph's scale (0–5).",
-            film: "How strong the film's grain is, on Chromagraph's scale (0–5; 1.25 is the look as designed). Grain lives in the negative, so the print shapes it: strongest in the midtones, fading into the deep blacks and the brightest whites, as on a real print."),
-        "grainSize": Entry(text: "How big the grain is, relative to the picture (1.00× is the look's). Bigger grain is coarser and reads as a faster, pushed film; smaller is finer, like a slow stock. Grain's strength stays the same as its size changes."),
-        "pixelGrain": Entry(text: "Makes the grain one pixel across at any size, like Chromagraph's Force Pixel Size Grain: crisp, digital-looking grain that's the same at every export size, instead of grain that scales with the picture."),
+            film: "How strong the film's grain is, on Chromagraph's scale (0–5; 1.25 is the look as designed, 5 four times as strong). Grain lives in the negative, so the print shapes it: strongest in the midtones, fading into the deep blacks and the brightest whites, as on a real print. On greys it's neutral, never tinted."),
+        "grainSize": Entry(
+            text: "How big the grain is, relative to the picture (1.00× is the look's). Bigger grain is coarser and reads as a faster, pushed film; smaller is finer, like a slow stock. Grain's strength stays the same as its size changes.",
+            film: "How big the grain is, as a share of the picture (1.00× is the look's: about a pixel across at 2880 px, crisp, like Chromagraph's). As on Chromagraph, bigger grain is also stronger (about 1.4× at 3.00×); below 1.00× it can't get finer than a pixel, so it mostly gets weaker (about half at 0.25×)."),
+        "pixelGrain": Entry(text: "Makes the grain one pixel across at any size, like Chromagraph's Force Pixel Size Grain: crisp, digital-looking grain that's the same at every export size, instead of grain that scales with the picture. Grain Size then does nothing."),
         "halation": Entry(text: "The glow film gets around bright lights and hard bright edges: light that passes through the film reflects off its back and re-exposes it, mostly in red. 50 is the look as designed."),
         "structure": Entry(text: "Mid-size local contrast: + brings out texture and detail (stone, fabric, skin pores), − softens it for a gentler, glowy look."),
         "sharpen": Entry(text: "Fine-edge sharpening, the last step. A little goes a long way; film looks usually need none."),
@@ -121,7 +123,7 @@ enum EditorHelp {
             return "Shadows, Midtones and Highlights Tint each add a colour to their part of the scale without changing brightness. Classic pairs: teal shadows (≈190°) with orange highlights (≈40°), or warm shadows with cool highlights for a cross-processed look. They apply after the look, so keep amounts low on film looks that already have a cast."
         case "grain":
             return isFilm
-                ? "Grain sets the strength and Grain Size the size; the grain's strength stays the same as you change its size. Together: fine and strong reads as a sharp, gritty stock; big and gentle as a soft, pushed one. Pixel Size Grain swaps the film-like grain for crisp one-pixel noise."
+                ? "Grain sets the strength and Grain Size the size; as on Chromagraph, bigger grain also reads stronger, so lower Grain a little as you raise Grain Size to keep it subtle. Together: fine and strong reads as a sharp, gritty stock; big and gentle as a soft, pushed one. Pixel Size Grain swaps the film-like grain for crisp one-pixel noise."
                 : "Grain sets the strength and Grain Size the size."
         case "halation":
             return "Halation here sets how strong the glow is; the Film tool's Halation tab sets its size and colour."

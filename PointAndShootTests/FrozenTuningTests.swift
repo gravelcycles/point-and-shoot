@@ -427,15 +427,17 @@ final class FrozenTuningTests: XCTestCase {
         }
     }
 
-    /// Engine 6 only changes grain (sized to the frame, as strong at every size): with grain
-    /// off it renders exactly like engine 5, and new looks pin it.
-    func testEngineSixChangesOnlyGrain() {
-        XCTAssertEqual(FilmRecipe.currentEngine, 6)
+    /// Engines 6 and 7 only change grain (6: sized to the frame; 7: Chromagraph's, measured;
+    /// GrainTests): with grain off they render exactly like engine 5, and new looks pin 7.
+    func testEnginesSixAndSevenChangeOnlyGrain() {
+        XCTAssertEqual(FilmRecipe.currentEngine, 7)
         let r = printRecipe
-        XCTAssertEqual(r.film?.engine, 6, "new looks pin engine 6")
-        var five = r
-        five.film?.engine = 5
-        XCTAssertLessThan(maxDiff(pixels(five), pixels(r)), 1e-4, "engine 6 must render like engine 5 without grain")
+        XCTAssertEqual(r.film?.engine, 7, "new looks pin engine 7")
+        for old in [5, 6] {
+            var o = r
+            o.film?.engine = old
+            XCTAssertLessThan(maxDiff(pixels(o), pixels(r)), 1e-4, "engine 7 must render like engine \(old) without grain")
+        }
         // Chromagraph's scales on the labels.
         XCTAssertEqual(Adjustment.catalog["contrast"]!.label(100), "+4.00")
         XCTAssertEqual(Adjustment.catalog["shadows"]!.label(-100), "-1.00")
@@ -474,12 +476,18 @@ final class FrozenTuningTests: XCTestCase {
             XCTAssertLessThan(m.toneError, 0.08, "h \(h) s \(s)")
         }
 
+        // Grain: engine 7's sliders for the same strength and fineness (GrainTests renders it).
         var grain = printRecipe
         grain.film?.engine = 5
         grain.grain = 50
         let g = FilmMigration.migrate(grain, developsFromRAW: true).recipe
-        XCTAssertEqual(g.grain, (50 / FilmPipeline.frameGrainGain).rounded())
-        XCTAssertEqual(g.grainSizeValue, (100 / FilmPipeline.frameGrainScale).rounded())
+        let expected = FilmMigration.matchGrain(grain, from: 5, stock: FilmStock.resolved(for: grain)!)
+        XCTAssertEqual(g.grain, expected.grain)
+        XCTAssertEqual(g.grainSizeValue, expected.size)
+        XCTAssertLessThan(g.grainSizeValue, 100, "engine 5's half-pixel grain is finer than Size 1")
+        grain.film?.engine = 6
+        XCTAssertEqual(FilmMigration.migrate(grain, developsFromRAW: true).recipe.grainSizeValue, 300,
+                       "engine 6's coarse grain gets the largest size")
 
         var processed = printRecipe
         processed.film?.engine = nil
