@@ -13,6 +13,12 @@ which print-look.py export-swift writes into FilmStock+Stocks.swift.
   phromagraph.py measure DIR [--work W]   viewfinder vs the fixed develop exposure; grain
   phromagraph.py sheet OUT.jpg [--work W] [--only a,b]
                                           neutral develop | Print | Phromagraph | Chromagraph
+  phromagraph.py grain DIR [--work W] [--ev 1.86] [--assign FILE=AMP/SIZE ...]
+                                          Chromagraph's grain vs ours, on one DNG and its exports
+                                          at several grain settings (identified from the pixels
+                                          unless --assign says): strength, spectrum, colour and
+                                          strength by brightness. Renders ours through the app's
+                                          own FilmPipeline.swift (scripts/film-render, macOS)
   phromagraph.py develop-ev RAW.dng EXPORT.heic [...] [--work W]
                                           the develop exposure (EV over the app's neutral
                                           CIRAWFilter develop) that makes Phromagraph match
@@ -396,6 +402,149 @@ def develop_ev(dng, exports):
         print(f"{os.path.basename(ref_path):16s} develop {ev:+.2f} EV  (ΔE {de:.4f})   by band: " + "  ".join(bands))
 
 
+# --- grain ------------------------------------------------------------------------------
+
+def _decode8(p):
+    """An export (HEIC/JPEG) or one of our 16-bit PNG renders as 0…255 floats (no colour
+    conversion: Chromagraph's HEICs are untagged and read as sRGB; ours are written sRGB)."""
+    import cv2
+    if p.endswith(".png"):
+        a = cv2.imread(p, cv2.IMREAD_UNCHANGED)[..., :3][..., ::-1].astype(np.float64)
+        return a / 257 if a.dtype == np.float64 and a.max() > 255 else a
+    import pillow_heif
+    from PIL import Image
+    pillow_heif.register_heif_opener()
+    return np.asarray(Image.open(p).convert("RGB")).astype(np.float64)
+
+
+def _flat_mask(base):
+    import cv2
+    y = (base.mean(-1) / 255).astype(np.float32)
+    g = cv2.GaussianBlur(y, (0, 0), 3)
+    gm = np.hypot(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
+    tex = np.sqrt(cv2.GaussianBlur((y - cv2.GaussianBlur(y, (0, 0), 2)) ** 2, (0, 0), 6))
+    return (gm < 0.012) & (tex < 0.006)
+
+
+def grain_stats(base, img, flat):
+    """The grain an export adds over the grain-off export of the same RAW: per-pixel std of
+    encoded luminance (/255) and per channel, autocorrelation at 1–4 px, inter-channel
+    correlation and the radial power spectrum (10 bands to Nyquist, relative to the first),
+    on the largest flat rectangle."""
+    import cv2
+    ys, xs = np.nonzero(cv2.erode(flat.astype(np.uint8), np.ones((41, 41), np.uint8)))
+    r0, r1 = np.percentile(ys, [10, 90]).astype(int)
+    c0, c1 = np.percentile(xs, [10, 90]).astype(int)
+    d = (img - base)[r0:r1, c0:c1]
+    d = d - np.stack([cv2.GaussianBlur(d[..., c].astype(np.float32), (0, 0), 40) for c in range(3)], -1)
+    y = np.einsum("ijk,k->ij", d, LUM709)
+    ac = [float(np.corrcoef(y[:, :-l].ravel(), y[:, l:].ravel())[0, 1]) for l in (1, 2, 3, 4)]
+    p = np.abs(np.fft.fft2(y - y.mean())) ** 2 / y.size
+    fy, fx = np.fft.fftfreq(y.shape[0]), np.fft.fftfreq(y.shape[1])
+    rad = np.hypot(*np.meshgrid(fy, fx, indexing="ij"))
+    b = np.linspace(0, 0.5, 11)
+    sp = np.array([p[(rad >= lo) & (rad < hi)].mean() for lo, hi in zip(b[:-1], b[1:])])
+    cc = np.corrcoef([d[..., c].ravel() for c in range(3)])
+    return dict(std=float(y.std()), rgb=[float(d[..., c].std()) for c in range(3)], ac=ac,
+                corr=[float(cc[0, 1]), float(cc[0, 2]), float(cc[1, 2])], spectrum=list(sp / sp[0]))
+
+
+def grain_by_value(base, imgs, flat, edges=range(40, 256, 12)):
+    """Grain std per channel, binned by that channel's own (blurred) value: Chromagraph's is
+    one curve for R, G and B (a per-channel tone curve after the grain)."""
+    import cv2
+    out = {}
+    for c in range(3):
+        v = cv2.GaussianBlur(base[..., c].astype(np.float32), (0, 0), 6)
+        ds = []
+        for im in imgs:
+            dd = (im[..., c] - base[..., c]).astype(np.float32)
+            ds.append(dd - cv2.GaussianBlur(dd, (0, 0), 20))
+        for lo, hi in zip(list(edges)[:-1], list(edges)[1:]):
+            m = flat & (v >= lo) & (v < hi)
+            if m.sum() > 3000:
+                vals = np.concatenate([dd[m] for dd in ds])
+                vals = vals[np.abs(vals) < 4 * vals.std()]
+                out.setdefault((lo + hi) // 2, {})["RGB"[c]] = float(vals.std())
+    return out
+
+
+def grain(d, ev, assign):
+    files = sorted(os.listdir(d))
+    dng = [os.path.join(d, f) for f in files if f.lower().endswith(".dng")]
+    exports = [os.path.join(d, f) for f in files if f.lower().endswith((".heic", ".heif", ".jpg", ".jpeg"))]
+    if len(dng) != 1 or len(exports) < 2:
+        sys.exit("grain: DIR needs one DNG and its exports at several grain settings")
+    imgs = {os.path.basename(p): _decode8(p) for p in exports}
+    # Grain off: the export the others differ from least.
+    names = list(imgs)
+    noise = {n: np.median([np.abs(imgs[n] - imgs[m]).mean() for m in names if m != n]) for n in names}
+    off = min(noise, key=noise.get)
+    flat = _flat_mask(imgs[off])
+    stats = {n: grain_stats(imgs[off], imgs[n], flat) for n in names if n != off}
+    settings = {}
+    if assign:
+        for a in assign:
+            f, v = a.split("=")
+            amp, size = v.split("/")
+            settings[f] = (float(amp), float(size))
+    else:
+        # Amplitude 5 is ~4x the others; of the 1.25s, the most correlated is Size max and
+        # the weakest Size min (same spectrum as Size 1, a pixel is as fine as it gets).
+        lo = min(s["std"] for s in stats.values())
+        strong = [n for n, s in stats.items() if s["std"] > 3 * lo]
+        rest = sorted((n for n in stats if n not in strong), key=lambda n: stats[n]["ac"][0])
+        for n in strong:
+            settings[n] = (5.0, 1.0)
+        if rest:
+            settings[rest[-1]] = (1.25, 3.0)
+            rest = sorted(rest[:-1], key=lambda n: stats[n]["std"])
+            if len(rest) == 2:
+                settings[rest[0]], settings[rest[1]] = (1.25, 0.25), (1.25, 1.0)
+            elif len(rest) == 1:
+                settings[rest[0]] = (1.25, 1.0)
+    print(f"grain off: {off} (mean |difference| to the others {noise[off]:.2f}/255)")
+    print("Chromagraph (std /255 of encoded luminance; R G B; autocorrelation at 1–4 px; channel correlation; spectrum):")
+    for n, s in stats.items():
+        a = settings.get(n)
+        print(f"  {n:14s} {'amp %.2f size %.2f' % a if a else 'unassigned':20s} " + _fmt(s))
+    # Ours, through the app's own pipeline at the same settings.
+    exe = os.path.join(WORK_DIR, "film-render")
+    os.makedirs(WORK_DIR, exist_ok=True)
+    root = os.path.join(HERE, "..")
+    ed = os.path.join(root, "PointAndShoot", "Editor")
+    subprocess.run(["swiftc", "-O", "-o", exe, os.path.join(HERE, "film-render", "main.swift"),
+                    os.path.join(ed, "FilmModel.swift"), os.path.join(ed, "FilmStock+Stocks.swift"),
+                    os.path.join(ed, "FilmPipeline.swift")], check=True, capture_output=True)
+    long = max(imgs[off].shape[:2])
+
+    def ours(name, amp, size, engine=F.CURRENT_ENGINE):
+        out = os.path.join(WORK_DIR, f"grain-{name}.png")
+        subprocess.run([exe, dng[0], out, "--long", str(long), "--ev", str(ev), "--stock", "phromagraph",
+                        "--grain", str(amp / 1.25), "--size", str(size), "--engine", str(engine)],
+                       check=True, capture_output=True)
+        return _decode8(out)
+    base = ours("off", 0, 1)
+    print(f"Ours (Phromagraph, engine {F.CURRENT_ENGINE}; slider = amplitude × 40):")
+    mine = {}
+    for n, (amp, size) in sorted(settings.items(), key=lambda kv: kv[1]):
+        mine[n] = ours(n, amp, size)
+        print(f"  {'at ' + n:14s} {'amp %.2f size %.2f' % (amp, size):20s} " + _fmt(grain_stats(base, mine[n], flat)))
+    strong = [n for n, a in settings.items() if a == (5.0, 1.0)]
+    if strong:
+        print("Strength by each channel's own value at amplitude 5 (Chromagraph | ours):")
+        theirs = grain_by_value(imgs[off], [imgs[n] for n in strong], flat)
+        us = grain_by_value(base, [mine[strong[0]]], flat)
+        for v in sorted(set(theirs) | set(us)):
+            t, u = theirs.get(v, {}), us.get(v, {})
+            print(f"  {v:3d}  " + "  ".join(f"{ch} {t.get(ch, float('nan')):5.1f} | {u.get(ch, float('nan')):5.1f}" for ch in "RGB"))
+
+
+def _fmt(s):
+    return (f"std {s['std']:5.2f}  RGB {' '.join('%5.2f' % v for v in s['rgb'])}  ac {' '.join('%+.3f' % v for v in s['ac'])}"
+            f"  corr {' '.join('%.2f' % v for v in s['corr'])}  spectrum {' '.join('%.2f' % v for v in s['spectrum'])}")
+
+
 def main():
     global WORK_DIR
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -408,6 +557,10 @@ def main():
     e = sub.add_parser("develop-ev")
     e.add_argument("dng")
     e.add_argument("exports", nargs="+")
+    g = sub.add_parser("grain")
+    g.add_argument("dir")
+    g.add_argument("--ev", type=float, default=1.86, help="develop exposure (Chromagraph's fixed ProRAW develop)")
+    g.add_argument("--assign", nargs="*", help="FILE=AMPLITUDE/SIZE, e.g. IMG_4587.HEIC=1.25/1")
     s = sub.add_parser("sheet")
     s.add_argument("out")
     s.add_argument("--only")
@@ -421,6 +574,8 @@ def main():
         measure(a.dir)
     elif a.cmd == "develop-ev":
         develop_ev(a.dng, a.exports)
+    elif a.cmd == "grain":
+        grain(a.dir, a.ev, a.assign)
     elif a.cmd == "sheet":
         sheet(a.out, a.only.split(",") if a.only else None)
 

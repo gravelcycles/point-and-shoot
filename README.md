@@ -93,7 +93,8 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     glow around lights.
   - Like every look, it develops from the RAW at Chromagraph's brightness.
   - Grain starts off, as in Chromagraph. The editor's **Grain** slider at 50 matches
-    Chromagraph's grain 1.25.
+    Chromagraph's grain 1.25, and **Grain Size** behaves like its Size (measured on its
+    exports: crisp, about a pixel across, neutral on greys).
 - The app reopens on the lens you used last.
 - **Zoom stays at 1× with Bayer RAW.** It's the sensor's full frame, which can't be
   digitally zoomed; pick a lens instead, or shoot ProRAW. Pinching just tells you why.

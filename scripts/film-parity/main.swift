@@ -61,6 +61,7 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
     let pcCtl6 = FilmLUT.printCube(stock: s, controls: ctl6)
     let pcCtl6b = FilmLUT.printCube(stock: s, controls: ctl6b)
     timing[id] = [t1, t2, t3, t4].enumerated().map { i, t in t.timeIntervalSince([t0, t1, t2, t3][i]) * 1000 }
+    let gains = FilmGrain.layerGains(stock: s)
     out[id] = [
         "neutral": neutral, "neutral_ctl": neutralCtl, "colors": colors,
         "neg": sample(neg, FilmLUT.negativeDimension, idxNeg),
@@ -86,8 +87,15 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
         "neutral_ctl4": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
             let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl4); return [v.0, v.1, v.2] },
         "colors_ctl2": colors2,
+        // Engine 7's grain (FilmGrain): layer weights and the Jacobian they come from.
+        "grain_gains": [gains.0, gains.1, gains.2],
+        "grain_jacobian": FilmGrain.jacobian(stock: s),
     ]
 }
+let grainKernels: [[Double]] = [0.0, 1.0, 1.2, 1.735, 2.5].map { FilmGrain.kernel(cell: $0) }
+let grainStrength: [Double] = [0.25, 0.5, 1.0, 2.0, 3.0].map { FilmGrain.strength(size: $0) }
+let grainCells: [Double] = [(0.25, 2.88), (1.0, 2.88), (3.0, 2.88), (1.0, 4.032), (3.0, 1.2)].map { FilmGrain.cellPixels(size: $0.0, unit: $0.1) }
+out["grain"] = ["kernels": grainKernels, "strength": grainStrength, "cells": grainCells] as [String: Any]
 out["timing_ms"] = timing
 let data = try! JSONSerialization.data(withJSONObject: out)
 _ = FileManager.default.createFile(atPath: CommandLine.arguments[1], contents: data)

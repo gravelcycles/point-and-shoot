@@ -399,8 +399,11 @@ enum FilmLUT {
     ///    goes to ×2 and turns about a pivot (`FilmControls.toneRegions`).
     /// 6: grain sized to the frame and as strong at every size, like Chromagraph's
     ///    (`FilmPipeline.addGrain`); the tables are engine 5's.
+    /// 7: grain measured on Chromagraph's full-size exports (`FilmGrain`): a crisp
+    ///    Catmull-Rom grain about a pixel across at 2880 px, neutral on greys, stronger as
+    ///    it gets bigger; the tables are engine 5's.
     /// Hue twists and dye saturation need no engine: they're stock fields, off when absent.
-    static let currentEngine = 6
+    static let currentEngine = 7
 
     /// The un-render a given engine uses (1 or 2): engines 2 and up share engine 2's, so
     /// their display-referred tables are the same and share a cache entry.
@@ -1057,5 +1060,159 @@ enum FilmLUT {
             let x = 0.18 * pow(2, st)
             return display(negative: negativeDensity((x, x, x), stock: stock), stock: stock, controls: controls, context: ctx)
         }
+    }
+}
+
+/// Film engine 7's grain, measured on Chromagraph's own full-size exports of one of our
+/// DNGs (2160×2880 HEICs at Amplitude 0, 1.25 and 5 and Size min, 1 and max, a flat wall;
+/// `scripts/phromagraph.py grain`, 2026-11-20). What Chromagraph's grain does there:
+/// - Its spatial spectrum is flat to ~¼ cycle/px and rolls off to ~⅓ power at Nyquist, with
+///   a small negative lobe at 2 px (lag-1 autocorrelation 0.245, lag-2 −0.09): noise
+///   resampled with a sharp cubic. A Catmull-Rom kernel of cell 1.20 px matches it at Size 1
+///   (0.417‰ of the long side), 1.735 px at Size max; Size min has Size 1's shape (nothing
+///   finer than a pixel shows) and only gets weaker.
+/// - Its strength grows with size: ×0.52 at Size min, ×1.42 at Size max (`strength(size:)`),
+///   and is linear in Amplitude (5 is 4.0× 1.25).
+/// - It's a function of each channel's own value, the same for R, G and B: neutral on greys
+///   (inter-channel correlation ~0.98), flat through the mid-tones and fading toward white,
+///   as a print curve shapes it. So we keep adding it in negative density, but weigh each
+///   layer so that one unit of grain moves every channel of a grey by the same amount
+///   (`layerGains`): `grainDensity` is now the std of encoded output on grey, per channel.
+enum FilmGrain {
+    /// Catmull-Rom cell at Size 1, as ‰ of the long side (1.20 px at 2880 px).
+    static let cellPermille = 0.417
+    /// Cell ∝ Size^this (1.735 px at Size 3).
+    static let cellExponent = 0.336
+    /// Nothing smaller shows: grain this size or finer reads as one-pixel grain.
+    static let minimumCellPixels = 1.2
+    /// Encoded output std on grey per unit of the stock's `grainDensity`, at grain 1 and
+    /// Size 1: Phromagraph (0.017) at slider 50 lands on Chromagraph's Amplitude 1.25.
+    static let outputGain = 1.07
+    /// The kernel's half-width in taps (CIConvolution9Horizontal/Vertical).
+    static let radius = 4
+
+    /// Strength at a Size (0.25…3), 1 at Size 1: Chromagraph's ×0.52 at its minimum and
+    /// ×1.42 at its maximum, smooth in log Size between.
+    static func strength(size: Double) -> Double {
+        let l = log(max(size, 0.01))
+        return exp(0.387 * l - 0.0614 * l * l)
+    }
+
+    /// The grain cell in pixels for a render whose long side is `unit` × 1000.
+    static func cellPixels(size: Double, unit: Double) -> Double {
+        max(minimumCellPixels, unit * cellPermille * pow(max(size, 0.01), cellExponent))
+    }
+
+    /// Catmull-Rom (Keys, a = −0.5).
+    static func catmullRom(_ x: Double) -> Double {
+        let a = -0.5, t = abs(x)
+        if t < 1 { return (a + 2) * t * t * t - (a + 3) * t * t + 1 }
+        if t < 2 { return a * t * t * t - 5 * a * t * t + 8 * a * t - 4 * a }
+        return 0
+    }
+
+    /// The 1-D filter (2·radius + 1 taps, summing to 1) that turns per-pixel white noise into
+    /// grain of `cell` px: the Catmull-Rom kernel stretched to the cell. `cell` ≤ 0 is a
+    /// single tap (pixel grain).
+    static func kernel(cell: Double) -> [Double] {
+        let taps = (-radius...radius).map { i in cell > 0 ? catmullRom(Double(i) / cell) : (i == 0 ? 1 : 0) }
+        let sum = taps.reduce(0, +)
+        return taps.map { $0 / sum }
+    }
+
+    /// How much the separable 2-D filter shrinks white noise's std (Σw² of the 1-D taps).
+    static func stdFactor(_ w: [Double]) -> Double { w.reduce(0) { $0 + $1 * $1 } }
+
+    /// Lag-1 autocorrelation of the filtered noise (along a row).
+    static func lag1(_ w: [Double]) -> Double {
+        var s = 0.0
+        for i in 0..<(w.count - 1) { s += w[i] * w[i + 1] }
+        return s / stdFactor(w)
+    }
+
+    /// The 1-D filter engines 1–6 softened their grain with: an explicit 3×3 Gaussian under
+    /// a pixel, Core Image's Gaussian blur (sampled to ±3σ here) above. For migrating.
+    static func legacyKernel(sigma: Double) -> [Double] {
+        if sigma < 1 {
+            let w1 = exp(-1 / (2 * sigma * sigma))
+            return [w1, 1, w1].map { $0 / (1 + 2 * w1) }
+        }
+        let r = Int((sigma * 3).rounded(.up))
+        let w = (-r...r).map { exp(-Double($0 * $0) / (2 * sigma * sigma)) }
+        let sum = w.reduce(0, +)
+        return w.map { $0 / sum }
+    }
+
+    /// Engines 1–6's grain at a render whose long side is `unit` × 1000: the filter's σ in
+    /// px and the per-pixel std in negative density, per unit of the stock's `grainDensity`
+    /// and amount (FilmPipeline.addGrain).
+    static func legacyGrain(engine: Int, size: Double, pixel: Bool, stockSize: Double,
+                            unit: Double) -> (sigma: Double, std: Double) {
+        let frame = engine >= 6
+        let sigma = pixel ? 0.5 : max(0.35, unit * stockSize * size * (frame ? 3.0 : 1))
+        return (sigma, frame || pixel ? 0.88 : min(1, unit / 4.032))
+    }
+
+    /// Encoded display output by negative density at the stock's grey (18% scene grey,
+    /// default controls, split toning included), row-major: J[r·3 + k] = ∂out_r / ∂D_k.
+    static func jacobian(stock s: FilmStock) -> [Double] {
+        let c = FilmControls()
+        let ctx = FilmLUT.DisplayContext(stock: s, controls: c)
+        let d0 = FilmLUT.negativeDensity((0.18, 0.18, 0.18), stock: s)
+        func enc(_ d: (Double, Double, Double)) -> [Double] {     // as the print cube outputs it
+            let v = FilmLUT.display(negative: d, stock: s, controls: c, context: ctx)
+            var e = [FilmMath.encodeSRGB(v.0), FilmMath.encodeSRGB(v.1), FilmMath.encodeSRGB(v.2)]
+            if s.hasSplitTone {      // split toning (filmmodel.split_tone)
+                let l = FilmMath.lumP3
+                let y = min(max(l.0 * e[0] + l.1 * e[1] + l.2 * e[2], 0), 1)
+                let ws = (1 - y) * (1 - y), wh = y * y
+                for i in 0..<3 { e[i] = min(max(e[i] + ws * s.shadowTint[i] + wh * s.highlightTint[i], 0), 1) }
+            }
+            return e
+        }
+        let h = 1e-3
+        var j = [Double](repeating: 0, count: 9)
+        for k in 0..<3 {
+            var p = d0, m = d0
+            if k == 0 { p.0 += h; m.0 -= h } else if k == 1 { p.1 += h; m.1 -= h } else { p.2 += h; m.2 -= h }
+            let a = enc(p), b = enc(m)
+            for r in 0..<3 { j[r * 3 + k] = (a[r] - b[r]) / (2 * h) }
+        }
+        return j
+    }
+
+    /// Negative density per layer that moves each channel of the stock's grey by one unit
+    /// of encoded output: J⁻¹·(1, 1, 1) (`jacobian`). Falls back to equal layers if the
+    /// stock's response there is degenerate.
+    static func layerGains(stock s: FilmStock) -> (Double, Double, Double) {
+        let j = jacobian(stock: s)
+        let inv = FilmMath.inverse3(j)
+        let g = (inv[0] + inv[1] + inv[2], inv[3] + inv[4] + inv[5], inv[6] + inv[7] + inv[8])
+        guard [g.0, g.1, g.2].allSatisfy({ $0.isFinite && $0 > 0 }) else {
+            let mean = (j.reduce(0, +) / 3)
+            let e = mean != 0 && mean.isFinite ? abs(1 / mean) : 1
+            return (e, e, e)
+        }
+        return g
+    }
+
+    /// Std of encoded luminance on the stock's grey per unit of per-layer density grain with
+    /// layer weights `gains` and the given chroma share (the shared part plus `chroma`
+    /// independent per layer, as FilmPipeline mixes it).
+    static func lumaStd(stock s: FilmStock, gains g: (Double, Double, Double), chroma c: Double) -> Double {
+        let j = jacobian(stock: s)
+        let norm2 = (1 - c) * (1 - c) + c * c
+        let alpha = (1 - c) * (1 - c) / norm2, beta = c * c / norm2
+        let gv = [g.0, g.1, g.2]
+        // Density covariance: G (αJ₁ + βI) G; luminance gradient lᵀJ.
+        let l = FilmMath.lumP3
+        let lj = (0..<3).map { k in l.0 * j[k] + l.1 * j[3 + k] + l.2 * j[6 + k] }
+        var v = 0.0
+        for a in 0..<3 {
+            for b in 0..<3 {
+                v += lj[a] * gv[a] * (alpha + (a == b ? beta : 0)) * gv[b] * lj[b]
+            }
+        }
+        return v.squareRoot()
     }
 }

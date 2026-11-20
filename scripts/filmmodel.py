@@ -98,7 +98,8 @@ def scene_from_display(x):
 LUM2020 = np.array([0.2627, 0.6780, 0.0593])
 
 
-CURRENT_ENGINE = 6   # FilmLUT.currentEngine (6: frame-sized grain, FilmPipeline only) (3: subtractive Saturation slider; 4: stronger Highlights/Shadows;
+CURRENT_ENGINE = 7   # FilmLUT.currentEngine (7: Chromagraph's measured grain, FilmGrain; 6: frame-sized grain, FilmPipeline only)
+                     # (3: subtractive Saturation slider; 4: stronger Highlights/Shadows;
                      # 5: Highlights/Shadows re-expose scene regions, Contrast to x2 with a pivot; the un-render is engine 2's)
 
 # Engine 2: the inverse of Apple's rendering, measured (FilmLUT.unrender*; docs/film-looks.md §5¾).
@@ -442,30 +443,99 @@ def halation(lin_srgb, stock, strength=1.0, source="sceneLinear"):
 
 FRAME_GRAIN_SCALE, FRAME_GRAIN_GAIN = 3.0, 0.88   # FilmPipeline.frameGrainScale / frameGrainGain
 
+# Engine 7: Chromagraph's grain, measured on its full-size exports (FilmGrain in FilmModel.swift;
+# scripts/phromagraph.py grain).
+GRAIN_CELL_PERMILLE = 0.417     # Catmull-Rom cell at Size 1, ‰ of the long side (1.20 px at 2880 px)
+GRAIN_CELL_EXPONENT = 0.336     # cell ∝ Size^this (1.735 px at Size 3)
+GRAIN_MIN_CELL_PX = 1.2         # nothing finer shows
+GRAIN_OUTPUT_GAIN = 1.07        # encoded std on grey per unit grainDensity (Phromagraph at 50 = Chromagraph 1.25)
+GRAIN_RADIUS = 4                # taps each side (CIConvolution9Horizontal/Vertical)
 
-def grain_field(shape, stock, strength, seed=7, engine=CURRENT_ENGINE):
+
+def grain_strength(size):
+    """FilmGrain.strength(size:): x0.52 at Size 0.25, x1.42 at Size 3, smooth in log Size."""
+    l = math.log(max(size, 0.01))
+    return math.exp(0.387 * l - 0.0614 * l * l)
+
+
+def grain_cell_pixels(size, unit):
+    return max(GRAIN_MIN_CELL_PX, unit * GRAIN_CELL_PERMILLE * max(size, 0.01) ** GRAIN_CELL_EXPONENT)
+
+
+def catmull_rom(x):
+    a, t = -0.5, abs(x)
+    if t < 1:
+        return (a + 2) * t ** 3 - (a + 3) * t * t + 1
+    if t < 2:
+        return a * t ** 3 - 5 * a * t * t + 8 * a * t - 4 * a
+    return 0.0
+
+
+def grain_kernel(cell):
+    """FilmGrain.kernel(cell:): 9 taps summing to 1; cell <= 0 is one tap (pixel grain)."""
+    taps = np.array([catmull_rom(i / cell) if cell > 0 else float(i == 0) for i in range(-GRAIN_RADIUS, GRAIN_RADIUS + 1)])
+    return taps / taps.sum()
+
+
+def grain_jacobian(stock):
+    """FilmGrain.jacobian(stock:): encoded output (split toning included) by negative density
+    at 18% grey, default controls; J[r, k] = d out_r / d D_k."""
+    d0 = negative_density(np.array([0.18, 0.18, 0.18]), stock)
+    h = 1e-3
+    def enc(d):
+        return split_tone(encode_srgb(display(d, stock)), stock)
+    j = np.zeros((3, 3))
+    for k in range(3):
+        e = np.zeros(3)
+        e[k] = h
+        j[:, k] = (enc(d0 + e) - enc(d0 - e)) / (2 * h)
+    return j
+
+
+def grain_layer_gains(stock):
+    """FilmGrain.layerGains(stock:): J^-1 (1, 1, 1), so grain is neutral on grey."""
+    j = grain_jacobian(stock)
+    g = np.linalg.inv(j) @ np.ones(3)
+    if not np.all(np.isfinite(g)) or np.any(g <= 0):
+        return np.full(3, abs(3 / j.sum()) if j.sum() else 1.0)
+    return g
+
+
+def grain_field(shape, stock, strength, seed=7, engine=CURRENT_ENGINE, size=1.0, pixel=False):
     """Zero-mean grain in negative density: a shared (monochrome) part plus a per-layer
-    part, blurred to the grain size. Engine 6: sized to the frame and as strong at every
-    size (Chromagraph's). Before: amplitude defined at a 4032 px long side, scaled down
-    with resolution (smaller renders average the grain)."""
-    from scipy.ndimage import gaussian_filter
+    part. Engine 7 (FilmPipeline.addMeasuredGrain): white noise filtered by a Catmull-Rom
+    kernel of the grain cell, each layer weighted so grey's channels move together, at
+    grainDensity x GRAIN_OUTPUT_GAIN x strength x grain_strength(size) of encoded output on
+    grey. Engine 6: Gaussian, sized to the frame and as strong at every size. Before:
+    amplitude defined at a 4032 px long side, scaled down with resolution."""
+    from scipy.ndimage import gaussian_filter, convolve1d
     h, w = shape
     unit = max(h, w) / 1000.0
+    rng = np.random.default_rng(seed)
+    c = stock["grainChroma"]
+    norm = math.sqrt((1 - c) ** 2 + c ** 2)
+    if engine >= 7:
+        k = grain_kernel(0 if pixel else grain_cell_pixels(size, unit))
+        def field7():
+            f = rng.standard_normal((h, w))
+            f = convolve1d(convolve1d(f, k, axis=0, mode="wrap"), k, axis=1, mode="wrap")
+            return f / (f.std() + 1e-9)
+        shared = field7()
+        sigma = stock["grainDensity"] * GRAIN_OUTPUT_GAIN * strength * (1.0 if pixel else grain_strength(size))
+        g = grain_layer_gains(stock)
+        return np.stack([((1 - c) * shared + c * field7()) / norm * g[i] for i in range(3)], -1) * sigma
     frame = engine >= 6
     sigma_px = max(0.35, stock["grain_size"] * unit * (FRAME_GRAIN_SCALE if frame else 1.0))
-    rng = np.random.default_rng(seed)
     def field():
         f = gaussian_filter(rng.standard_normal((h, w)), sigma_px)
         return f / (f.std() + 1e-9)
     shared = field()
-    c = stock["grainChroma"]
-    norm = math.sqrt((1 - c) ** 2 + c ** 2)
     sigma = stock["grainDensity"] * strength * (FRAME_GRAIN_GAIN if frame else min(1.0, unit / 4.032))
     return np.stack([((1 - c) * shared + c * field()) / norm for _ in range(3)], -1) * sigma
 
 
 def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0, grain_amount=1.0,
-           source="sceneLinear", engine=CURRENT_ENGINE):
+           source="sceneLinear", engine=CURRENT_ENGINE, grain_size=1.0):
     """Scene-linear (or display-referred) sRGB-primaries image -> Display P3 linear image."""
     controls = dict(controls or {})
     controls.setdefault("subtractive", engine >= 3)      # engine 3's Saturation slider, like the app
@@ -484,7 +554,7 @@ def render(lin_srgb, stock, controls=None, exposure_ev=0.0, halation_amount=1.0,
     rgb2020 = np.clip(rgb2020, 0, SHAPER_SCALE)
     dn = negative_density(rgb2020, stock)
     if grain_amount > 0:
-        dn = dn + grain_field(dn.shape[:2], stock, grain_amount, engine=engine)
+        dn = dn + grain_field(dn.shape[:2], stock, grain_amount, engine=engine, size=grain_size)
     return decode_srgb(split_tone(encode_srgb(display(dn, stock, controls)), stock))
 
 

@@ -563,11 +563,22 @@ def parity():
             "neutral_ctl6": (s["neutral_ctl6"], F.neutral_response(stops, st, ctl6)),
             "neutral_ctl6b": (s["neutral_ctl6b"], F.neutral_response(stops, st, ctl6b)),
             "colors_ctl2": (s["colors_ctl2"], F.display(F.negative_density(colors, st), st, ctl2)),
+            "grain_gains": (s["grain_gains"], F.grain_layer_gains(st)),
+            "grain_jacobian": (s["grain_jacobian"], F.grain_jacobian(st).ravel()),
         }
         for k, (a, b) in checks.items():
             d = float(np.abs(np.array(a) - np.array(b)).max())
             worst = max(worst, d)
             print(f"  {sid:8s} {k:12s} max diff {d:.2e}")
+    g = sw["grain"]
+    for k, (a, b) in {
+        "kernels": (g["kernels"], [F.grain_kernel(c) for c in (0.0, 1.0, 1.2, 1.735, 2.5)]),
+        "strength": (g["strength"], [F.grain_strength(x) for x in (0.25, 0.5, 1.0, 2.0, 3.0)]),
+        "cells": (g["cells"], [F.grain_cell_pixels(x, u) for x, u in ((0.25, 2.88), (1.0, 2.88), (3.0, 2.88), (1.0, 4.032), (3.0, 1.2))]),
+    }.items():
+        d = float(np.abs(np.array(a) - np.array(b)).max())
+        worst = max(worst, d)
+        print(f"  grain    {k:12s} max diff {d:.2e}")
     if worst > 1e-5:
         sys.exit("Swift and Python disagree")
     print("parity OK")

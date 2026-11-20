@@ -211,7 +211,9 @@ scripts/print-stock.json          the Print look's parameters (source of truth)
 scripts/film-looks.json           the looks as compact film-stock specs (source of truth)
 scripts/phromagraph-stock.json    Phromagraph (fitted to Chromagraph's own renders; source of truth)
 scripts/phromagraph.py            fits Phromagraph to Chromagraph DNG+HEIC pairs; measures exposure/grain
+                                  (`grain DIR`: Chromagraph's grain vs ours at its five settings)
 scripts/raw-develop.swift         macOS CIRAWFilter develop exactly as the app does (for the Python tools)
+scripts/film-render/main.swift    macOS: a DNG through the app's own FilmPipeline.swift → 16-bit PNG (grain measuring)
 scripts/filmlooks.py              builds full stocks from film-looks.json (tone curve derivation)
 scripts/cssgram.py                the 26 Instagram-style CSSgram filters, browser-exact: the yardstick
                                   for how far apart our looks are (`print-look.py spread --cssgram`)
@@ -450,9 +452,15 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
         launch for every shot (`ShotStore.migrateFilmEngines`, re-rendering those whose
         sliders changed), on paste and import (`setRecipe`, `add`), for the Default Grade
         (`startingGrade`), and in the editor before a slider moves.
-        - Exact: Contrast (old 2^(c/2) print gamma = new c/2, or 2c/3 below 0), grain (same
-          σ and std at a 4032 px export: amount ÷ 0.88, size ÷ 3), engine 1 → 2 for photos
-          developed from RAW.
+        - Exact: Contrast (old 2^(c/2) print gamma = new c/2, or 2c/3 below 0), engine 1 → 2
+          for photos developed from RAW.
+        - Grain to engine 7 (`FilmMigration.matchGrain`): at a 4032 px export, the Grain Size
+          whose grain is as fine (lag-1 autocorrelation of the old filter vs the new kernel),
+          then the Grain that gives the same luminance std on the stock's grey (through the
+          print's Jacobian). Engines 1–5 (σ ≈ ½ px) land near the smallest size and match
+          both; engine 6's grain (σ ≈ 2 px Gaussian at Size 1) is coarser than engine 7's
+          largest, so it gets Size 3 at the same strength (Phromagraph/Print at 50 → ~30–34,
+          300). Pixel Size Grain keeps its size.
         - Fitted on the stock's grey scale (−7…+5 stops, encoded luminance; hue protection
           off): Highlights/Shadows on a 21×21 grid then ±10 at 2, each with the tone curve's
           four sliders solved by least squares where the edit has no curve. Shadows land
@@ -467,7 +475,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
           Update…" (`ShotStore.restorePreMigrationGrades`: puts every backup back, re-renders,
           and turns migration off so it isn't redone). A fit that yields a non-finite number
           leaves the edit as it was.
-    - 6 (now): grain sized to the frame and as strong at every size, like Chromagraph's
+    - 6: grain sized to the frame and as strong at every size, like Chromagraph's
       (`FilmPipeline.addGrain` `frame`): σ = stock grain size × 3 (‰ of the long side) ×
       the Grain Size slider, std = grain density × 0.88 × amount, no averaging down for
       smaller renders. Before, grain was ~½ px at 4032 px and scaled down with resolution,
@@ -476,7 +484,50 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       at 1 px on a 1230 px tall photo), ~3.7/255 high-passed in the mid-tones, fading to
       black and white; Phromagraph at 50 lands there. "Pixel Size Grain" (Chromagraph's
       Force Pixel Size Grain, `FilmRecipe.pixelGrain`) makes it ½ px at any size. The film
-      math (tables) is engine 5's; at grain 0 engine 6 renders exactly like 5.
+      math (tables) is engine 5's; at grain 0 engine 6 renders exactly like 5. Those
+      screenshots were the weak link: engine 6's grain was ~4× coarser than Chromagraph's
+      exports (lag-1 0.90 vs 0.245) and its Size slider did something else (engine 7).
+    - 7 (now): Chromagraph's grain, measured on its full-size exports (`FilmGrain` in
+      FilmModel.swift, `FilmPipeline.addMeasuredGrain`). The owner's data (2026-11-20, folder
+      "Chromagraph RAW grain 2026-11-20", git-ignored): one of our ProRAW DNGs and
+      Chromagraph's 2160×2880 HEICs of it at grain off, Amplitude 1.25 / Size 1, Amplitude 5
+      (two exports), 1.25 / Size min and 1.25 / Size max, a flat wall and a grey canvas.
+      Identified from the pixels (no settings in the metadata): `phromagraph.py grain DIR`.
+      | Chromagraph | std /255 (luminance, wall) | lag-1, lag-2 | ours (engine 7) | engine 6 |
+      |---|---|---|---|---|
+      | 1.25 · Size 1 | 3.37 | 0.245, −0.088 | 3.44; 0.252, −0.053 | 3.20; 0.90 |
+      | 5 · Size 1 | 13.50 (4.0×) | 0.241 | 13.55 | 12.70 |
+      | 1.25 · Size min | 1.74 (×0.52) | 0.242 (same shape) | 1.79 | 3.24; 0.06 |
+      | 1.25 · Size max | 4.78 (×1.42) | 0.609, 0.050 | 4.88; 0.611, 0.060 | 3.17; 0.99 |
+      - Linear in Amplitude. HEIC compression is transparent at these qualities (checked by
+        encoding synthetic grain), so the spectrum is the grain's own: flat to ~¼ cycle/px,
+        ~⅓ power at Nyquist, a small negative lobe at 2 px.
+      - Shape: per-pixel white noise filtered by a Catmull-Rom kernel stretched to a cell of
+        0.417‰ of the long side × Size^0.336 (1.20 px at 2880 px at Size 1, 1.735 at Size 3),
+        never under 1.2 px (Size min at 2880 px is at that floor: Chromagraph's Size min has
+        Size 1's spectrum and only gets weaker). Two 9-tap passes
+        (`CIConvolution9Horizontal/Vertical`); the noise is made zero-mean (after forcing
+        alpha to 1) so the kernel's negative lobes work.
+      - Strength by Size: exp(0.387·ln S − 0.0614·ln² S): ×0.52 at 0.25, ×1.42 at 3.
+      - Colour and brightness: Chromagraph's grain std is one function of each channel's own
+        value for R, G and B (19.4/255 at Amplitude 5 from 100 to 145, falling to 10.9 at
+        214), neutral on greys (channel correlation ~0.98). Engine 6's monochrome density
+        grain came out R 20 / G 18 / B 14 on grey (the print's per-layer slopes). Engine 7
+        still adds grain in negative density but weighs each layer by J⁻¹·(1, 1, 1), J the
+        print cube's Jacobian (encoded output, split toning included) at 18% grey
+        (`FilmGrain.layerGains`), so a grey's channels move together, and `grainDensity`
+        means encoded std on grey per channel: × 1.07 × amount × strength(Size). G and B fade
+        toward white like Chromagraph's; our red fades less (69% of its peak at 214/255 vs
+        56%: Phromagraph's red shoulder), so warm highlights carry ~20% more red grain.
+      - Strength per pixel is the same at every render size (engine 6's policy); the cell is
+        a share of the frame. Chromagraph exports only at 2880 px, so its behaviour at other
+        sizes is unmeasured; its on-screen preview (engine 6's screenshots: same ~3.7/255,
+        coarser) suggests it renders grain per preview pixel, which our 1.2 px floor
+        approximates on small renders.
+      - Pixel Size Grain: one uncorrelated pixel (no filter), Size does nothing.
+      - Grain 0 renders exactly like engine 6 (`GrainTests`). Measure and render with
+        `scripts/phromagraph.py grain` (it runs FilmPipeline.swift itself through
+        `scripts/film-render`, macOS); before/after sheets come from the same renders.
     - Slider labels use Chromagraph's scales: Contrast ±4.00 (our +100 measured like its
       S-Curve 4.00), Highlights/Shadows ±1.00, Grain 0…5.00 (our 50 = its 1.25), Exposure
       ±6.0, Pivot 0…1.
@@ -536,18 +587,22 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     +1.86) supplies Chromagraph's develop exposure. A non-zero stock exposure would also
     scale the viewfinder's display-referred input.
   - Grain starts at 0 (`Look` sets `grain = 0`, Chromagraph's default); slider 50 =
-    Chromagraph grain 1.25 (`grainDensity` 0.017, size 0.17).
+    Chromagraph Amplitude 1.25 and Size 1 = its Size 1 (engine 7, measured on its exports;
+    `grainDensity` 0.017 = encoded std on grey ÷ 1.07).
   - Halation is a third of Print's: Chromagraph shows no measurable red glow.
 - **Signal path:** scene-linear light → exposure → halation → shaper → negative cube →
   + grain → print cube → Display P3. See the header of `FilmModel.swift`.
   - Halation and grain are spatial, so they sit outside the two 3D LUTs.
   - Grain is added in *negative density*, so the print curve shapes it the way a real
-    print does.
+    print does; from engine 7 each layer is weighted so it's neutral on grey.
   - The grain path keeps every image opaque, because `CIRandomGenerator`'s alpha is
     random and any filter that un-premultiplies would turn the grain into speckle.
-    Grain under 1 px is softened with an explicit 3×3 Gaussian
+    Before engine 7, grain under 1 px is softened with an explicit 3×3 Gaussian
     (`CIConvolution3X3`), whose effect on amplitude is known exactly; Core Image's blur
-    isn't guaranteed at sub-pixel σ.
+    isn't guaranteed at sub-pixel σ. Engine 7 filters with explicit 9-tap kernels
+    (`FilmGrain.kernel`), so its amplitude is exact at every size.
+    - `CIColorMatrix` un-premultiplies: force alpha to 1 *before* any matrix on the
+      generator's output, or values blow up to ~10⁵ (seen on macOS Core Image).
 - **Highlight hue protection** (`huePreserve`, per stock): film's per-channel shoulder
   turns bright warm colors yellow, because red compresses first. Bright skin goes gold.
   - The print cube blends toward the scene's own color, with the interlayer saturation
@@ -740,7 +795,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       `FilmStock+Legacy.swift`**; `FrozenTuningTests` checks its fingerprints.
   - Picking the look again in the editor pins its current tuning: that's how a photo moves
     to the newest version.
-  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 6;
+  - `FilmRecipe.engine` records the film-math version (`FilmLUT.currentEngine`, now 7;
     `renderEngine` treats nil as 1, and `freezeFilmTuning` pins nil as 1). Pinning
     freezes a stock's numbers, not the code: a change to the math that would alter older
     photos must keep the old behaviour for older engines (engines 2 and 3 did: see
@@ -776,7 +831,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
 | Film looks: RAW develop brightness | `EditRecipe.filmRAWExposure(bayer:ev100:)` | natural: min(1.83 + 0.122·(EV100 − 10) − 0.2, 1.86), minus 0.63 for Bayer (`naturalBias`, `brightestFilmExposure`, `bayerScale`), settled per photo. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
-| Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 D at 4032 px (was 0.012, "super grainy" on device), 0.13 ‰, 15% color |
+| Print: grain | `print-stock.json` `grainDensity`, `grain_size`, `grainChroma` | 0.008 (engine 7: encoded std on grey ÷ 1.07; was 0.012, "super grainy" on device), 0.13 ‰ (engines ≤ 6 only), 15% color |
+| Film grain shape and strength (engine 7) | `FilmGrain` | cell 0.417‰ × Size^0.336, floor 1.2 px; strength ×0.52…×1.42; gain 1.07; measured on one Chromagraph scene at 2880 px |
 | Film looks: RAW noise reduction | `RecipeBaker`, `EditPipeline.configure` | camera default, floored at 50 luminance / 0.5 chroma |
 | Viewfinder correction under film looks | `ViewfinderMatch.correction` | 0.03 − 0.122·(EV100 − 10), ±0.75 EV, ⅙-stop steps; fitted on 12 shots with Apple's still render standing in for the video |
 | Film looks: inverse of Apple's rendering (viewfinder, processed photos) | `FilmLUT.unrender*` (engine 2) | measured from CIRAWFilter's default render of 13 iPhone 12 Pro ProRAWs, a stand-in for the video feed; refit with real viewfinder frames when possible |
@@ -1044,6 +1100,11 @@ to be wrong.
 6. **Lock Screen.** The shot appears in the library with the default grade after opening
    the app.
 7. **Preferences.** A double-tap on the viewfinder opens it; tap-to-focus is still instant.
+8. ⚠️ **Grain (engine 7).** Phromagraph at Grain 1.25 next to Chromagraph at 1.25 on the
+   same scene, in the viewer, zoomed in and in an export; then Grain 5 and Grain Size at
+   both ends. Crisp, about a pixel across at 2880 px, neutral on greys; bigger is a little
+   stronger. Older photos with grain open migrated (engine 6's default becomes Size 3.00 at
+   ~0.8); Preferences → Processing → Restore Edits puts them back.
 
 1. **Launch & preview**
    - The camera permission prompt appears.

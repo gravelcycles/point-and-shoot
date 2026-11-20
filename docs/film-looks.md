@@ -436,8 +436,9 @@ iPhone 12 Pro on iOS 18.7.3. Not committed (personal photos). Ask the owner for 
   Print's (`[0.05, 0.012, 0]`, boost 1).
 - **Grain 1.25** adds σ ≈ 3.6/255 of encoded luminance in the mid-tones at 2880 px, with
   lag-1 autocorrelation 0.23 (fine and slightly sharpened). In our model that's
-  `grainDensity` 0.017 and `grain_size` 0.17 ‰, about twice Print's grain. Phromagraph
-  ships it at Grain slider 50, with the look's default grain at 0.
+  `grainDensity` 0.017, about twice Print's grain. Phromagraph ships it at Grain slider 50,
+  with the look's default grain at 0. Measured properly (amplitude, size, colour,
+  brightness) on 2026-11-20: §6 and CLAUDE.md, film engine 7.
 - **Chromagraph's Shadows 1** ≈ our `shadows` 0.9 (one shot, so it's rough).
 
 **How it's fitted** (`scripts/phromagraph.py`, macOS):
@@ -670,10 +671,43 @@ one scene should look equally bright, and the owner's side-by-side will check it
 
 ## 6. Grain and noise: what's known and what isn't
 
+**Chromagraph's grain, measured (film engine 7, 2026-11-20).** The owner exported one of
+our ProRAW DNGs from Chromagraph at five grain settings (folder "Chromagraph RAW grain
+2026-11-20", git-ignored; `scripts/phromagraph.py grain DIR` reruns everything below and
+renders ours through the app's own FilmPipeline.swift via `scripts/film-render`).
+- **Identifying the files.** No settings in EXIF/XMP (only `Software: Chromagraph 1.6.1`).
+  Grain off is the file the others differ from least; Amplitude 5 is 4.0× the others' std
+  (two exports, each with its own random pattern: the pattern isn't seeded per photo); of
+  the 1.25s, the most correlated is Size max and the weakest Size min.
+- **Method.** Subtract the grain-off export (same render otherwise), remove slow drift
+  (σ 40 px blur), measure on the flat wall: std, autocorrelation at 1–4 px, radial power
+  spectrum, inter-channel correlation, and std per channel binned by that channel's value.
+  HEIC encoding was checked by encoding synthetic grain at quality 0.9–1.0: transparent.
+- **Amplitude:** linear (13.50 / 3.37 = 4.0).
+- **Size:** Size 1 and Size min share one spectrum (flat to ~¼ cycle/px, ⅓ power at
+  Nyquist, negative lobe at 2 px: noise resampled with a sharp cubic); Size min is ×0.52
+  as strong. Size max is broader (lag-1 0.61) and ×1.42 as strong. A Catmull-Rom kernel of
+  1.20 px (Size 1) and 1.735 px (Size 3) reproduces both spectra; Gaussians don't (no
+  negative lobe, and a Gaussian with the same lag-1 rolls off too early).
+- **Colour:** neutral; channel correlation ~0.98 once the encoder's noise is removed
+  (our `grainChroma` 0.15 gives 0.97).
+- **Brightness:** the std is one function of each channel's own value, the same for R, G
+  and B: flat from ~100 to 145/255, then 18.0 at 166, 14.9 at 190, 10.9 at 214 (at
+  Amplitude 5; 19.4 flat). That's a print curve's shoulder acting per channel after the
+  grain, so grain in negative density is right, but our monochrome density grain had
+  per-channel output slopes R 20 / G 18 / B 14 on grey. Engine 7 weights layers by the
+  print's inverse Jacobian at grey.
+- **Resolution:** unmeasured (Chromagraph only exports 2880 px).
+- **What's left:** our red fades less toward white (warm highlights ~20% more red grain);
+  lag-2 −0.05 vs −0.09 (slightly less crisp); one scene, mostly mid-to-light tones (no data
+  under ~94/255).
+
 **Known:**
-- **Synthetic grain** is added in negative density. It's mostly monochrome
-  (`grainChroma` 0.15), σ ≈ 0.5 px at 4032 px, and 0.008 D for Print. Its amplitude
-  scales down for smaller renders, so the viewfinder shows about half.
+- **Synthetic grain** is added in negative density, mostly monochrome (`grainChroma`
+  0.15). Engine 7: Catmull-Rom cell 0.417‰ × Size^0.336 (floor 1.2 px), strength the
+  same per pixel at every render size, neutral on grey. Engines ≤ 5: σ ≈ 0.5 px at
+  4032 px, scaled down for smaller renders (the viewfinder showed about half); engine 6:
+  Gaussian 0.51‰ of the frame.
 - **In the Python model** on an iPhone 12 Pro DNG in daylight, the grain is 2.8/255 per
   pixel against 0.9/255 sensor noise. That's subtle.
 - **"Super grainy" on device was almost certainly sensor noise.** Print shoots a

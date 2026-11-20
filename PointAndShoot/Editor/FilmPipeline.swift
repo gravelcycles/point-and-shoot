@@ -193,7 +193,10 @@ enum FilmPipeline {
                 "inputCubeData": negativeCube(stock, s.source, engine: s.engine, exposure: exposeInTable ? ev : 0),
             ])
 
-        if s.grain > 0 {
+        if s.grain > 0 && s.engine >= 7 {
+            x = addMeasuredGrain(to: x, stock: stock, amount: s.grain, size: s.grainSize, color: s.grainColor,
+                                 pixel: s.pixelGrain, unit: unit, animate: s.animateGrain)
+        } else if s.grain > 0 {
             x = addGrain(to: x, stock: stock, amount: s.grain, size: s.grainSize, color: s.grainColor,
                          frame: s.engine >= 6, pixel: s.pixelGrain, unit: unit, animate: s.animateGrain)
         }
@@ -372,6 +375,95 @@ enum FilmPipeline {
             ])
             .cropped(to: bounds)
         // Both opaque: the sum has alpha 2, which settingAlphaOne puts back to 1.
+        return grain
+            .applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: image])
+            .settingAlphaOne(in: bounds)
+    }
+
+    /// Each stock's per-layer grain weights (`FilmGrain.layerGains`), worked out once.
+    private static var layerGainCache: [String: (Double, Double, Double)] = [:]
+
+    static func layerGains(_ stock: FilmStock) -> (Double, Double, Double) {
+        let key = cacheKey(stock)
+        lock.lock()
+        if let g = layerGainCache[key] { lock.unlock(); return g }
+        lock.unlock()
+        let g = FilmGrain.layerGains(stock: stock)
+        lock.lock()
+        if layerGainCache.count > 64 { layerGainCache.removeAll() }
+        layerGainCache[key] = g
+        lock.unlock()
+        return g
+    }
+
+    /// Film engine 7: Chromagraph's grain, measured on its full-size exports (`FilmGrain`).
+    /// Per-pixel white noise filtered by a Catmull-Rom kernel the size of the grain cell
+    /// (two 9-tap passes, whose effect on the std is known exactly), so it's crisp and
+    /// about a pixel across at 2880 px; the cell is a share of the frame, never under
+    /// `FilmGrain.minimumCellPixels`, and the per-pixel strength is the same at every
+    /// render size (on screen, in the viewer and in an export). It's added in negative
+    /// density with each layer weighted so a grey's three channels move together (neutral
+    /// grain), at `grainDensity` × `FilmGrain.outputGain` × amount × `strength(size:)` of
+    /// encoded output on grey; the print curve then fades it toward black and white.
+    /// `pixel`: one-pixel grain (no filter), at the amount's strength whatever the Size.
+    ///
+    /// Every intermediate image is opaque (see `addGrain`): the noise is made zero-mean
+    /// before filtering, so the kernel's negative lobes never need values below 0 to be kept.
+    private static func addMeasuredGrain(to image: CIImage, stock: FilmStock, amount: Double, size: Double,
+                                         color: Double, pixel: Bool, unit: CGFloat, animate: Bool) -> CIImage {
+        guard var noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
+        let bounds = image.extent
+        if animate {
+            noise = noise.transformed(by: CGAffineTransform(translationX: CGFloat(Int.random(in: 0..<1024)),
+                                                            y: CGFloat(Int.random(in: 0..<1024))))
+        }
+        let padded = bounds.insetBy(dx: -CGFloat(FilmGrain.radius + 4), dy: -CGFloat(FilmGrain.radius + 4))
+        // Uniform 0…1 in R, G, B (std 1/√12), alpha forced to 1 first (CIColorMatrix
+        // un-premultiplies, and the generator's alpha is random), then zero mean.
+        noise = noise.cropped(to: padded).settingAlphaOne(in: padded)
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: 1, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: 1, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: 1, w: 0),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                "inputBiasVector": CIVector(x: -0.5, y: -0.5, z: -0.5, w: 1),
+            ])
+            .cropped(to: padded)
+
+        let cell = pixel ? 0 : FilmGrain.cellPixels(size: size, unit: Double(unit))
+        let w = FilmGrain.kernel(cell: cell)
+        if !pixel {
+            let taps = CIVector(values: w.map { CGFloat($0) }, count: w.count)
+            noise = noise
+                .applyingFilter("CIConvolution9Horizontal", parameters: ["inputWeights": taps, "inputBias": 0])
+                .applyingFilter("CIConvolution9Vertical", parameters: ["inputWeights": taps, "inputBias": 0])
+                .settingAlphaOne(in: padded)
+        }
+        let stdFactor = FilmGrain.stdFactor(w)
+
+        // Shared (monochrome) and per-layer parts, as in `addGrain`, then each layer weighted
+        // so the grain is neutral on grey.
+        let c = grainChroma(stock.grainChroma, color: color)
+        let norm2 = (1 - c) * (1 - c) + c * c
+        let alpha = (1 - c) * (1 - c) / norm2, beta = c * c / norm2
+        let p = beta.squareRoot()
+        let q = (-2 * p + (4 * p * p + 12 * alpha).squareRoot()) / 6
+        let target = stock.grainDensity * FilmGrain.outputGain * amount * (pixel ? 1 : FilmGrain.strength(size: size))
+        let k = target / ((1 / 12.0.squareRoot()) * stdFactor) / FilmLUT.densityScale
+        let g = layerGains(stock)
+        func row(_ gain: Double, _ i: Int) -> CIVector {
+            let d = CGFloat(gain * k * (p + q)), o = CGFloat(gain * k * q)
+            return CIVector(x: i == 0 ? d : o, y: i == 1 ? d : o, z: i == 2 ? d : o, w: 0)
+        }
+        let grain = noise
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": row(g.0, 0),
+                "inputGVector": row(g.1, 1),
+                "inputBVector": row(g.2, 2),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+                "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            ])
+            .cropped(to: bounds)
         return grain
             .applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: image])
             .settingAlphaOne(in: bounds)
