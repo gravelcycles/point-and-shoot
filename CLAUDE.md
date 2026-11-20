@@ -939,6 +939,37 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       colour (bright, not warm, not green) and position (top), blurred; the subject by
       Vision's foreground instance mask on the framed source (iOS 17), cached per source
       image and framing (`NSMapTable`, weak keys), and a no-op where Vision finds nothing.
+    - **Local Tone and Apple Tone** (Tone → Local Tone; `EditorExtra.localTone`). The
+      owner noticed the viewfinder under Phromagraph looked better than the saved photo:
+      the face lifted out of a hat's shade, clouds in the sky. That's Apple's local tone
+      mapping, baked into the live video, which engine 2's un-render can't undo (it removes
+      only Apple's *average* curve). The flat RAW develop has none. "can we actually make
+      this as a toggle for each look?"
+      - **Apple Tone** (`EditRecipe.appleTone`, film looks with a RAW, engine ≥ 2;
+        `printsAppleRender`). The RAW develops with Apple's rendering: the RAW tab's Apple
+        Local Tone and Film Contrast, which are otherwise hidden under film looks because
+        they do nothing there. It goes in as `.displayReferred`, un-rendered like the
+        viewfinder. engine 2's tables were measured on exactly this (CIRAWFilter's default
+        render of ProRAWs), so they fit it better than the video they stand in for.
+        - Exposure: no film develop exposure. Instead the develop gets
+          `ViewfinderMatch.correction` for the RAW's own EXIF EV100
+          (`EditPipeline.appleToneExposure`): −0.2 EV, darker on bright days. So the photo
+          is as bright as the viewfinder was, and it still comes from the RAW alone.
+        - Kept when the look changes (`resetTone`), like the RAW settings.
+        - Bayer DNGs get much less of it: one frame, no Smart HDR.
+      - **Local Tone** (`EditRecipe.localTone`, 0…100, every look; `ExtraGrades.localTone`)
+        is our own dodge and burn, on the light before any tone (scene light on a film
+        look's plain develop, so the film prints it as exposure):
+        - Region brightness = luminance^0.25, blurred at 60 and 15 ‰ of the long side and
+          averaged, so halos stay narrow.
+        - Gain = (picture's average / region)^(0.6 × amount), ×0.45 on display-referred
+          input, capped at ±2.5 stops.
+        - Built from stock filters only: CIGammaAdjust with a negative power, CIAreaAverage,
+          CIMultiplyCompositing. `testLocalToneDodgesAndBurns` checks the GPU output
+          against `localToneGain`.
+        - Not in the live viewfinder (`animateGrain`), which already shows Apple's version
+          and shouldn't pay for two wide blurs a frame.
+        - Untuned: the owner tests it on device. Watch for glows along hard edges.
   - Each tool has
     sub-tab pills and labelled `GradeSlider`s: a default mark and detent, double-tap to
     reset, one undo step per drag.

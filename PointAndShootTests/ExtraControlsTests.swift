@@ -1,4 +1,5 @@
 import CoreImage
+import ImageIO
 import XCTest
 @testable import PointAndShoot
 
@@ -45,7 +46,94 @@ final class ExtraControlsTests: XCTestCase {
         XCTAssertTrue(r.gradeParams.isIdentity)
         let data = try! JSONEncoder().encode(EditRecipe())
         let json = String(decoding: data, as: UTF8.self)
-        XCTAssertFalse(json.contains("dehaze") || json.contains("gradeShadowHue"), "unset extras must not be stored")
+        XCTAssertFalse(json.contains("dehaze") || json.contains("gradeShadowHue") || json.contains("localTone")
+                       || json.contains("appleTone"), "unset extras must not be stored")
+    }
+
+    /// Local Tone on two big flat halves: far from the edge, the dark half comes up and the
+    /// bright half goes down by the reference gain (so CIGammaAdjust's negative power and the
+    /// area average do what the formula says), every pixel stays finite and opaque, and the
+    /// dark half's gain at full strength is capped.
+    func testLocalToneDodgesAndBurns() {
+        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        let w: CGFloat = 1000, h: CGFloat = 400
+        let d = 0.02, b = 0.8
+        func flat(_ v: Double, _ rect: CGRect) -> CIImage {
+            CIImage(color: CIColor(red: v, green: v, blue: v, colorSpace: linear)!).cropped(to: rect)
+        }
+        let img = flat(b, CGRect(x: w / 2, y: 0, width: w / 2, height: h))
+            .composited(over: flat(d, CGRect(x: 0, y: 0, width: w / 2, height: h)))
+        func at(_ out: CIImage, _ x: CGFloat) -> [Float] {
+            var px = [Float](repeating: 0, count: 4)
+            EditPipeline.context.render(out, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: x, y: h / 2, width: 1, height: 1),
+                                        format: .RGBAf, colorSpace: nil)
+            return px
+        }
+        let p = ExtraGrades.localTonePower
+        let average = pow((pow(d, p) + pow(b, p)) / 2, 1 / p)
+        for amount in [0.5, 1.0] {
+            let out = ExtraGrades.localTone(img, amount: amount, sceneLinear: true, unit: w / 1000)
+            XCTAssertEqual(out.extent, img.extent)
+            let dark = at(out, 250), bright = at(out, 750)
+            let gd = ExtraGrades.localToneGain(region: d, average: average, amount: amount, sceneLinear: true)
+            let gb = ExtraGrades.localToneGain(region: b, average: average, amount: amount, sceneLinear: true)
+            XCTAssertGreaterThan(gd, 1.5); XCTAssertLessThan(gb, 0.8)
+            XCTAssertEqual(Double(dark[0]) / d, gd, accuracy: gd * 0.04, "dark half at \(amount)")
+            XCTAssertEqual(Double(bright[0]) / b, gb, accuracy: gb * 0.04, "bright half at \(amount)")
+            XCTAssertEqual(dark[3], 1, accuracy: 1e-4); XCTAssertEqual(bright[3], 1, accuracy: 1e-4)
+            for x in stride(from: CGFloat(0), to: w, by: 25) {
+                XCTAssertTrue(at(out, x).allSatisfy(\.isFinite), "finite at \(x)")
+            }
+        }
+        XCTAssertEqual(ExtraGrades.localToneGain(region: 1e-6, average: 1, amount: 1, sceneLinear: true),
+                       pow(2, ExtraGrades.localToneLimit), accuracy: 1e-9)
+        XCTAssertLessThan(ExtraGrades.localToneGain(region: d, average: average, amount: 1, sceneLinear: false),
+                          ExtraGrades.localToneGain(region: d, average: average, amount: 1, sceneLinear: true))
+        // Through the whole edit, on a film look and on Original: it changes the picture.
+        for start in [EditRecipe(), printRecipe] {
+            var r = start
+            r.localTone = 80
+            XCTAssertGreaterThan(maxDiff(pixels(r), pixels(start)), 0.01)
+        }
+    }
+
+    /// Apple Tone: a film look's RAW develops with Apple's rendering at the viewfinder's
+    /// brightness instead of the film's develop exposure, it survives picking another look,
+    /// and older edits (and Original) are untouched.
+    func testAppleToneDevelop() {
+        var r = printRecipe
+        r.film?.engine = FilmLUT.currentEngine
+        r.rawFilmExposure = 1.5
+        r.exposure = 25
+        XCTAssertFalse(r.printsAppleRender)
+        XCTAssertEqual(EditPipeline.rawExposureSplit(r).develop, 2.0, accuracy: 1e-9)
+        r.appleToneValue = true
+        XCTAssertTrue(r.printsAppleRender)
+        XCTAssertEqual(EditPipeline.rawExposureSplit(r).develop, 0.5, accuracy: 1e-9, "no film develop exposure")
+        // Without EXIF the scene counts as EV 10, where the viewfinder sits 0.2 under Apple.
+        XCTAssertEqual(EditPipeline.appleToneExposure(properties: nil), EditRecipe.naturalBias, accuracy: 1e-9)
+        let exif: [AnyHashable: Any] = [kCGImagePropertyExifDictionary as String: [
+            kCGImagePropertyExifISOSpeedRatings as String: [50.0],
+            kCGImagePropertyExifExposureTime as String: 1.0 / 4000,
+            kCGImagePropertyExifFNumber as String: 1.6,
+        ] as [String: Any]]
+        let ev = EditPipeline.ev100(properties: exif)!
+        XCTAssertEqual(ev, log2(1.6 * 1.6 * 4000) + 1, accuracy: 1e-9)
+        XCTAssertEqual(EditPipeline.appleToneExposure(properties: exif), ViewfinderMatch.correction(ev100: ev), accuracy: 1e-9)
+        XCTAssertLessThan(EditPipeline.appleToneExposure(properties: exif), EditRecipe.naturalBias, "a bright day comes down")
+        // Kept when the look changes, like the RAW tab's settings.
+        let other = Look.all.first { $0.recipe.film != nil && $0.id != r.look }!
+        XCTAssertEqual(r.withLook(other).appleTone, true)
+        // Engine 1 (its un-render never saw a RAW) and Original ignore it.
+        var old = r
+        old.film?.engine = 1
+        XCTAssertFalse(old.printsAppleRender)
+        var original = EditRecipe()
+        original.appleToneValue = true
+        XCTAssertFalse(original.printsAppleRender)
+        // Older edits decode with it off.
+        let decoded = EditRecipe.decodeSaved(try! JSONEncoder().encode(printRecipe))
+        XCTAssertNil(decoded?.appleTone); XCTAssertNil(decoded?.localTone)
     }
 
     /// Each film control moves the neutral scale the way it should.
@@ -199,8 +287,8 @@ final class ExtraControlsTests: XCTestCase {
         for a in all {
             XCTAssertNotNil(EditorHelp.controls[a.id], "\(a.id) has no ⓘ text")
         }
-        for id in ["mono", "pixelGrain", "mixerBands"] { XCTAssertNotNil(EditorHelp.controls[id], id) }
-        for tab in ["contrast", "shadowHighlight", "grain", "printer", "process", "silver", "curveLights", "sky"] {
+        for id in ["mono", "pixelGrain", "mixerBands", "appleTone"] { XCTAssertNotNil(EditorHelp.controls[id], id) }
+        for tab in ["contrast", "shadowHighlight", "grain", "printer", "process", "silver", "curveLights", "sky", "local", "raw"] {
             XCTAssertNotNil(EditorHelp.together(tab, isFilm: true), tab)
         }
     }

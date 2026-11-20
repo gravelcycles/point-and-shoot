@@ -31,7 +31,7 @@ enum EditorTool: String, CaseIterable, Identifiable {
 /// Controls (`@AppStorage("editor.hiddenControls")`, a comma-separated list of hidden ids;
 /// everything shows by default). The film ones live in the Film tool (film looks only).
 enum EditorExtra: String, CaseIterable, Identifiable {
-    case printer, process, silver, halation, grading, curve, dehaze, masks
+    case printer, process, silver, halation, grading, curve, dehaze, masks, localTone
     var id: String { rawValue }
     static let storageKey = "editor.hiddenControls"
 
@@ -45,6 +45,7 @@ enum EditorExtra: String, CaseIterable, Identifiable {
         case .curve: "Tone Curve"
         case .dehaze: "Dehaze"
         case .masks: "Sky & Subject"
+        case .localTone: "Local Tone & Apple Tone"
         }
     }
 
@@ -58,6 +59,7 @@ enum EditorExtra: String, CaseIterable, Identifiable {
         case .curve: "Tone: Lightroom-style curve for highlights, lights, darks and shadows."
         case .dehaze: "Texture: clear haze, or add it."
         case .masks: "Tone: exposure and saturation for just the sky, or just the subject."
+        case .localTone: "Tone: dodge and burn (lift the shade, hold the sky), and for film looks, print Apple's own rendering as the viewfinder shows it."
         }
     }
 
@@ -179,6 +181,11 @@ struct EditorView: View {
             if isFilm {
                 tabs.insert(EditorSubTab(id: "fade", name: "Fade", controls: [.slider(adj("fade"))]), at: 4)
             }
+            if shows(.localTone) {
+                // Apple Tone: a film look's RAW developed with Apple's rendering (the viewfinder's look).
+                tabs.append(EditorSubTab(id: "local", name: "Local Tone", controls: [.slider(adj("localTone"))]
+                    + (isFilm && session.hasRAW ? [.toggle(id: "appleTone", name: "Apple Tone", keyPath: \.appleToneValue)] : [])))
+            }
             if shows(.curve) {
                 tabs.append(EditorSubTab(id: "curveLights", name: "Curve Lights",
                                          controls: [.slider(adj("curveHighlights")), .slider(adj("curveLights"))]))
@@ -191,7 +198,8 @@ struct EditorView: View {
                 tabs.append(EditorSubTab(id: "subject", name: "Subject",
                                          controls: [.slider(adj("subjectExposure")), .slider(adj("subjectSaturation"))]))
             }
-            if session.hasRAW {
+            // A film look develops its own way and ignores these, unless Apple Tone is on.
+            if session.hasRAW && (!isFilm || session.recipe.printsAppleRender) {
                 tabs.append(EditorSubTab(id: "raw", name: "RAW", controls: [
                     .slider(adj("rawLTM")), .slider(adj("rawBoost")),
                 ]))

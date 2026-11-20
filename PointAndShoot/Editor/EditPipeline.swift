@@ -45,19 +45,34 @@ enum EditPipeline {
 
     /// A RAW edit's exposure (slider, plus a film look's develop exposure): the part the
     /// develop takes, and what's left to apply to its output.
+    /// Under Apple Tone the develop is Apple's own, at its own brightness: no film develop
+    /// exposure (the viewfinder's correction is added in `configure`).
     static func rawExposureSplit(_ r: EditRecipe) -> (develop: Double, after: Double) {
-        let total = r.exposure / 50 + (r.film != nil ? r.rawFilmExposure ?? 0 : 0)
+        let filmDevelop = r.film != nil && !r.printsAppleRender ? r.rawFilmExposure ?? 0 : 0
+        let total = r.exposure / 50 + filmDevelop
         let develop = min(max(total, -rawExposureLimit), rawExposureLimit)
         return (develop, total - develop)
     }
 
     static func configure(_ raw: CIRAWFilter, recipe r: EditRecipe, defaults d: RAWDefaults) {
-        // Under a film look, plus the film's develop exposure (`rawFilmExposure`).
-        raw.exposure = Float(rawExposureSplit(r).develop)
+        // Under a film look, plus the film's develop exposure (`rawFilmExposure`); under Apple
+        // Tone, the viewfinder's correction for the scene instead.
+        let appleBias = r.printsAppleRender ? appleToneExposure(properties: raw.properties) : 0
+        raw.exposure = Float(min(max(rawExposureSplit(r).develop + appleBias, -rawExposureLimit), rawExposureLimit))
         raw.neutralTemperature = max(2000, min(50000, d.temperature + Float(r.warmth) * 40))
         raw.neutralTint = max(-150, min(150, d.tint + Float(r.tint) * 1.2))
         if raw.isLuminanceNoiseReductionSupported { raw.luminanceNoiseReductionAmount = Float(r.rawNoiseReduction / 100) }
-        if r.film != nil {
+        if r.printsAppleRender {
+            // Apple Tone: Apple's own rendering (the RAW tab's local tone mapping and tone
+            // curve), which the film then un-renders like the viewfinder's video. Still no
+            // sharpening, SDR, and film-strength noise reduction.
+            if raw.isLocalToneMapSupported { raw.localToneMapAmount = Float(r.rawLocalTone / 100) }
+            raw.boostAmount = Float(r.rawBoost / 100)
+            raw.extendedDynamicRangeAmount = 0
+            if raw.isSharpnessSupported { raw.sharpnessAmount = 0 }
+            if raw.isColorNoiseReductionSupported { raw.colorNoiseReductionAmount = max(d.colorNoiseReduction, 0.5) }
+            if raw.isDetailSupported { raw.detailAmount = 0 }
+        } else if r.film != nil {
             // The film look needs plain scene light: no tone curve, no local tone mapping
             // and no sharpening (the film model supplies the tone and texture).
             if raw.isLocalToneMapSupported { raw.localToneMapAmount = 0 }
@@ -76,6 +91,24 @@ enum EditPipeline {
             if raw.isColorNoiseReductionSupported { raw.colorNoiseReductionAmount = d.colorNoiseReduction }
             if raw.isDetailSupported { raw.detailAmount = d.detail }
         }
+    }
+
+    /// The scene's light from a photo's EXIF: EV at ISO 100, as `Shot.ev100`.
+    static func ev100(properties: [AnyHashable: Any]?) -> Double? {
+        let exif = properties?[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        guard let iso = (exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [Double])?.first,
+              let t = exif?[kCGImagePropertyExifExposureTime as String] as? Double,
+              let n = exif?[kCGImagePropertyExifFNumber as String] as? Double,
+              iso > 0, t > 0, n > 0 else { return nil }
+        return log2(n * n / t) - log2(iso / 100)
+    }
+
+    /// Apple Tone's develop exposure: Apple renders a scene at its own brightness, and the
+    /// viewfinder (which shows Apple's rendering) moves it to where the film photo lands
+    /// (`ViewfinderMatch.correction`: −0.2 EV, darker on bright days). The same here, so an
+    /// Apple Tone photo is as bright as the viewfinder was. From the RAW's own EXIF.
+    static func appleToneExposure(properties: [AnyHashable: Any]?) -> Double {
+        ViewfinderMatch.correction(ev100: ev100(properties: properties) ?? 10)
     }
 
     /// One Diagnostics line on how a RAW was exposed and is being developed, for brightness
@@ -98,9 +131,16 @@ enum EditPipeline {
         }
         if let bias { parts.append(String(format: "bias %+.2f", bias)) }
         parts.append(String(format: "DNG baseline %+.2f", raw.baselineExposure))
-        let develop = r.exposure / 50 + (r.film != nil ? r.rawFilmExposure ?? 0 : 0)
-        parts.append(String(format: "develop %+.2f EV (film %+.2f, slider %+.2f)", develop,
-                            r.film != nil ? r.rawFilmExposure ?? 0 : 0, r.exposure / 50))
+        if r.printsAppleRender {
+            parts.append(String(format: "Apple Tone develop %+.2f EV (viewfinder match %+.2f, slider %+.2f), local tone %.0f, boost %.0f",
+                                Double(raw.exposure), appleToneExposure(properties: raw.properties), r.exposure / 50,
+                                r.rawLocalTone, r.rawBoost))
+        } else {
+            let develop = r.exposure / 50 + (r.film != nil ? r.rawFilmExposure ?? 0 : 0)
+            parts.append(String(format: "develop %+.2f EV (film %+.2f, slider %+.2f)", develop,
+                                r.film != nil ? r.rawFilmExposure ?? 0 : 0, r.exposure / 50))
+        }
+        if let local = r.localTone { parts.append(String(format: "Local Tone %.0f", local)) }
         parts.append("look \(r.look ?? "none")")
         return parts.joined(separator: ", ")
     }
@@ -171,6 +211,14 @@ enum EditPipeline {
             ])
         }
 
+        // Local Tone (dodge and burn), on the light before any tone: scene light for a film
+        // look's plain develop, display-referred otherwise. Not in the live viewfinder (it
+        // already shows Apple's local tone mapping, and two wide blurs a frame would cost).
+        let sceneLight = r.film != nil && developedFromRAW && !r.printsAppleRender
+        if r.localToneValue > 0 && !animateGrain {
+            image = ExtraGrades.localTone(image, amount: r.localToneValue / 100, sceneLinear: sceneLight, unit: unit)
+        }
+
         // Tone: either the film model, or local highlight/shadow + a global curve.
         var curveRecipe = r
         if let film = r.film {
@@ -178,7 +226,9 @@ enum EditPipeline {
             fs.stockID = film.stock ?? FilmStock.printLook.id
             // The tuning this photo was made with (pinned, or from the frozen history).
             fs.tuning = FilmStock.resolved(for: r)
-            fs.source = developedFromRAW ? .sceneLinear : .displayReferred
+            // Apple Tone: the RAW came out of Apple's rendering, so it's un-rendered like the
+            // viewfinder's video.
+            fs.source = sceneLight ? .sceneLinear : .displayReferred
             fs.engine = film.renderEngine
             fs.exposure = exposure   // RAW: in the develop, past ±4 stops here
             fs.halation = film.halation / 50
