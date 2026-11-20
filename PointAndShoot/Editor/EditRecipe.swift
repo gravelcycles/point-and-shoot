@@ -55,6 +55,17 @@ struct EditRecipe: Codable, Equatable {
     var skySaturation: Double?
     var subjectExposure: Double?
     var subjectSaturation: Double?
+    /// Local Tone, 0…100: dodging and burning (dark areas lifted, bright ones held back,
+    /// region by region, fine detail untouched; `ExtraGrades.localTone`). Every look.
+    /// nil = 0, so older edits decode and render unchanged.
+    var localTone: Double?
+    /// Apple Tone (film looks, RAW only): develop the RAW with Apple's own rendering (its
+    /// local tone mapping and tone curve: the RAW tab's two sliders), undo Apple's average
+    /// curve and print that on the film, exactly as the viewfinder does with the live video.
+    /// So the photo keeps what Apple's local tone mapping does to a scene (faces lifted out of
+    /// shade, skies held), as the viewfinder shows it. nil = off: the plain scene-light develop.
+    /// Kept when the look changes, like the RAW tab's settings.
+    var appleTone: Bool?
     var vignette: Double = 0
     var mono: Bool = false
     var look: String?
@@ -211,6 +222,19 @@ struct EditRecipe: Codable, Equatable {
         get { curveShadows ?? 0 }
         set { curveShadows = newValue == 0 ? nil : newValue }
     }
+    var localToneValue: Double {
+        get { localTone ?? 0 }
+        set { localTone = newValue == 0 ? nil : newValue }
+    }
+    var appleToneValue: Bool {
+        get { appleTone ?? false }
+        set { appleTone = newValue ? true : nil }
+    }
+    /// The film look prints Apple's rendering of the RAW (Apple Tone on), not plain scene
+    /// light: the RAW develops with Apple's tone settings and goes in display-referred.
+    /// Needs engine 2's measured un-render (engine 1's guessed one never saw a RAW).
+    var printsAppleRender: Bool { appleTone == true && (film?.renderEngine ?? 0) >= 2 }
+
     var dehazeValue: Double {
         get { dehaze ?? 0 }
         set { dehaze = newValue == 0 ? nil : newValue }
@@ -405,6 +429,8 @@ struct EditRecipe: Codable, Equatable {
         rawLocalTone = keep.rawLocalTone
         rawBoost = keep.rawBoost
         rawFilmExposure = keep.rawFilmExposure
+        // How the RAW is developed, like the settings above: it stays as the look changes.
+        appleTone = keep.appleTone
     }
 }
 
@@ -603,6 +629,7 @@ struct Adjustment: Identifiable {
         .init(id: "curveDarks", name: "Curve Darks", range: -100...100, keyPath: \.curveDarksValue),
         .init(id: "curveShadows", name: "Curve Shadows", range: -100...100, keyPath: \.curveShadowsValue),
         .init(id: "dehaze", name: "Dehaze", range: -100...100, keyPath: \.dehazeValue),
+        .init(id: "localTone", name: "Local Tone", range: 0...100, keyPath: \.localToneValue),
         .init(id: "skyExposure", name: "Sky Exposure", range: -100...100, keyPath: \.skyExposureValue, format: Adjustment.stops),
         .init(id: "skySaturation", name: "Sky Saturation", range: -100...100, keyPath: \.skySaturationValue),
         .init(id: "subjectExposure", name: "Subject Exposure", range: -100...100, keyPath: \.subjectExposureValue, format: Adjustment.stops),

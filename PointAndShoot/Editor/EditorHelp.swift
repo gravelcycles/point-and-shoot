@@ -43,6 +43,10 @@ enum EditorHelp {
         "subjectExposure": Entry(text: "Brightens or darkens only the main subject (people, animals, objects in front), in stops (±2). The subject is found by Apple's foreground detection; if it finds none, nothing changes."),
         "subjectSaturation": Entry(text: "More or less colour on the subject only."),
         "rawLTM": Entry(text: "How much of Apple's local tone mapping the RAW develop uses: the trick that lifts shadows and holds skies in the iPhone camera. 0 is a flat, honest develop; more looks more like the Camera app."),
+        "localTone": Entry(
+            text: "Dodges and burns the photo: darker areas come up and bright ones come down, region by region, toward the picture's average, while fine detail and texture stay as they are. Like Apple's local tone mapping (faces lifted out of shade, skies holding their clouds), but yours to set. At 100 an area 3 stops under the average comes up about 1.8 stops.",
+            film: "Dodges and burns the scene before the film sees it, like a printer holding back the shade and burning in the sky: darker areas get more light and bright ones less, region by region, while fine detail stays. The film then prints it like any exposure, so it still looks like film. At 100 an area 3 stops under the average comes up about 1.8 stops; on a hard edge (a face against a bright sky) high values can leave a soft glow."),
+        "appleTone": Entry(text: "Prints Apple's own rendering of the RAW instead of its plain light: the RAW is developed the way the Camera app would (its local tone mapping and tone curve), then that is un-rendered and printed on the film, exactly what the viewfinder does with the live video. The photo comes out the way the viewfinder showed it: shade lifted, skies held, the same brightness. The RAW tab's Apple Local Tone and Film Contrast then set how much of Apple's rendering is used."),
         "rawBoost": Entry(text: "How much of Apple's base tone curve the RAW develop applies (its 'boost'): more is contrastier and brighter in the midtones, less is flatter and more neutral."),
         // Color
         "warmth": Entry(
@@ -105,10 +109,16 @@ enum EditorHelp {
             return "Whites and Blacks set where the tone scale ends, after everything else. Set them last, after Exposure, Contrast and Shadows/Highlights."
         case "curveLights", "curveDarks":
             return "The tone curve's four regions (Highlights, Lights, Darks, Shadows) each bend one quarter of the scale, after the look and the other tone controls; black and white never move. Lights + with Darks − is a classic S-curve; the reverse is a soft, flat one. It's a final shaping tool: use the main tone controls first."
+        case "local":
+            return isFilm
+                ? "Two ways to get what the iPhone's own processing does to a scene. Apple Tone prints Apple's rendering, as the viewfinder shows it (Apple decides how much, scene by scene; the RAW tab tunes it). Local Tone is our own dodge and burn on the plain develop, where you set how much. Try one or the other first; together they add up. Highlights and Shadows (and Whites/Blacks) still work on top."
+                : "Local Tone dodges and burns: shade comes up, bright areas come down, detail stays. The RAW tab's Apple Local Tone does something similar the Camera app's way; Local Tone adds to it."
         case "sky", "subject":
             return "Masks apply on top of the whole edit, only where the sky or the subject is. Exposure and Saturation combine: a darker, deeper sky; a brighter subject with a little less colour to sit it in front."
         case "raw":
-            return "These choose how the RAW is developed before any look. Apple Local Tone and Film Contrast together make up Apple's own rendering; at 0 you get the RAW's plain, flat data. Film looks develop their own way and ignore them."
+            return isFilm
+                ? "With Apple Tone on, these set how much of Apple's rendering the film prints: Apple Local Tone is the shade-lifting, sky-holding part, Film Contrast Apple's base curve. Lower both and it's close to the film's plain develop."
+                : "These choose how the RAW is developed before any look. Apple Local Tone and Film Contrast together make up Apple's own rendering; at 0 you get the RAW's plain, flat data."
         case "balance":
             return "Warmth and Tint together set white balance: Warmth for daylight vs. tungsten, Tint for green vs. magenta casts. Set them before colour grading."
         case "saturation":

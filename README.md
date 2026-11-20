@@ -177,8 +177,13 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
   - **Optional controls** (each can be switched off in Preferences → Processing → Editor
     Controls): a **Film** tool for film looks (Printer Lights, Push/Pull, Flashing, Silver
     Retention, Grain Colour, Halation Size and Colour), plus **Colour Grading**, a **Tone
-    Curve**, **Dehaze**, and **Sky** / **Subject** masks with their own exposure and
-    saturation.
+    Curve**, **Dehaze**, **Sky** / **Subject** masks with their own exposure and
+    saturation, and **Local Tone** (Tone tool):
+    - a **Local Tone** slider that dodges and burns: shade comes up, skies come down, and
+      detail stays;
+    - for film looks, an **Apple Tone** switch: the film prints Apple's own rendering of
+      the RAW, its local tone mapping included, so the photo comes out the way the
+      viewfinder showed it.
   - Ranges like Chromagraph's: **Exposure ±6 stops**; under a film look **Highlights** and
     **Shadows** re-expose whole regions of the scene (up to ±3 stops) and **Contrast** goes
     to ×2 around a **Pivot**; **Grain** up to 4× with its own **Grain Size**.

@@ -98,6 +98,78 @@ enum ExtraGrades {
         ])
     }
 
+    // MARK: Local Tone
+
+    /// How strongly Local Tone compresses (at full strength): each region's brightness moves
+    /// toward the picture's average by this fraction, in stops. 0.6: an area 3 stops under the
+    /// average comes up 1.8, a sky 3 over comes down 1.8. Display-referred input is already
+    /// compressed by about a gamma of 1/2.2, so it takes 0.45 of that.
+    static let localToneStrength = 0.6
+    static let localToneDisplayScale = 0.45
+    /// The regions' brightness is averaged as L^p (p small ≈ a log average), so a bright sky
+    /// doesn't swamp the shade beside it.
+    static let localTonePower = 0.25
+    /// Blur radii (per mille of the long side): a wide one for the scene's large areas, a
+    /// narrower one, averaged in, so the halo along a hard edge stays narrow.
+    static let localToneRadii: (wide: CGFloat, near: CGFloat) = (60, 15)
+    /// Never more than this many stops either way.
+    static let localToneLimit = 2.5
+
+    /// The gain Local Tone gives a region whose own (L^p-averaged) brightness is `region`,
+    /// in a picture whose average is `average` (both linear luminance): (average / region)^k.
+    /// The reference the GPU path is tested against.
+    static func localToneGain(region: Double, average: Double, amount: Double, sceneLinear: Bool) -> Double {
+        let k = amount * localToneStrength * (sceneLinear ? 1 : localToneDisplayScale)
+        let g = pow(average / max(region, 1e-4), k)
+        return min(max(g, pow(2, -localToneLimit)), pow(2, localToneLimit))
+    }
+
+    /// Local Tone, 0…1: dodging and burning, the way a printer holds back the shade and burns
+    /// in the sky (and what Apple's local tone mapping does, under our control). Each area is
+    /// brightened or darkened toward the picture's average by its blurred brightness, so big
+    /// areas move and fine detail and local contrast stay. Works on linear light: scene light
+    /// before the film (the film then prints it like any exposure) or display-referred.
+    /// Built from stock filters only: luminance^p → two blurs → ^(−k/p) × average^(k/p).
+    static func localTone(_ image: CIImage, amount: Double, sceneLinear: Bool, unit: CGFloat) -> CIImage {
+        guard amount > 0 else { return image }
+        let bounds = image.extent
+        let p = localTonePower
+        let k = amount * localToneStrength * (sceneLinear ? 1 : localToneDisplayScale)
+        let y = CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0)
+        // Luminance in every channel, alpha 1, floored (no zero to a negative power), ^p.
+        let lum = image
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": y, "inputGVector": y, "inputBVector": y,
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+            ])
+            .applyingFilter("CIColorClamp", parameters: [
+                "inputMinComponents": CIVector(x: 1e-4, y: 1e-4, z: 1e-4, w: 1),
+                "inputMaxComponents": CIVector(x: 1e4, y: 1e4, z: 1e4, w: 1),
+            ])
+            .applyingFilter("CIGammaAdjust", parameters: ["inputPower": p])
+        let edge = lum.clampedToExtent()
+        let wide = edge.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: localToneRadii.wide * unit])
+        let near = edge.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: localToneRadii.near * unit])
+        let region = wide.applyingFilter("CIDissolveTransition", parameters: [
+            kCIInputTargetImageKey: near, kCIInputTimeKey: 0.5,
+        ]).cropped(to: bounds)
+        let average = lum.applyingFilter("CIAreaAverage", parameters: [
+            kCIInputExtentKey: CIVector(cgRect: bounds),
+        ]).clampedToExtent().cropped(to: bounds)
+        let lo = CGFloat(pow(2, -localToneLimit)), hi = CGFloat(pow(2, localToneLimit))
+        let gain = region.applyingFilter("CIGammaAdjust", parameters: ["inputPower": -k / p])
+            .applyingFilter("CIMultiplyCompositing", parameters: [
+                kCIInputBackgroundImageKey: average.applyingFilter("CIGammaAdjust", parameters: ["inputPower": k / p]),
+            ])
+            .applyingFilter("CIColorClamp", parameters: [
+                "inputMinComponents": CIVector(x: lo, y: lo, z: lo, w: 1),
+                "inputMaxComponents": CIVector(x: hi, y: hi, z: hi, w: 1),
+            ])
+        return image.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: gain])
+            .cropped(to: bounds)
+    }
+
     // MARK: Dehaze
 
     /// −1…1. Clearing: wide-radius local contrast, a deeper black point and a little more
