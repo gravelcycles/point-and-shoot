@@ -139,6 +139,13 @@ final class ExtraControlsTests: XCTestCase {
         var apple = r
         apple.appleToneValue = true
         XCTAssertEqual(EditPipeline.rawExposureSplit(apple).after, 0, accuracy: 1e-9)
+        // Sky Exposure alone keeps the headroom too: a clipped sky darkened is only grey.
+        var skyOnly = r
+        skyOnly.highlightRecoveryValue = 0
+        skyOnly.skyExposureValue = -50
+        XCTAssertEqual(EditPipeline.rawExposureSplit(skyOnly).after, EditPipeline.recoveryHeadroom, accuracy: 1e-9)
+        skyOnly.skyExposureValue = 0
+        XCTAssertEqual(EditPipeline.rawExposureSplit(skyOnly).after, 0, accuracy: 1e-9, "nothing on: as before")
         var original = EditRecipe()
         original.highlightRecoveryValue = 100
         XCTAssertFalse(original.recoversHighlights)

@@ -969,6 +969,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       - The mask comes from the film's own rendering of the photo at quarter size (no grain
         or halation) and is scaled back up.
       - Sky Saturation, and Original's Sky Exposure, still apply after.
+      - Sky Exposure also gets the develop headroom (`EditRecipe.recoversHighlights`).
+        Without it the sky was already clipped to colourless white in the develop, and
+        darkening it gave flat grey even before the film. The owner: "sky just goes grey
+        instead of getting its color back".
       - This changed how film photos edited with Sky Exposure in the two days after #61
         render.
     - **Local Tone and Apple Tone** (Tone → Local Tone; `EditorExtra.localTone`). The

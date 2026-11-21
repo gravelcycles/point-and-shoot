@@ -47,9 +47,10 @@ enum EditPipeline {
     /// develop takes, and what's left to apply to its output.
     /// Under Apple Tone the develop is Apple's own, at its own brightness: no film develop
     /// exposure (the viewfinder's correction is added in `configure`).
-    /// Highlight Recovery keeps `recoveryHeadroom` stops out of the develop (the plain
-    /// scene-light develop is SDR: nothing above its white reaches the film), so a sky up to
-    /// ~5.5 stops over grey arrives intact for the film's recovery shoulder.
+    /// Highlight Recovery and Sky Exposure keep `recoveryHeadroom` stops out of the develop
+    /// (the plain scene-light develop is SDR: nothing above its white reaches the film), so a
+    /// sky up to ~5.5 stops over grey arrives intact, with its colour and clouds, for the
+    /// recovery shoulder or the sky's own exposure.
     static func rawExposureSplit(_ r: EditRecipe) -> (develop: Double, after: Double) {
         let filmDevelop = r.film != nil && !r.printsAppleRender ? r.rawFilmExposure ?? 0 : 0
         let total = r.exposure / 50 + filmDevelop
@@ -146,9 +147,9 @@ enum EditPipeline {
                                 r.film != nil ? r.rawFilmExposure ?? 0 : 0, r.exposure / 50))
         }
         if let local = r.localTone { parts.append(String(format: "Local Tone %.0f", local)) }
-        if let recovery = r.highlightRecovery, r.film != nil {
-            parts.append(String(format: "Highlight Recovery %.0f (develop headroom %.0f stops)", recovery,
-                                r.printsAppleRender ? 0 : recoveryHeadroom))
+        if r.recoversHighlights {
+            parts.append(String(format: "Highlight Recovery %.0f, Sky Exposure %+.2f (develop headroom %.0f stops)",
+                                r.highlightRecoveryValue, r.skyExposureValue / 50, r.printsAppleRender ? 0 : recoveryHeadroom))
         }
         parts.append("look \(r.look ?? "none")")
         return parts.joined(separator: ", ")

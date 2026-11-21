@@ -231,9 +231,12 @@ struct EditRecipe: Codable, Equatable {
         get { highlightRecovery ?? 0 }
         set { highlightRecovery = newValue == 0 ? nil : newValue }
     }
-    /// Highlight Recovery is on: the film's RAW develop keeps `recoveryHeadroom` stops for
-    /// the highlights (applied after the develop instead), so nothing clips at its white.
-    var recoversHighlights: Bool { film != nil && highlightRecoveryValue > 0 }
+    /// The film's RAW develop keeps `recoveryHeadroom` stops for the highlights (applied
+    /// after the develop instead), so nothing clips at its white: with Highlight Recovery, and
+    /// with Sky Exposure, which darkens the sky before the film. Without it a bright sky is
+    /// clipped to colourless white in the develop, and darkening it only gives flat grey (the
+    /// owner: "sky just goes grey instead of getting its color back").
+    var recoversHighlights: Bool { film != nil && (highlightRecoveryValue > 0 || skyExposureValue != 0) }
 
     var localToneValue: Double {
         get { localTone ?? 0 }

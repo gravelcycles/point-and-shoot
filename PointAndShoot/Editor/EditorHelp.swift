@@ -40,7 +40,7 @@ enum EditorHelp {
         "curveShadows": Entry(text: "Tone curve, darkest quarter (around 15%), just above black."),
         "skyExposure": Entry(
             text: "Brightens or darkens only the sky, in stops (±2). The sky is found by colour (bright, blue or neutral, not warm skin or green leaves) and position (top of the frame), with soft edges.",
-            film: "Gives the sky more or less light before the film sees it, like a graduated ND filter (±2 stops): − brings back clouds in a sky that prints white, because the film then renders them below its white. The sky is found by colour and position (top of the frame), with soft edges."),
+            film: "Gives the sky more or less light before the film sees it, like a graduated ND filter (±2 stops): − brings back the colour and clouds of a sky that prints white, because the RAW keeps its brightest detail and the film then renders the sky below its white. The sky is found by colour and position (top of the frame), with soft edges."),
         "skySaturation": Entry(text: "More or less colour in the sky only: deepen a blue sky, or take the colour out of a hazy one."),
         "subjectExposure": Entry(text: "Brightens or darkens only the main subject (people, animals, objects in front), in stops (±2). The subject is found by Apple's foreground detection; if it finds none, nothing changes."),
         "subjectSaturation": Entry(text: "More or less colour on the subject only."),
