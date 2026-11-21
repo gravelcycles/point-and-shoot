@@ -276,8 +276,19 @@ struct CameraView: View {
                 .init(color: .black.opacity(0.7), location: 0.25),
                 .init(color: .black, location: 0.6),
             ], startPoint: .top, endPoint: .bottom)
+            .opacity(controlsNeedScrim ? 1 : 0)
+            .animation(.easeOut(duration: 0.2), value: controlsNeedScrim)
             .allowsHitTesting(false)
         )
+    }
+
+    /// The dark fade behind the controls is only for where the picture runs under them: video
+    /// (9:16 reaches the control strip) and an open dial panel, whose labels sit on the
+    /// picture. In Photo and Print the 3:4 picture ends above the strip, and the fade only
+    /// darkened its bottom ~70 pt behind the lens buttons (the owner: "the bottom part where
+    /// the zoom sizes are is darker than the rest"); the lens buttons carry their own discs.
+    private var controlsNeedScrim: Bool {
+        !camera.settings.mode.isStill || activeDial != nil
     }
 
     /// A just-taken shot shows instantly from the capture; once the library has developed
