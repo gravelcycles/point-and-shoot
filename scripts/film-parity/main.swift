@@ -23,6 +23,10 @@ ctl6.push = 1.5; ctl6.flash = 0.03; ctl6.silver = 0.7
 var ctl6b = FilmControls()   // ...and alone (the per-axis path), pulled
 (ctl6b.printerR, ctl6b.printerG, ctl6b.printerB) = FilmControls.printerLights(warm: -0.5, magenta: 0.8)
 ctl6b.push = -1.2; ctl6b.flash = 0.05
+var ctl7 = ctl5b    // Highlight Recovery on top of the fold-prone engine-5 extremes
+ctl7.recovery = 1
+var ctl7b = FilmControls()   // ...and alone (no engine 5), partly
+ctl7b.recovery = 0.6
 
 var out: [String: Any] = [:]
 var timing: [String: [Double]] = [:]
@@ -60,6 +64,8 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
     let pcCtl5b = FilmLUT.printCube(stock: s, controls: ctl5b)
     let pcCtl6 = FilmLUT.printCube(stock: s, controls: ctl6)
     let pcCtl6b = FilmLUT.printCube(stock: s, controls: ctl6b)
+    let pcCtl7 = FilmLUT.printCube(stock: s, controls: ctl7)
+    let pcCtl7b = FilmLUT.printCube(stock: s, controls: ctl7b)
     timing[id] = [t1, t2, t3, t4].enumerated().map { i, t in t.timeIntervalSince([t0, t1, t2, t3][i]) * 1000 }
     let gains = FilmGrain.layerGains(stock: s)
     out[id] = [
@@ -76,6 +82,12 @@ for id in ["print", "phromagraph", "punch", "portrait400", "threestrip", "blockb
         "print_ctl5b": sample(pcCtl5b, FilmLUT.printDimension, idxPrint),
         "print_ctl6": sample(pcCtl6, FilmLUT.printDimension, idxPrint),
         "print_ctl6b": sample(pcCtl6b, FilmLUT.printDimension, idxPrint),
+        "print_ctl7": sample(pcCtl7, FilmLUT.printDimension, idxPrint),
+        "print_ctl7b": sample(pcCtl7b, FilmLUT.printDimension, idxPrint),
+        "neutral_ctl7": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
+            let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl7); return [v.0, v.1, v.2] },
+        "neutral_ctl7b": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
+            let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl7b); return [v.0, v.1, v.2] },
         "neutral_ctl6": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in
             let v = FilmLUT.neutralResponse(stops: st, stock: s, controls: ctl6); return [v.0, v.1, v.2] },
         "neutral_ctl6b": stride(from: -6.0, through: 6.0, by: 0.5).map { st -> [Double] in

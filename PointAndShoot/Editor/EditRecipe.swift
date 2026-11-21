@@ -55,6 +55,11 @@ struct EditRecipe: Codable, Equatable {
     var skySaturation: Double?
     var subjectExposure: Double?
     var subjectSaturation: Double?
+    /// Highlight Recovery, 0…100 (film looks): the RAW develops with headroom (nothing clips
+    /// before the film) and the scene above ~1 stop over grey is compressed before printing,
+    /// so skies keep their clouds instead of running into the print's white
+    /// (`FilmControls.recovery`). nil = 0, so older edits decode and render unchanged.
+    var highlightRecovery: Double?
     /// Local Tone, 0…100: dodging and burning (dark areas lifted, bright ones held back,
     /// region by region, fine detail untouched; `ExtraGrades.localTone`). Every look.
     /// nil = 0, so older edits decode and render unchanged.
@@ -222,6 +227,17 @@ struct EditRecipe: Codable, Equatable {
         get { curveShadows ?? 0 }
         set { curveShadows = newValue == 0 ? nil : newValue }
     }
+    var highlightRecoveryValue: Double {
+        get { highlightRecovery ?? 0 }
+        set { highlightRecovery = newValue == 0 ? nil : newValue }
+    }
+    /// The film's RAW develop keeps `recoveryHeadroom` stops for the highlights (applied
+    /// after the develop instead), so nothing clips at its white: with Highlight Recovery, and
+    /// with Sky Exposure, which darkens the sky before the film. Without it a bright sky is
+    /// clipped to colourless white in the develop, and darkening it only gives flat grey (the
+    /// owner: "sky just goes grey instead of getting its color back").
+    var recoversHighlights: Bool { film != nil && (highlightRecoveryValue > 0 || skyExposureValue != 0) }
+
     var localToneValue: Double {
         get { localTone ?? 0 }
         set { localTone = newValue == 0 ? nil : newValue }
@@ -305,7 +321,8 @@ struct EditRecipe: Codable, Equatable {
                             highlights: highlights / 100, shadows: shadows / 100,
                             subtractiveSaturation: engine >= 3, strongTone: engine >= 4,
                             toneRegions: engine >= 5,
-                            pivot: engine >= 5 ? FilmControls.pivotStops(contrastPivotValue) : 0)
+                            pivot: engine >= 5 ? FilmControls.pivotStops(contrastPivotValue) : 0,
+                            recovery: highlightRecoveryValue / 100)
             .withFilmTool(film)
     }
 
@@ -630,6 +647,7 @@ struct Adjustment: Identifiable {
         .init(id: "curveShadows", name: "Curve Shadows", range: -100...100, keyPath: \.curveShadowsValue),
         .init(id: "dehaze", name: "Dehaze", range: -100...100, keyPath: \.dehazeValue),
         .init(id: "localTone", name: "Local Tone", range: 0...100, keyPath: \.localToneValue),
+        .init(id: "highlightRecovery", name: "Highlight Recovery", range: 0...100, keyPath: \.highlightRecoveryValue),
         .init(id: "skyExposure", name: "Sky Exposure", range: -100...100, keyPath: \.skyExposureValue, format: Adjustment.stops),
         .init(id: "skySaturation", name: "Sky Saturation", range: -100...100, keyPath: \.skySaturationValue),
         .init(id: "subjectExposure", name: "Subject Exposure", range: -100...100, keyPath: \.subjectExposureValue, format: Adjustment.stops),

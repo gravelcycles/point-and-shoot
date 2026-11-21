@@ -180,6 +180,9 @@ struct EditorView: View {
             ]
             if isFilm {
                 tabs.insert(EditorSubTab(id: "fade", name: "Fade", controls: [.slider(adj("fade"))]), at: 4)
+                // Skies that run to white (the owner: "the sky oftentimes goes white").
+                tabs.insert(EditorSubTab(id: "recovery", name: "Highlight Recovery",
+                                         controls: [.slider(adj("highlightRecovery"))]), at: 3)
             }
             if shows(.localTone) {
                 // Apple Tone: a film look's RAW developed with Apple's rendering (the viewfinder's look).

@@ -97,6 +97,89 @@ final class ExtraControlsTests: XCTestCase {
         }
     }
 
+    /// Highlight Recovery (the owner: "the sky oftentimes goes white"): off by default; on,
+    /// the bright end of the grey scale comes down and spreads out (clouds 3–4 stops over grey
+    /// get more levels between them) while grey and the shadows stay; the RAW develop keeps
+    /// headroom; and it renders. (Measured, encoded luminance 3 → 6 stops over grey: Punch
+    /// 0.96–0.99 → 0.81–0.91, Phromagraph 0.86–0.94 → 0.69–0.80.)
+    func testHighlightRecovery() {
+        XCTAssertEqual(printRecipe.filmControls.recovery, 0)
+        var r = printRecipe
+        r.highlightRecoveryValue = 100
+        XCTAssertEqual(r.filmControls.recovery, 1)
+        XCTAssertTrue(r.filmControls.shiftsExposure)
+        let c = r.filmControls
+        XCTAssertGreaterThan(c.exposureShift(-1) - FilmControls(toneRegions: true).exposureShift(-1), -0.02)
+        XCTAssertEqual(FilmControls(recovery: 1).exposureShift(4), -0.75 * (3 + 0.5 * log1p(exp(-6))), accuracy: 1e-9)
+        XCTAssertTrue(FilmControls(recovery: 1).exposureShift(1e6).isFinite)
+        func encoded(_ v: (Double, Double, Double)) -> Double {
+            let y = 0.2290 * v.0 + 0.6917 * v.1 + 0.0793 * v.2
+            return y <= 0.0031308 ? 12.92 * y : 1.055 * pow(y, 1 / 2.4) - 0.055
+        }
+        for id in ["punch", "phromagraph", "print"] {
+            let stock = FilmStock.named(id)
+            let base = FilmControls(subtractiveSaturation: true, strongTone: true, toneRegions: true)
+            var on = base
+            on.recovery = 1
+            // 3 and 6 stops over grey: the range a bright cloudy sky spans.
+            let off = FilmLUT.neutralRamp(stops: [-1, 0, 3, 6], stock: stock, controls: base).map(encoded)
+            let rec = FilmLUT.neutralRamp(stops: [-1, 0, 3, 6], stock: stock, controls: on).map(encoded)
+            XCTAssertEqual(rec[0], off[0], accuracy: 0.01, "\(id): shadows stay")
+            XCTAssertEqual(rec[1], off[1], accuracy: 0.02, "\(id): grey stays")
+            XCTAssertLessThan(rec[3], off[3] - 0.05, "\(id): a bright sky comes down from white")
+            XCTAssertGreaterThan(rec[3] - rec[2], (off[3] - off[2]) * 1.2, "\(id): clouds get more levels")
+        }
+        // The plain RAW develop keeps headroom (applied after it instead); Apple Tone doesn't.
+        r.film?.engine = FilmLUT.currentEngine
+        r.rawFilmExposure = 1.5
+        r.exposure = 0
+        let split = EditPipeline.rawExposureSplit(r)
+        XCTAssertEqual(split.develop, 1.5 - EditPipeline.recoveryHeadroom, accuracy: 1e-9)
+        XCTAssertEqual(split.develop + split.after, 1.5, accuracy: 1e-9)
+        var apple = r
+        apple.appleToneValue = true
+        XCTAssertEqual(EditPipeline.rawExposureSplit(apple).after, 0, accuracy: 1e-9)
+        // Sky Exposure alone keeps the headroom too: a clipped sky darkened is only grey.
+        var skyOnly = r
+        skyOnly.highlightRecoveryValue = 0
+        skyOnly.skyExposureValue = -50
+        XCTAssertEqual(EditPipeline.rawExposureSplit(skyOnly).after, EditPipeline.recoveryHeadroom, accuracy: 1e-9)
+        skyOnly.skyExposureValue = 0
+        XCTAssertEqual(EditPipeline.rawExposureSplit(skyOnly).after, 0, accuracy: 1e-9, "nothing on: as before")
+        var original = EditRecipe()
+        original.highlightRecoveryValue = 100
+        XCTAssertFalse(original.recoversHighlights)
+        XCTAssertEqual(EditPipeline.rawExposureSplit(original).after, 0, accuracy: 1e-9)
+        // Through the whole edit: the bright end of the test gradient comes down.
+        var start = printRecipe
+        start.grain = 0
+        var moved = start
+        moved.highlightRecoveryValue = 100
+        func brightest(_ px: [Float]) -> Float { stride(from: 1, to: px.count, by: 4).map { px[$0] }.max() ?? 0 }
+        XCTAssertLessThan(brightest(pixels(moved)), brightest(pixels(start)) - 0.01, "the brightest corner prints darker")
+    }
+
+    /// Under a film look Sky Exposure acts before the film (a graduated ND): a bright, pale
+    /// sky at the top darkens through the film, the dark ground below stays.
+    func testFilmSkyExposureActsBeforeTheFilm() {
+        let sky = CIImage(color: CIColor(red: 0.8, green: 0.86, blue: 0.95)).cropped(to: CGRect(x: 0, y: 75, width: 200, height: 75))
+        let ground = CIImage(color: CIColor(red: 0.12, green: 0.1, blue: 0.08)).cropped(to: CGRect(x: 0, y: 0, width: 200, height: 75))
+        let img = sky.composited(over: ground)
+        func at(_ r: EditRecipe, _ y: CGFloat) -> Float {
+            let out = EditPipeline.apply(r, to: img, developedFromRAW: false)
+            var px = [Float](repeating: 0, count: 4)
+            EditPipeline.context.render(out, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 100, y: y, width: 1, height: 1),
+                                        format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+            return 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]
+        }
+        var start = printRecipe
+        start.grain = 0
+        var darker = start
+        darker.skyExposureValue = -100
+        XCTAssertLessThan(at(darker, 140), at(start, 140) - 0.05, "the sky darkens")
+        XCTAssertEqual(at(darker, 10), at(start, 10), accuracy: 0.01, "the ground stays")
+    }
+
     /// Apple Tone: a film look's RAW develops with Apple's rendering at the viewfinder's
     /// brightness instead of the film's develop exposure, it survives picking another look,
     /// and older edits (and Original) are untouched.
@@ -287,8 +370,8 @@ final class ExtraControlsTests: XCTestCase {
         for a in all {
             XCTAssertNotNil(EditorHelp.controls[a.id], "\(a.id) has no ⓘ text")
         }
-        for id in ["mono", "pixelGrain", "mixerBands", "appleTone"] { XCTAssertNotNil(EditorHelp.controls[id], id) }
-        for tab in ["contrast", "shadowHighlight", "grain", "printer", "process", "silver", "curveLights", "sky", "local", "raw"] {
+        for id in ["mono", "pixelGrain", "mixerBands", "appleTone", "highlightRecovery"] { XCTAssertNotNil(EditorHelp.controls[id], id) }
+        for tab in ["contrast", "shadowHighlight", "grain", "printer", "process", "silver", "curveLights", "sky", "local", "raw", "recovery"] {
             XCTAssertNotNil(EditorHelp.together(tab, isFilm: true), tab)
         }
     }

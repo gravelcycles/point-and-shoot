@@ -38,11 +38,14 @@ enum EditorHelp {
         "curveLights": Entry(text: "Tone curve, upper midtones (around 60%): skin, bright walls, daylight foliage."),
         "curveDarks": Entry(text: "Tone curve, lower midtones (around 40%): shaded faces, interiors."),
         "curveShadows": Entry(text: "Tone curve, darkest quarter (around 15%), just above black."),
-        "skyExposure": Entry(text: "Brightens or darkens only the sky, in stops (±2). The sky is found by colour (bright, blue or neutral, not warm skin or green leaves) and position (top of the frame), with soft edges."),
+        "skyExposure": Entry(
+            text: "Brightens or darkens only the sky, in stops (±2). The sky is found by colour (bright, blue or neutral, not warm skin or green leaves) and position (top of the frame), with soft edges.",
+            film: "Gives the sky more or less light before the film sees it, like a graduated ND filter (±2 stops): − brings back the colour and clouds of a sky that prints white, because the RAW keeps its brightest detail and the film then renders the sky below its white. The sky is found by colour and position (top of the frame), with soft edges."),
         "skySaturation": Entry(text: "More or less colour in the sky only: deepen a blue sky, or take the colour out of a hazy one."),
         "subjectExposure": Entry(text: "Brightens or darkens only the main subject (people, animals, objects in front), in stops (±2). The subject is found by Apple's foreground detection; if it finds none, nothing changes."),
         "subjectSaturation": Entry(text: "More or less colour on the subject only."),
         "rawLTM": Entry(text: "How much of Apple's local tone mapping the RAW develop uses: the trick that lifts shadows and holds skies in the iPhone camera. 0 is a flat, honest develop; more looks more like the Camera app."),
+        "highlightRecovery": Entry(text: "Brings back skies and other bright areas that print as plain white. The RAW is developed with extra headroom so nothing clips before the film, and everything brighter than about a stop over mid-grey is compressed before printing: at 100 a sky 4 stops over grey prints where a 2-stop one used to, with its clouds. Shadows and mid-tones stay put; very bright whites come down a little. It's like giving the film more latitude, so it still reads as film, not an HDR effect."),
         "localTone": Entry(
             text: "Dodges and burns the photo: darker areas come up and bright ones come down, region by region, toward the picture's average, while fine detail and texture stay as they are. Like Apple's local tone mapping (faces lifted out of shade, skies holding their clouds), but yours to set. At 100 an area 3 stops under the average comes up about 1.8 stops.",
             film: "Dodges and burns the scene before the film sees it, like a printer holding back the shade and burning in the sky: darker areas get more light and bright ones less, region by region, while fine detail stays. The film then prints it like any exposure, so it still looks like film. At 100 an area 3 stops under the average comes up about 1.8 stops; on a hard edge (a face against a bright sky) high values can leave a soft glow."),
@@ -113,6 +116,10 @@ enum EditorHelp {
             return isFilm
                 ? "Two ways to get what the iPhone's own processing does to a scene. Apple Tone prints Apple's rendering, as the viewfinder shows it (Apple decides how much, scene by scene; the RAW tab tunes it). Local Tone is our own dodge and burn on the plain develop, where you set how much. Try one or the other first; together they add up. Highlights and Shadows (and Whites/Blacks) still work on top."
                 : "Local Tone dodges and burns: shade comes up, bright areas come down, detail stays. The RAW tab's Apple Local Tone does something similar the Camera app's way; Local Tone adds to it."
+        case "recovery":
+            return "Highlight Recovery compresses every bright area evenly. For just the sky, Sky Exposure (Tone → Sky) darkens it before the film, like a graduated ND filter. Together: some Recovery for the whole picture, then Sky Exposure − for a dramatic sky. Highlights − darkens nearly the whole picture instead; use it for overall brightness, not for skies."
+        case "sky" where isFilm:
+            return "Under a film look Sky Exposure works on the light before the film, like a graduated ND filter on the lens: darkening a bright sky brings its clouds back through the film's curve instead of turning white into grey. Saturation applies afterwards. Highlight Recovery (Tone) does the same for every bright area at once."
         case "sky", "subject":
             return "Masks apply on top of the whole edit, only where the sky or the subject is. Exposure and Saturation combine: a darker, deeper sky; a brighter subject with a little less colour to sit it in front."
         case "raw":

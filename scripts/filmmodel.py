@@ -201,8 +201,11 @@ HIGHLIGHT_STOPS, HIGHLIGHT_CENTER, HIGHLIGHT_WIDTH = 3.0, -3.0, 1.0
 SHADOW_LIFT, SHADOW_CRUSH, SHADOW_CENTER, SHADOW_WIDTH = 1.0, 2.2, 0.75, 1.0
 
 
+RECOVERY_KNEE, RECOVERY_WIDTH, RECOVERY_SLOPE = 1.0, 0.5, 0.75
+
+
 def shifts_exposure(controls):
-    return controls.get("toneRegions", False) and (
+    return controls.get("recovery", 0) > 0 or controls.get("toneRegions", False) and (
         controls.get("highlights", 0) != 0 or controls.get("shadows", 0) != 0
         or (controls.get("pivot", 0) != 0 and controls.get("contrast", 0) != 0))
 
@@ -215,6 +218,10 @@ def exposure_shift(x, controls):
         d = d + h * HIGHLIGHT_STOPS / (1 + np.exp(-(x - HIGHLIGHT_CENTER) / HIGHLIGHT_WIDTH))
     if s != 0:
         d = d + s * (SHADOW_LIFT if s > 0 else SHADOW_CRUSH) / (1 + np.exp((x - SHADOW_CENTER) / SHADOW_WIDTH))
+    r = controls.get("recovery", 0)
+    if r > 0:
+        u = (x - RECOVERY_KNEE) / RECOVERY_WIDTH
+        d = d - r * RECOVERY_SLOPE * RECOVERY_WIDTH * (np.maximum(u, 0) + np.log1p(np.exp(-np.abs(u))))
     return d
 
 

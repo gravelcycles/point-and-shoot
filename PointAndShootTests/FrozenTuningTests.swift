@@ -427,6 +427,30 @@ final class FrozenTuningTests: XCTestCase {
         }
     }
 
+    /// Highlight Recovery on top of every combination of tone extremes still gives a rising
+    /// grey ramp for every look (its shift's slope stays above −0.75).
+    func testHighlightRecoveryKeepsEveryGreyRampMonotonic() {
+        for stock in FilmStock.all.values {
+            for h in [-1.0, 0, 1] {
+                for s in [-1.0, 0, 1] {
+                    for (k, p) in [(0.0, 0.0), (1, -3.5), (1, 2.3), (-1, -3.5), (-1, 2.3)] {
+                        let c = FilmControls(contrast: k, highlights: h, shadows: s, subtractiveSaturation: true,
+                                             strongTone: true, toneRegions: true, pivot: p, recovery: 1)
+                        var last = -1.0
+                        for v in FilmLUT.neutralRamp(stops: (0...300).map { -8 + Double($0) * 0.05 }, stock: stock, controls: c) {
+                            let y = 0.2290 * v.0 + 0.6917 * v.1 + 0.0793 * v.2
+                            XCTAssertTrue(y.isFinite)
+                            if y > 1.0 / 255 && last > 1.0 / 255 {
+                                XCTAssertGreaterThanOrEqual(y, last * (1 - 0.005), "\(stock.id) h \(h) s \(s) c \(k) p \(p)")
+                            }
+                            last = y
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Engines 6 and 7 only change grain (6: sized to the frame; 7: Chromagraph's, measured;
     /// GrainTests): with grain off they render exactly like engine 5, and new looks pin 7.
     func testEnginesSixAndSevenChangeOnlyGrain() {

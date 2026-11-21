@@ -47,12 +47,18 @@ enum EditPipeline {
     /// develop takes, and what's left to apply to its output.
     /// Under Apple Tone the develop is Apple's own, at its own brightness: no film develop
     /// exposure (the viewfinder's correction is added in `configure`).
+    /// Highlight Recovery and Sky Exposure keep `recoveryHeadroom` stops out of the develop
+    /// (the plain scene-light develop is SDR: nothing above its white reaches the film), so a
+    /// sky up to ~5.5 stops over grey arrives intact, with its colour and clouds, for the
+    /// recovery shoulder or the sky's own exposure.
     static func rawExposureSplit(_ r: EditRecipe) -> (develop: Double, after: Double) {
         let filmDevelop = r.film != nil && !r.printsAppleRender ? r.rawFilmExposure ?? 0 : 0
         let total = r.exposure / 50 + filmDevelop
-        let develop = min(max(total, -rawExposureLimit), rawExposureLimit)
+        let headroom = r.recoversHighlights && !r.printsAppleRender ? recoveryHeadroom : 0
+        let develop = min(max(total - headroom, -rawExposureLimit), rawExposureLimit)
         return (develop, total - develop)
     }
+    static let recoveryHeadroom = 3.0
 
     static func configure(_ raw: CIRAWFilter, recipe r: EditRecipe, defaults d: RAWDefaults) {
         // Under a film look, plus the film's develop exposure (`rawFilmExposure`); under Apple
@@ -141,6 +147,10 @@ enum EditPipeline {
                                 r.film != nil ? r.rawFilmExposure ?? 0 : 0, r.exposure / 50))
         }
         if let local = r.localTone { parts.append(String(format: "Local Tone %.0f", local)) }
+        if r.recoversHighlights {
+            parts.append(String(format: "Highlight Recovery %.0f, Sky Exposure %+.2f (develop headroom %.0f stops)",
+                                r.highlightRecoveryValue, r.skyExposureValue / 50, r.printsAppleRender ? 0 : recoveryHeadroom))
+        }
         parts.append("look \(r.look ?? "none")")
         return parts.joined(separator: ", ")
     }
@@ -240,6 +250,14 @@ enum EditPipeline {
             fs.halationColor = (film.halationColor ?? 0) / 100
             fs.controls = r.filmControls
             fs.animateGrain = animateGrain
+            // Sky Exposure acts on the light before the film, like a graduated ND filter, so
+            // darkening a bright sky brings its clouds back through the film's curve instead
+            // of turning flat white into flat grey. The mask is found in the film's own
+            // rendering of the photo (small: the mask is soft anyway).
+            if r.skyExposureValue != 0 {
+                image = ExtraGrades.adjust(image, mask: filmSkyMask(image, settings: fs, unit: unit),
+                                           exposure: r.skyExposureValue / 50, saturation: 0)
+            }
             image = FilmPipeline.apply(image, settings: fs, unit: unit)
             // Whites, blacks and fade still apply on top, as a curve.
             curveRecipe.contrast = 0
@@ -272,9 +290,11 @@ enum EditPipeline {
         // Dehaze, then the masks' own exposure and saturation (sky found in the graded
         // picture, the subject in the framed source).
         image = ExtraGrades.dehaze(image, amount: r.dehazeValue / 100, unit: unit)
-        if r.skyExposureValue != 0 || r.skySaturationValue != 0 {
+        // Under a film look Sky Exposure already acted before the film; saturation stays here.
+        let skyExposureAfter = r.film == nil ? r.skyExposureValue / 50 : 0
+        if skyExposureAfter != 0 || r.skySaturationValue != 0 {
             image = ExtraGrades.adjust(image, mask: ExtraGrades.skyMask(image, unit: unit),
-                                       exposure: r.skyExposureValue / 50, saturation: r.skySaturationValue / 100)
+                                       exposure: skyExposureAfter, saturation: r.skySaturationValue / 100)
         }
         if r.subjectExposureValue != 0 || r.subjectSaturationValue != 0,
            let mask = ExtraGrades.subjectMask(source: base, framed: framed,
@@ -340,6 +360,23 @@ enum EditPipeline {
         }
 
         return image.cropped(to: bounds)
+    }
+
+    /// The sky in the film's own rendering of `image` (a quarter-size render without grain
+    /// or halation), scaled back up: where Sky Exposure applies before the film.
+    static func filmSkyMask(_ image: CIImage, settings: FilmPipeline.Settings, unit: CGFloat) -> CIImage {
+        let bounds = image.extent
+        let k: CGFloat = 0.25
+        var fs = settings
+        fs.grain = 0
+        fs.halation = 0
+        fs.animateGrain = false
+        let small = image.transformed(by: CGAffineTransform(scaleX: k, y: k))
+        let rendered = FilmPipeline.apply(small, settings: fs, unit: unit * k)
+        return ExtraGrades.skyMask(rendered, unit: unit * k)
+            .transformed(by: CGAffineTransform(scaleX: 1 / k, y: 1 / k))
+            .clampedToExtent()
+            .cropped(to: bounds)
     }
 
     static let identityCurve: [CGPoint] = [
