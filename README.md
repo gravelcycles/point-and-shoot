@@ -184,6 +184,10 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
     - for film looks, an **Apple Tone** switch: the film prints Apple's own rendering of
       the RAW, its local tone mapping included, so the photo comes out the way the
       viewfinder showed it.
+  - **Highlight Recovery** (Tone, film looks) brings back skies that print white: the RAW
+    keeps its highlight headroom and the brightest parts of the scene are compressed before
+    the film. Under a film look, **Sky Exposure** works like a graduated ND filter on the
+    light, so darkening the sky brings back its clouds.
   - Ranges like Chromagraph's: **Exposure ±6 stops**; under a film look **Highlights** and
     **Shadows** re-expose whole regions of the scene (up to ±3 stops) and **Contrast** goes
     to ×2 around a **Pivot**; **Grain** up to 4× with its own **Grain Size**.

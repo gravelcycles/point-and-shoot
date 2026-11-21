@@ -939,6 +939,38 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       colour (bright, not warm, not green) and position (top), blurred; the subject by
       Vision's foreground instance mask on the framed source (iOS 17), cached per source
       image and framing (`NSMapTable`, weak keys), and a no-op where Vision finds nothing.
+    - **Highlight Recovery** (Tone → Highlight Recovery, film looks; `EditRecipe.highlightRecovery`,
+      `FilmControls.recovery`; not an optional extra). The owner: "the sky oftentimes goes
+      white... I haven't really found a group of settings that works to fix this consistently".
+      - Two causes:
+        - The plain develop is SDR, so it clips scene light above its white, about 2.5
+          stops over grey.
+        - Every look's print is near white by ~+3 stops (encoded luminance at +3 / +4 / +6:
+          Punch 0.96 / 0.98 / 0.99, Phromagraph 0.86 / 0.91 / 0.94).
+      - None of the existing controls could recover the sky:
+        - Highlights − darkens nearly everything above −3 stops.
+        - Whites and the old post-film Sky Exposure only turn flat white into flat grey.
+      - The fix has two parts:
+        - The develop keeps `EditPipeline.recoveryHeadroom` (3 stops) out of the RAW filter
+          and applies it after, in float (`rawExposureSplit`), so nothing clips up to
+          ~+5.5 stops.
+        - The print cube re-exposes scene levels above `recoveryKnee` (+1 stop) by
+          −recovery·0.75·softplus((x − 1)/0.5)·0.5 (`exposureShift`, the engine-5 per-cell
+          path; hue-preserving; slope > −0.75, so it can't fold).
+      - Results at 100: +3 → +6 stops print 0.81 → 0.91 on Punch, 0.69 → 0.80 on Phromagraph.
+        Grey and shadows stay within ~0.01.
+      - It's a `FilmControls` field that is 0 when off: no engine. It's mirrored in
+        `filmmodel.py` and covered by parity (`ctl7`, `ctl7b`). The monotonic test covers
+        it with every tone extreme.
+      - Apple Tone gets the shoulder but no headroom: Apple's render has its own highlight
+        roll-off.
+    - **Sky Exposure under film looks acts before the film** (`EditPipeline.filmSkyMask`), like
+      a graduated ND, so the film renders the darkened sky's clouds below its white.
+      - The mask comes from the film's own rendering of the photo at quarter size (no grain
+        or halation) and is scaled back up.
+      - Sky Saturation, and Original's Sky Exposure, still apply after.
+      - This changed how film photos edited with Sky Exposure in the two days after #61
+        render.
     - **Local Tone and Apple Tone** (Tone → Local Tone; `EditorExtra.localTone`). The
       owner noticed the viewfinder under Phromagraph looked better than the saved photo:
       the face lifted out of a hat's shade, clouds in the sky. That's Apple's local tone

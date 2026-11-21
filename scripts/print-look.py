@@ -528,6 +528,7 @@ def parity():
     ctl5b = dict(ctl5, highlights=-1, shadows=1, contrast=-0.6, pivot=2)
     ctl6 = dict(ctl5, printer=F.printer_lights(0.6, -0.4), push=1.5, flash=0.03, silver=0.7)   # the Film tool
     ctl6b = dict(printer=F.printer_lights(-0.5, 0.8), push=-1.2, flash=0.05)
+    ctl7, ctl7b = dict(ctl5b, recovery=1.0), dict(recovery=0.6)   # Highlight Recovery
     i_neg = [(0, 0, 0), (10, 20, 30), (40, 40, 40), (47, 47, 47), (44, 12, 33), (21, 22, 23), (5, 46, 31)]
     i_pr = [(0, 0, 0), (10, 20, 30), (24, 24, 24), (47, 47, 47), (40, 9, 25), (16, 17, 18), (3, 45, 23), (12, 30, 8)]
     colors = np.array([(0.9, 0.55, 0.3), (1.6, 0.4, 0.2), (0.2, 0.5, 1.2), (0.05, 0.3, 0.06)])
@@ -541,6 +542,7 @@ def parity():
         pcc4 = F.print_cube(st, ctl4, 48)
         pcc5, pcc5b = F.print_cube(st, ctl5, 48), F.print_cube(st, ctl5b, 48)
         pcc6, pcc6b = F.print_cube(st, ctl6, 48), F.print_cube(st, ctl6b, 48)
+        pcc7, pcc7b = F.print_cube(st, ctl7, 48), F.print_cube(st, ctl7b, 48)
         checks = {
             "neutral": (s["neutral"], F.neutral_response(stops, st)),
             "neutral_ctl": (s["neutral_ctl"], F.neutral_response(stops, st, ctl)),
@@ -561,6 +563,10 @@ def parity():
             "print_ctl6": (s["print_ctl6"], [pcc6[b, g, r] for r, g, b in i_pr]),
             "print_ctl6b": (s["print_ctl6b"], [pcc6b[b, g, r] for r, g, b in i_pr]),
             "neutral_ctl6": (s["neutral_ctl6"], F.neutral_response(stops, st, ctl6)),
+            "print_ctl7": (s["print_ctl7"], [pcc7[b, g, r] for r, g, b in i_pr]),
+            "print_ctl7b": (s["print_ctl7b"], [pcc7b[b, g, r] for r, g, b in i_pr]),
+            "neutral_ctl7": (s["neutral_ctl7"], F.neutral_response(stops, st, ctl7)),
+            "neutral_ctl7b": (s["neutral_ctl7b"], F.neutral_response(stops, st, ctl7b)),
             "neutral_ctl6b": (s["neutral_ctl6b"], F.neutral_response(stops, st, ctl6b)),
             "colors_ctl2": (s["colors_ctl2"], F.display(F.negative_density(colors, st), st, ctl2)),
             "grain_gains": (s["grain_gains"], F.grain_layer_gains(st)),

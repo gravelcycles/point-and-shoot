@@ -308,6 +308,11 @@ struct FilmControls: Hashable {
     /// Silver retention (bleach bypass), 0…1: dyes pulled toward their mean (less colour)
     /// and silver adding density in proportion to it (denser shadows, more contrast).
     var silver: Double = 0
+    /// Highlight Recovery, 0…1 (0 = off, so it needs no engine): scene levels above
+    /// `recoveryKnee` are re-exposed down, so +4 stops prints where ~+2 used to and a cloudy
+    /// sky keeps its clouds instead of running into the print's white. Hue-preserving (the
+    /// whole cell moves), and it can't fold: the shift's slope stays above −`recoverySlope`.
+    var recovery: Double = 0
 
     /// Printer lights from the sliders (−1…1): warm (less cyan, more yellow dye) and
     /// magenta (more magenta dye), up to 2 printer points (the print's steep curve makes
@@ -338,8 +343,15 @@ struct FilmControls: Hashable {
     static let highlightStops = 3.0, highlightCenter = -3.0, highlightWidth = 1.0
     static let shadowLiftStops = 1.0, shadowCrushStops = 2.2, shadowCenter = 0.75, shadowWidth = 1.0
 
-    /// Engine 5 re-exposes the scene before printing.
-    var shiftsExposure: Bool { toneRegions && (highlights != 0 || shadows != 0 || (pivot != 0 && contrast != 0)) }
+    // Highlight Recovery's shoulder: above `recoveryKnee` stops from grey the scene is
+    // compressed toward a slope of 1 − `recoverySlope`·recovery (a softplus `recoveryWidth`
+    // stops wide). At full strength +4 stops lands at ~+1.7, +6 at ~+2.3.
+    static let recoveryKnee = 1.0, recoveryWidth = 0.5, recoverySlope = 0.75
+
+    /// Engine 5 re-exposes the scene before printing (and Highlight Recovery at any engine).
+    var shiftsExposure: Bool {
+        recovery > 0 || toneRegions && (highlights != 0 || shadows != 0 || (pivot != 0 && contrast != 0))
+    }
 
     /// Engine 5: stops added to a scene level `x` (stops from grey) before printing.
     /// - Contrast about `pivot`: the print gamma turns about grey, so a constant shift of
@@ -354,6 +366,12 @@ struct FilmControls: Hashable {
         if shadows != 0 {
             let amount = shadows > 0 ? Self.shadowLiftStops : Self.shadowCrushStops
             d += shadows * amount / (1 + exp((x - Self.shadowCenter) / Self.shadowWidth))
+        }
+        if recovery > 0 {
+            let u = (x - Self.recoveryKnee) / Self.recoveryWidth
+            // Softplus, written to stay finite far above the knee.
+            let soft = Self.recoveryWidth * (max(u, 0) + log1p(exp(-abs(u))))
+            d -= recovery * Self.recoverySlope * soft
         }
         return d
     }
