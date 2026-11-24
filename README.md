@@ -43,13 +43,14 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
         skin), **Blockbuster** (teal and orange with skin locked, clean blacks), **Night
         800** (tungsten after dark: cyan shadows, amber light, red glow) and **Bleach
         Bypass** (drained color, hard contrast, inky blacks).
-      - **Grades:** an earlier, softer pass, kept to compare: Desert, Pastel, Amber Haze,
-        Sodium, Neon Night, Slide 70s and Bleach Grit.
+      - **Grades:** an earlier pass, kept to compare: Neon Night, Slide 70s and Bleach Grit.
   - **Each look has its own key, contrast, color and shadows,** spaced further apart than
     Instagram-style filters, so they're easy to tell apart at a glance.
   - **Photos keep the look they were made with.** Looks from earlier versions (Natural,
-    Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400, Silver) are no longer offered,
-    but photos made with them look exactly as before.
+    Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400, Silver, Desert, Pastel, Amber
+    Haze, Sodium) are no longer offered, but photos made with them look exactly as before
+    and keep their look's name. A camera or Default Grade left on one moves to the closest
+    current look, or to Original.
   - **The live preview closely matches the saved photo.** The viewfinder undoes Apple's own
     rendering (its curve and extra saturation, measured on real shots) before applying
     the film, so the look you frame is the look you get. iPhones give apps only
@@ -156,17 +157,18 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
   sliders (double-tap one to reset it; every drag is one Undo step).
   - **Looks**: Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks;
     Movie; and Grades, with live thumbnails and a set menu. Every look develops from the
-    RAW.
+    RAW. Under the looks:
+    - a **Local Tone** slider that dodges and burns: shade comes up, skies come down, and
+      detail stays;
+    - for film looks on a RAW, an **Apple Tone** switch: the film prints Apple's own
+      rendering of the RAW, its local tone mapping included, so the photo comes out the
+      way the viewfinder showed it.
+    Both stay as you try other looks.
   - **Optional controls** (each can be switched off in Preferences → Processing → Editor
     Controls): a **Film** tool for film looks (Printer Lights, Push/Pull, Flashing, Silver
     Retention, Grain Colour, Halation Size and Colour), plus **Colour Grading**, a **Tone
-    Curve**, **Dehaze**, **Sky** / **Subject** masks with their own exposure and
-    saturation, and **Local Tone** (Tone tool):
-    - a **Local Tone** slider that dodges and burns: shade comes up, skies come down, and
-      detail stays;
-    - for film looks, an **Apple Tone** switch: the film prints Apple's own rendering of
-      the RAW, its local tone mapping included, so the photo comes out the way the
-      viewfinder showed it.
+    Curve**, **Dehaze**, a **Sky** mask with its own exposure and saturation, and Local
+    Tone & Apple Tone (Looks tool).
   - **Highlight Recovery** (Tone, film looks) brings back skies that print white: the RAW
     keeps its highlight headroom and the brightest parts of the scene are compressed before
     the film. Under a film look, **Sky Exposure** works like a graduated ND filter on the
@@ -174,6 +176,7 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
   - Ranges like Chromagraph's: **Exposure ±6 stops**; under a film look **Highlights** and
     **Shadows** re-expose whole regions of the scene (up to ±3 stops) and **Contrast** goes
     to ×2 around a **Pivot**; **Grain** up to 4× with its own **Grain Size**.
+  - **ⓘ** on every tab says what each control does and how they work together.
   - **Pinch to zoom** while you edit; hold ◧ to compare with the original.
   - **✓** saves the grade (the RAW is never touched; Reset to Original is always there).
     **⋯** has Copy/Paste Grade, Set as Default Grade (new shots start from it), Reset and

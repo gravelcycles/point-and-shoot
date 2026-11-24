@@ -243,8 +243,9 @@ struct CameraSettings: Codable, Equatable {
             var saved = saved
             if let grade = saved["defaultGrade"] as? [String: Any],
                let data = try? JSONSerialization.data(withJSONObject: grade),
-               let decoded = EditRecipe.decodeSaved(data),
-               let object = TolerantJSON.object(movingPrintToPhromagraph(decoded)) {
+               // A grade on a retired look moves on like the camera's choice, or goes.
+               let decoded = EditRecipe.decodeSaved(data).flatMap(Look.movingOffRetired),
+               let object = TolerantJSON.object(decoded) {
                 saved["defaultGrade"] = object
             } else if saved["defaultGrade"] != nil {
                 // Unreadable: drop just the grade, never the whole setup.
@@ -262,19 +263,6 @@ struct CameraSettings: Codable, Equatable {
             }
             return saved
         }
-    }
-
-    /// A default grade on the Print look (no longer offered) moves to Phromagraph, the same
-    /// rendering fitted to Chromagraph, keeping its sliders. Photos made with Print keep it.
-    static func movingPrintToPhromagraph(_ grade: EditRecipe) -> EditRecipe {
-        guard grade.look == Look.printID, let phromagraph = Look.named("phromagraph") else { return grade }
-        guard var film = grade.film else { return grade.withLook(phromagraph) }
-        var g = grade
-        g.look = phromagraph.id
-        film.stock = phromagraph.id
-        film.tuning = FilmStock.named(phromagraph.id)
-        g.film = film
-        return g
     }
 
     func save() {

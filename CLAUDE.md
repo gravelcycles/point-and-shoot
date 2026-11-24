@@ -91,8 +91,8 @@ call: "let's make that the default now. no more 2 apps". Reference for what was 
   default stock and the base of the others).
 - **Old settings still load:** removed keys (`mode`, `printPlacement`, `frameRate`, …) are
   ignored by `TolerantJSON`. A camera saved in Print mode, a Print capture look and a
-  Default Grade on Print move to Phromagraph (the grade keeps its sliders,
-  `CameraSettings.movingPrintToPhromagraph`); one saved in Video opens in Photo.
+  Default Grade on Print move to Phromagraph (the grade as Phromagraph is designed, via
+  `Look.movingOffRetired`, like any retired look); one saved in Video opens in Photo.
 - **Lens chips read 0.5 / 1× / 2 / 3** (zoom relative to the main lens, `LensZoom`), not mm.
 - **Phones without ProRAW** (non-Pro): `CameraSettings.proRAWAvailable`, learned from the
   main camera's photo output and saved, makes every photo Bayer RAW with no per-shot toast;
@@ -375,11 +375,12 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     - Essentials: Original, Phromagraph, Punch, Noir (Print left the pickers, 2026-11-24).
     - Film Stocks: Portrait 400, Evergreen, Slide, Lush.
     - Movie: Three-Strip, Blockbuster, Night 800, Bleach Bypass.
-    - Grades: PR #35's first pass, with its ids and tunings untouched (Desert, Pastel, Amber
-      Haze, Sodium, Neon Night, and #35's Slide and Bleach Bypass, renamed "Slide 70s" and
-      "Bleach Grit" but still ids `slide` / `bleach`). The new Slide and Bleach Bypass are
-      `classicslide` / `bleachbypass`: an id always means one look, or saved choices, default
-      grades and the editor's highlight would point at the wrong one.
+    - Grades: PR #35's first pass, with its ids and tunings untouched (Neon Night, and #35's
+      Slide and Bleach Bypass, renamed "Slide 70s" and "Bleach Grit" but still ids `slide` /
+      `bleach`). The new Slide and Bleach Bypass are `classicslide` / `bleachbypass`: an id
+      always means one look, or saved choices, default grades and the editor's highlight
+      would point at the wrong one. #35's Desert, Pastel, Amber Haze and Sodium were retired
+      on 2026-11-24 (the owner: "remove desert through sodium looks"; see "Retired looks").
     - Adding a look: give it a `set` in both places. `export-swift` refuses a JSON set that
       disagrees with `Look.all` (or a look with no stock), and `SettingsTests` pins the
       Essentials and checks every film look's stock exists.
@@ -587,14 +588,24 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       other. CSSgram's 26 Instagram-style filters have a nearest-neighbour median of
       0.050 and a minimum of 0.021.
   - **Retired looks** (Natural, Warm 400, Skin, Cool Air, Cine, Chrome, Faded, Mono 400,
-    Silver; 2026-11-17) are out of `Look.all` and `FilmStock.all` but every photo made
-    with one renders exactly as before: pinned tuning, else `FilmStock.Legacy.v2`
-    (`resolved(for:)`; `namedOrRetired` fills gaps in an older pinned tuning from that
-    retired stock, not from Print). `Look.retired` keeps their names (`displayName`, the
-    editor's info row) and moves a saved camera choice on: Chrome → Slide (`classicslide`), Skin → Portrait
-    400, Cool Air → Evergreen, Cine → Blockbuster, Mono 400 / Silver → Noir, the rest →
-    Original (`CameraSettings.decodeSaved`). Never reuse a
-    retired id for a different look.
+    Silver; 2026-11-17. Desert, Pastel, Amber Haze, Sodium; 2026-11-24) are out of
+    `Look.all` and `FilmStock.all` but every photo made with one renders exactly as before:
+    pinned tuning, else `FilmStock.Legacy.v2` (`resolved(for:)`; `namedOrRetired` fills gaps
+    in an older pinned tuning from that retired stock, not from Print). `Look.retired` keeps
+    their names (`displayName`, the editor's info row) and moves a saved camera choice on:
+    Chrome → Slide (`classicslide`), Skin → Portrait 400, Cool Air → Evergreen, Cine →
+    Blockbuster, Mono 400 / Silver → Noir, Desert / Pastel → Portrait 400, Sodium → Night
+    800, the rest → Original (`CameraSettings.decodeSaved`). Never reuse a retired id for a
+    different look.
+    - Looks retired after pinning existed (#35's four) keep their spec in `film-looks.json`
+      with `"retired": true`: `export-swift` still writes their stocks, byte-identical, but
+      into `FilmStock.retiredStocks`, never `FilmStock.all`, so the prewarm, the LOOK strip,
+      `tableCapacity`, `spread` and `scope` skip them. `namedOrRetired` reads
+      `retiredStocks` first, then the frozen history. `export-swift` refuses a retired look
+      that's still in `Look.all` or missing from `Look.retired`.
+    - A Default Grade on a retired look moves on with the camera's choice
+      (`Look.movingOffRetired`, in `CameraSettings.decodeSaved`): the successor as designed,
+      or no default grade.
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
 - **Only Phromagraph (and the retired Print) capture RAW** (`Look.capturesRAW`). The others apply to
   whatever Photo mode's processing produced, and develop from RAW when the shot has a DNG.
@@ -715,7 +726,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     stocks inherit from in `film-looks.json`.
   - `Look.printLook` builds the recipe picking Print did, for tests and older-photo code.
   - Saved settings move on (`CameraSettings.decodeSaved`): capture look Print → Phromagraph,
-    `mode` "print" → Phromagraph, a Default Grade on Print → Phromagraph with its sliders.
+    `mode` "print" → Phromagraph, a Default Grade on Print → Phromagraph as designed (`Look.movingOffRetired`).
 - **Capture:** every photo keeps its DNG; `RecipeBaker` / `ShotRenderer` render the edit
   from it.
   - **Noise.** A Bayer RAW is a single frame with none of Apple's multi-frame noise
@@ -918,7 +929,8 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Import RAW Photos (system picker, no permission) and Import Archive in Preferences →
     General.
 - **Editor:**
-  - Tools: Looks (19 plus Original, in named sets) · Tone (Exposure ±6 stops, Contrast +
+  - Tools: Looks (15 plus Original, in named sets; Local Tone and Apple Tone under the
+    strip) · Tone (Exposure ±6 stops, Contrast +
     Pivot under film looks / + Fade otherwise, Shadow/Highlight, Whites/Blacks, Fade (film),
     RAW) · Color (Balance, Saturation + B&W, Crossover, Mixer) · Texture (Grain amount 0–200
     = up to 4× the look's + Grain Size 0.25–3×, Halation, Detail, Vignette, Noise) · Crop.
@@ -942,10 +954,11 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       amount, luminance-neutral tints weighted by luminance) and the parametric Tone Curve
       (Highlights/Lights/Darks/Shadows, monotone, black and white fixed) baked into one 33³
       sRGB cube; Dehaze (wide unsharp mask + black point + saturation, or a blue-grey veil);
-      Sky and Subject masks with exposure (±2 stops) and saturation. The sky is found by
-      colour (bright, not warm, not green) and position (top), blurred; the subject by
-      Vision's foreground instance mask on the framed source (iOS 17), cached per source
-      image and framing (`NSMapTable`, weak keys), and a no-op where Vision finds nothing.
+      the Sky mask with exposure (±2 stops) and saturation (`EditorExtra.masks`, shown as
+      "Sky"). The sky is found by colour (bright, not warm, not green) and position (top),
+      blurred. The Subject sub-tab was removed (2026-11-24, the owner: "remove
+      tone->subject"); `subjectExposure` / `subjectSaturation` still decode and render
+      (Vision's foreground mask, `ExtraGrades.subjectMask`) for grades that used them.
     - **Highlight Recovery** (Tone → Highlight Recovery, film looks; `EditRecipe.highlightRecovery`,
       `FilmControls.recovery`; not an optional extra). The owner: "the sky oftentimes goes
       white... I haven't really found a group of settings that works to fix this consistently".
@@ -982,7 +995,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
         instead of getting its color back".
       - This changed how film photos edited with Sky Exposure in the two days after #61
         render.
-    - **Local Tone and Apple Tone** (Tone → Local Tone; `EditorExtra.localTone`). The
+    - **Local Tone and Apple Tone** (in the Looks tool, under the looks strip, the owner:
+      "show local tone under the looks editing tab"; was Tone → Local Tone;
+      `EditorExtra.localTone` hides both; the row's ⓘ shows the `local` help). The
       owner noticed the viewfinder under Phromagraph looked better than the saved photo:
       the face lifted out of a hat's shade, clouds in the sky. That's Apple's local tone
       mapping, baked into the live video, which engine 2's un-render can't undo (it removes
@@ -1012,13 +1027,18 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
           against `localToneGain`.
         - Not in the live viewfinder (`animateGrain`), which already shows Apple's version
           and shouldn't pay for two wide blurs a frame.
+        - Kept when the look changes (`resetTone`), like Apple Tone: it sits under the
+          looks strip, so trying looks mustn't reset it.
         - Untuned: the owner tests it on device. Watch for glows along hard edges.
   - Each tool has
     sub-tab pills and labelled `GradeSlider`s: a default mark and detent, double-tap to
     reset, one undo step per drag.
   - **ⓘ on every tab** (`EditorHelp`, `ControlHelpSheet`): what each control does (film and
     Original wording where they differ) and how the tab's controls work together. Every
-    slider and toggle must have an entry (`testEveryControlIsExplained`).
+    slider and toggle must have an entry (`testEveryControlIsExplained`). Rewritten
+    2026-11-24 from the implementation (the owner: "update descriptions for what each
+    editing setting does"): one to three plain sentences for a photographer, no
+    implementation detail; update the entry whenever a control's behaviour changes.
   - The Mixer shows one slider at a time (a Hue / Saturation / Luminance switch): all three
     didn't fit an iPhone 12 Pro's panel. It reaches full strength from 12% saturation
     (was 22%, invisible on muted film-graded photos), hue ±40°, luminance ±0.4.

@@ -95,6 +95,12 @@ final class ExtraControlsTests: XCTestCase {
             r.localTone = 80
             XCTAssertGreaterThan(maxDiff(pixels(r), pixels(start)), 0.01)
         }
+        // It sits under the looks strip: trying another look keeps it, like Apple Tone.
+        var r = EditRecipe()
+        r.localTone = 60
+        for look in Look.all { XCTAssertEqual(r.withLook(look).localTone, 60, look.id) }
+        // A look on its own never sets it.
+        for look in Look.all { XCTAssertNil(look.recipe.localTone, look.id) }
     }
 
     /// Highlight Recovery (the owner: "the sky oftentimes goes white"): off by default; on,
@@ -312,6 +318,7 @@ final class ExtraControlsTests: XCTestCase {
                 m[keyPath: path] = v
                 XCTAssertGreaterThan(maxDiff(pixels(m), base), 0.005, "\(path) = \(v) changed nothing")
             }
+            // The Subject sliders left the editor, but grades that used them still render so.
             var subject = start
             subject.subjectExposureValue = 100
             XCTAssertEqual(pixels(subject).count, base.count)
@@ -370,9 +377,24 @@ final class ExtraControlsTests: XCTestCase {
         for a in all {
             XCTAssertNotNil(EditorHelp.controls[a.id], "\(a.id) has no ⓘ text")
         }
-        for id in ["mono", "pixelGrain", "mixerBands", "appleTone", "highlightRecovery"] { XCTAssertNotNil(EditorHelp.controls[id], id) }
+        for id in ["mono", "pixelGrain", "mixerBands", "mixerChannel", "appleTone", "highlightRecovery", "localTone"] {
+            XCTAssertNotNil(EditorHelp.controls[id], id)
+        }
         for tab in ["contrast", "shadowHighlight", "grain", "printer", "process", "silver", "curveLights", "sky", "local", "raw", "recovery"] {
             XCTAssertNotNil(EditorHelp.together(tab, isFilm: true), tab)
+        }
+        // The Subject mask left the editor ("remove tone->subject"): no slider, no text.
+        for id in ["subjectExposure", "subjectSaturation"] {
+            XCTAssertNil(Adjustment.catalog[id], id)
+            XCTAssertNil(EditorHelp.controls[id], id)
+        }
+        XCTAssertNil(EditorHelp.together("subject", isFilm: false))
+        // Short and for a photographer: no entry runs past three sentences' worth.
+        for (id, entry) in EditorHelp.controls {
+            for text in [entry.text, entry.film].compactMap({ $0 }) {
+                XCTAssertLessThan(text.count, 420, "\(id): keep it to one to three sentences")
+                XCTAssertFalse(text.contains("Subject") || text.contains("Print mode"), id)
+            }
         }
     }
 

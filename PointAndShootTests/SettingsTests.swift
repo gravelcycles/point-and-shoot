@@ -90,14 +90,13 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(s.captureLook, "punch")
     }
 
-    /// Print as the camera's look, or as the Default Grade's look, moves to Phromagraph; the
-    /// default grade keeps its sliders.
+    /// Print as the camera's look, or as the Default Grade's look, moves to Phromagraph (the
+    /// same rendering), like any retired look (`Look.movingOffRetired`): as designed.
     func testAPrintLookOrDefaultGradeMovesToPhromagraph() throws {
         var s = CameraSettings()
         s.captureLook = Look.printID
         var grade = Look.printLook.recipe
         grade.exposure = 25
-        grade.contrast = -10
         s.defaultGrade = grade
         let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
         XCTAssertEqual(decoded.captureLook, "phromagraph")
@@ -105,14 +104,8 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(moved.look, "phromagraph")
         XCTAssertEqual(moved.film?.stock, "phromagraph")
         XCTAssertEqual(moved.film?.tuning, FilmStock.named("phromagraph"))
-        XCTAssertEqual(moved.exposure, 25, "the grade's sliders stay")
-        XCTAssertEqual(moved.contrast, -10)
+        XCTAssertEqual(moved.exposure, 0, "Phromagraph as designed")
         XCTAssertEqual(decoded.startingGrade?.look, "phromagraph", "and it still starts new shots")
-        XCTAssertEqual(decoded.startingGrade?.exposure, 25)
-        // Any other default grade is left alone.
-        var punch = try XCTUnwrap(Look.named("punch")).recipe
-        punch.exposure = 10
-        XCTAssertEqual(CameraSettings.movingPrintToPhromagraph(punch), punch)
     }
 
     func testStartingGrade() {
@@ -214,8 +207,9 @@ final class SettingsTests: XCTestCase {
         // A look added without `set:` silently lands in Essentials: pin its membership.
         XCTAssertEqual(LookSet.essentials.looks.map(\.id), ["phromagraph", "punch", "noir"])
         // Grades keep PR #35's ids, so its photos, saved choices and default grades still mean
-        // the same looks; the new Slide and Bleach Bypass have ids of their own.
-        XCTAssertEqual(LookSet.grades.looks.map(\.id), ["desert", "pastel", "amber", "sodium", "neon", "slide", "bleach"])
+        // the same looks; the new Slide and Bleach Bypass have ids of their own. Desert,
+        // Pastel, Amber Haze and Sodium are retired.
+        XCTAssertEqual(LookSet.grades.looks.map(\.id), ["neon", "slide", "bleach"])
         XCTAssertEqual(Look.named("slide")?.name, "Slide 70s")
         XCTAssertEqual(Look.named("bleach")?.name, "Bleach Grit")
         XCTAssertEqual(Look.named("classicslide")?.set, .stocks)
@@ -238,8 +232,8 @@ final class SettingsTests: XCTestCase {
     func testStripKeepsTheActiveLookAndCountsWhatItShows() {
         var s = CameraSettings()
         s.lookSet = LookSet.movie.rawValue
-        s.captureLook = "desert"            // a Grades look
-        XCTAssertEqual(s.stripLooks.first?.id, "desert")
+        s.captureLook = "neon"              // a Grades look
+        XCTAssertEqual(s.stripLooks.first?.id, "neon")
         XCTAssertEqual(s.stripLooks.count, s.filterLooks.count + 1)
         s.captureLook = "blockbuster"       // already in the set: not doubled
         XCTAssertEqual(s.stripLooks.map(\.id), s.filterLooks.map(\.id))
@@ -252,7 +246,8 @@ final class SettingsTests: XCTestCase {
     func testRetiredLookMovesToItsSuccessorOrOff() throws {
         for (retired, expected) in [("print", "phromagraph"), ("chrome", "classicslide"), ("mono400", "noir"), ("silver", "noir"),
                                     ("cine", "blockbuster"), ("portrait", "portrait400"), ("cool", "evergreen"),
-                                    ("warm400", nil), ("bogus", nil)] as [(String, String?)] {
+                                    ("desert", "portrait400"), ("pastel", "portrait400"), ("sodium", "night800"),
+                                    ("amber", nil), ("warm400", nil), ("bogus", nil)] as [(String, String?)] {
             var s = CameraSettings()
             s.captureLook = retired
             let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
@@ -263,5 +258,36 @@ final class SettingsTests: XCTestCase {
             XCTAssertNil(Look.named(id), "\(id) is offered again: take it out of Look.retired")
             if let next = entry.successor { XCTAssertNotNil(Look.named(next), "\(id)'s successor \(next) isn't offered") }
         }
+    }
+
+    /// A Default Grade on a retired look moves on with the camera's choice: its successor as
+    /// designed, or no default grade (the Default Grade picker can't show a retired look).
+    func testDefaultGradeOnARetiredLookMovesOn() throws {
+        for (retired, expected) in [("desert", "portrait400"), ("sodium", "night800"), ("amber", nil),
+                                    ("chrome", "classicslide")] as [(String, String?)] {
+            var grade = EditRecipe()
+            grade.look = retired
+            grade.film = FilmRecipe(stock: retired, tuning: FilmStock.namedOrRetired(retired), engine: FilmRecipe.currentEngine)
+            grade.exposure = 20
+            var s = CameraSettings()
+            s.captureLook = retired
+            s.defaultGrade = grade
+            let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
+            XCTAssertEqual(decoded.captureLook, expected, retired)
+            XCTAssertEqual(decoded.defaultGrade?.look, expected, retired)
+            if let expected {
+                XCTAssertEqual(decoded.defaultGrade?.film?.tuning, FilmStock.named(expected), retired)
+                XCTAssertEqual(decoded.defaultGrade?.exposure, 0, "\(retired): the successor as designed")
+            }
+        }
+        // A current look's grade is kept as it was.
+        var s = CameraSettings()
+        var grade = Look.named("neon")!.recipe
+        grade.exposure = 20
+        s.captureLook = "neon"
+        s.defaultGrade = grade
+        let decoded = try XCTUnwrap(CameraSettings.decodeSaved(try JSONEncoder().encode(s)))
+        XCTAssertEqual(decoded.defaultGrade?.exposure, 20)
+        XCTAssertEqual(decoded.defaultGrade?.look, "neon")
     }
 }

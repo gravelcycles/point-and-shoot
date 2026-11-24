@@ -116,7 +116,9 @@ final class FrozenTuningTests: XCTestCase {
         // others): `testPrintIsRetiredFromThePickersButStillRendersAndIsNamed`.
         for (id, entry) in Look.retired where id != Look.printID {
             XCTAssertNil(FilmStock.all[id], "\(id) is retired but still offered")
-            let shipped = try XCTUnwrap(FilmStock.Legacy.v2[id], "\(id) missing from the frozen history")
+            // Retired before pinning: the frozen history. Retired since: still generated.
+            let shipped = try XCTUnwrap(FilmStock.Legacy.v2[id] ?? FilmStock.retiredStocks[id],
+                                        "\(id) missing from the frozen history and the retired stocks")
             var unpinned = EditRecipe()
             unpinned.look = id
             unpinned.film = FilmRecipe(stock: id, tuning: nil, engine: nil)
@@ -141,6 +143,46 @@ final class FrozenTuningTests: XCTestCase {
         unpinned.film?.tuning = nil
         unpinned.film?.stock = nil
         XCTAssertEqual(FilmStock.resolved(for: unpinned), FilmStock.Legacy.v2[Look.printID] ?? FilmStock.printLook)
+    }
+
+    /// PR #35's Desert, Pastel, Amber Haze and Sodium (retired 2026-11-24): their photos
+    /// pinned their tuning, so they render exactly as made, keep their name, fill a field
+    /// their tuning lacks from their own stock (not Print), and never come back as picks.
+    func testRemovedGradesKeepRenderingAndTheirNames() throws {
+        for (id, name) in [("desert", "Desert"), ("pastel", "Pastel"), ("amber", "Amber Haze"), ("sodium", "Sodium")] {
+            XCTAssertNil(Look.named(id), "\(id) is offered again")
+            XCTAssertNil(FilmStock.all[id], "\(id) is retired but still prewarmed and counted")
+            XCTAssertFalse(LookSet.allCases.contains { $0.looks.contains { $0.id == id } }, id)
+            XCTAssertEqual(Look.displayName(id), name, "the viewer and editor should still name \(id)")
+            let stock = try XCTUnwrap(FilmStock.retiredStocks[id], id)
+            XCTAssertEqual(stock.id, id)
+            XCTAssertNotEqual(stock, FilmStock.printLook, id)
+            XCTAssertEqual(FilmStock.namedOrRetired(id), stock, id)
+
+            // A photo made with it, as the look pinned it, renders with that tuning.
+            var r = EditRecipe()
+            r.look = id
+            r.film = FilmRecipe(stock: id, tuning: stock, engine: FilmRecipe.currentEngine)
+            r.grain = FilmRecipe.defaultGrain
+            XCTAssertEqual(FilmStock.resolved(for: r), stock, id)
+            let data = try JSONEncoder().encode(r)
+            XCTAssertEqual(EditRecipe.decodeSaved(data)?.film?.tuning, stock, "\(id): reopens with its tuning")
+            XCTAssertEqual(EditRecipe.decodeSaved(data)?.look, id)
+
+            // Pinned before a field existed: it fills from its own stock.
+            var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            var film = try XCTUnwrap(obj["film"] as? [String: Any])
+            var tuning = try XCTUnwrap(film["tuning"] as? [String: Any])
+            tuning.removeValue(forKey: "shadowTint")
+            film["tuning"] = tuning
+            obj["film"] = film
+            let reopened = try XCTUnwrap(EditRecipe.decodeSaved(try JSONSerialization.data(withJSONObject: obj)))
+            XCTAssertEqual(reopened.film?.tuning, stock, "\(id): a missing field must come from \(id), not Print")
+
+            // Unpinned (never shipped that way, but safe): its own stock, not Print.
+            r.film?.tuning = nil
+            XCTAssertEqual(FilmStock.resolved(for: r), stock, id)
+        }
     }
 
     func testRetiredPinnedTuningMissingAFieldFillsFromItsOwnStock() throws {
