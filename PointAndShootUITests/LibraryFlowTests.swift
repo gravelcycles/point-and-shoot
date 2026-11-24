@@ -235,6 +235,73 @@ final class LibraryFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Print applied to 2"].waitForExistence(timeout: 4), "no confirmation that the look was applied")
     }
 
+    // MARK: Selecting in the grid (like Photos)
+
+    /// How many photos the grid has selected (a -uitest probe).
+    private func selectionCount() -> Int {
+        let probe = app.staticTexts.matching(identifier: "grid.selection").firstMatch
+        guard probe.exists else { return -1 }
+        return Int(probe.label) ?? -1
+    }
+
+    private func waitForSelection(_ expected: Int, timeout: TimeInterval = 4) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if selectionCount() == expected { return true }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        return selectionCount() == expected
+    }
+
+    private func openGrid() -> XCUIElementQuery {
+        openViewer()
+        app.buttons["viewer.grid"].tap()
+        XCTAssertTrue(app.buttons["grid.select"].waitForExistence(timeout: 4), "the grid didn't open")
+        let cells = app.descendants(matching: .any).matching(identifier: "grid.cell")
+        XCTAssertEqual(cells.count, 3)
+        return cells
+    }
+
+    /// Holding a photo starts Select mode with it selected; in Select mode a tap toggles a
+    /// photo, and holding selects too.
+    func testHoldingAPhotoSelectsItAndTapsToggleSelection() {
+        let cells = openGrid()
+        cells.element(boundBy: 0).press(forDuration: 1.0)
+        XCTAssertTrue(app.buttons["grid.cancel"].waitForExistence(timeout: 3), "holding a photo didn't start Select mode")
+        XCTAssertTrue(waitForSelection(1), "holding a photo didn't select it (\(selectionCount()))")
+        XCTAssertTrue(app.buttons["grid.delete"].exists, "no Select toolbar")
+        cells.element(boundBy: 1).tap()
+        XCTAssertTrue(waitForSelection(2), "a tap in Select mode didn't select (\(selectionCount()))")
+        cells.element(boundBy: 1).tap()
+        XCTAssertTrue(waitForSelection(1), "a second tap didn't deselect (\(selectionCount()))")
+        cells.element(boundBy: 0).tap()
+        XCTAssertTrue(waitForSelection(0), "tapping the held photo didn't deselect it (\(selectionCount()))")
+        XCTAssertTrue(app.buttons["grid.cancel"].exists, "deselecting everything left Select mode")
+        cells.element(boundBy: 2).press(forDuration: 1.0)
+        XCTAssertTrue(waitForSelection(1), "holding in Select mode didn't select (\(selectionCount()))")
+        // The toolbar acts on what was selected by holding.
+        app.buttons["grid.delete"].tap()
+        confirmMoveToTrash()
+        XCTAssertTrue(waitForRollCount(2), "trashing the held selection didn't remove it (\(rollCount()))")
+    }
+
+    /// Sweeping sideways across photos in Select mode selects the run; so does holding a
+    /// photo and dragging before lifting.
+    func testSweepingAcrossPhotosSelectsTheRun() {
+        let cells = openGrid()
+        let first = cells.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let last = cells.element(boundBy: 2).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        app.buttons["grid.select"].tap()
+        XCTAssertTrue(app.buttons["grid.cancel"].waitForExistence(timeout: 3))
+        first.press(forDuration: 0.05, thenDragTo: last)
+        XCTAssertTrue(waitForSelection(3), "a sweep didn't select the run (\(selectionCount()))")
+        app.buttons["grid.cancel"].tap()
+        XCTAssertTrue(app.buttons["grid.select"].waitForExistence(timeout: 3))
+        first.press(forDuration: 1.0, thenDragTo: last)
+        XCTAssertTrue(app.buttons["grid.cancel"].waitForExistence(timeout: 3), "hold and drag didn't start Select mode")
+        XCTAssertTrue(waitForSelection(3), "hold and drag didn't select the run (\(selectionCount()))")
+    }
+
     func testGridSelectTrashTwoThenRestoreFromTheTrash() {
         openViewer()
         let before = rollCount()

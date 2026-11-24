@@ -156,7 +156,9 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Camera/VideoRecorder.swift      AVAssetWriter recorder (video+audio, location metadata)
   Camera/LocationTagger.swift     CoreLocation GPS + compass; EXIF/ISO6709 builders
   UI/CameraView.swift             main screen, top bar, lens picker, shutter (tap/hold-burst),
-                                  thumbnail, gestures, hints, launch-request handling
+                                  thumbnail, gestures, launch-request handling
+  UI/IntroView.swift              first-run intro: 5 swipeable pages, skippable, shown once
+                                  (`intro.v1.seen`); asks camera + location on its last page
   UI/TopBar.swift                 top bar: flash/timer/settings buttons, format pill, format panels
   UI/ControlStrip.swift           FOCUS/WB/ISO/SHUTTER/EV/LOOK readouts + DialPanel
   UI/ScrubDial.swift              haptic tick-mark jog dial (reused in the editor's straighten)
@@ -174,13 +176,15 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Library/ZipArchive.swift        minimal zip writer (stored) / reader (stored + deflate), CRC-checked
   Library/PhotoViewer.swift       viewer: filmstrip, Keep, trash + Undo, export, zoom (RAW detail render)
   Library/LibraryView.swift       grid by day, Select (export/share/keep/grade/archive/trash), Trash view
+  Library/GridSelectGestures.swift  grid hold-to-select and sweep selection (UIKit recognizers on the
+                                  grid's UIScrollView) + `GridSweep`, the run rule — unit-tested
   Library/ZoomableImageView.swift Photos-style zoom for viewer pages (UIScrollView: pinch+pan, double-tap)
   Library/PhotoLibrary.swift      Photos helpers (save for export/archive, video save)
   Library/LockedCaptureImporter.swift  moves Lock Screen shots (parked DNGs) into the library
   Library/RollLogic.swift         pure viewer selection + thumbnail handoff rules — unit-tested
   App/TolerantJSON.swift          decodes saved settings/recipes from any app version (missing keys → defaults)
   App/TestHooks.swift             -uitest, unit-test host, -uitest-seed N (library) / -uitest-photos N
-                                  (Photos) seeding, roll.count probe, viewer gesture probes
+                                  (Photos) seeding, -uitest-intro, roll.count probe, viewer gesture probes
   Editor/EditorView.swift         editor: Looks · Tone · Color · Texture · Crop, sub-tabs, GradeSlider
   Editor/EditSession.swift        loads a shot (RAW off main), preview graph, saves the grade to the store
   Editor/EditPipeline.swift       the edit as a Core Image graph (geometry → tone → color → detail → fx)
@@ -919,6 +923,25 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - Grid by day; Select → export, share, Keep, Apply Look… (a sheet; any look onto every selected
     photo, as the editor's Looks tool would: `EditRecipe.withLook`), copy/paste grade,
     Archive RAW, trash; Trash view.
+  - Selecting like Photos (the owner: "hold to select multiple photos needs to work as well.
+    in select mode press to select as well"): hold a photo to start Select mode with it
+    selected (a haptic); in Select mode a tap toggles a photo and a hold does too; keep the
+    finger down and drag, or sweep sideways in Select mode, to select (or, starting on a
+    selected photo, deselect) the run between (`GridSelectGestures`, `GridSweep`).
+    - The hold and the sweep are UIKit recognizers on the grid's own `UIScrollView`, found
+      from a view inside its content; SwiftUI long-press/drag gestures in a `ScrollView`
+      block scrolling or get cancelled by it, depending on the iOS version. The scroll
+      view's pan waits for the sweep to fail, which it does at once unless the drag is
+      sideways in Select mode, so a vertical drag still scrolls. Cells report their
+      `.global` frames into `GridCellFrames` (a plain reference: no re-render while
+      scrolling); a long press's lift is never also a tap (`pressEnded`).
+    - No auto-scroll at the edges yet: a run is limited to what's on screen.
+- **Intro** (`IntroView`, first launch; Preferences → General → Show Introduction brings it
+  back over the camera, which pauses meanwhile): what the app is, shooting gestures, looks
+  and the Default Grade, the library and editor, then camera and location access, each
+  with why. The camera screen isn't built until the first intro is done, so its permission
+  prompt never sits under the intro; Skip leaves the prompts to the camera as before.
+  UI tests never see it unless launched with `-uitest-intro` (`IntroTests`).
   - Import RAW Photos (system picker, no permission) and Import Archive in Preferences →
     General.
 - **Editor:**
@@ -1126,9 +1149,10 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   whole screen on every tick and makes controls feel sticky.
 - **UI tests:** `PointAndShootUITests` runs in the simulator with the `-uitest` launch
   argument (`TestHooks.isUITest`). That mode skips the camera session, permission prompts
-  and the tour, and loads default settings.
+  and the intro (unless `-uitest-intro`), and loads default settings.
   - Tests find controls by accessibility identifiers (`strip.*`, `topbar.*` incl. `topbar.format`, `format.done`, `grid.*`, `viewer.*` (incl. `viewer.photo`, `viewer.edit`), `editor.*` (`editor.canvas`, `editor.save`, `editor.tool.<tool>`),
-    `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`).
+    `mode.*`, `dial.auto`, `viewfinder`, `focus.reticle`, `intro.*`). Probes: `roll.count`,
+    `grid.selection` (photos selected), `intro.page`.
   - New controls should get an identifier and, if they're custom, an off-center tap test.
   - **Run them locally first: `scripts/ui-tests.sh`** (a few minutes, no queue). Pass
     `-only-testing:PointAndShootUITests/<Class>/<test>` to run a single test. CI runs the
