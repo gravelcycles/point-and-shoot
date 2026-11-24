@@ -3,6 +3,9 @@ import SwiftUI
 /// The whole library, by day, as its own screen (the viewer swaps it in). Tap a photo to
 /// open it, the camera button to go straight back to shooting, or Select to pick several
 /// and export, share, keep, apply a look or paste a grade onto, or trash them together.
+/// Like Photos, holding a photo selects it (and starts Select mode), in Select mode a tap
+/// toggles a photo, and holding then dragging, or sweeping sideways in Select mode,
+/// selects a run of photos (`GridSelectGestures`).
 /// The Trash (shots deleted, or past their 30 days) is one tap away.
 /// Like Photos: oldest at the top, newest at the bottom right, opened at the bottom, or on
 /// the photo the viewer was showing (`focus`).
@@ -34,6 +37,11 @@ struct RollGrid: View {
     @State private var confirmArchive = false
     @State private var confirmTrash = false
     @State private var showLookPicker = false
+    /// The long press or sweep selecting a run of photos right now.
+    @State private var sweep: GridSweep?
+    /// When the last long press ended: its finger lifting is not a tap.
+    @State private var pressEnded = Date.distantPast
+    @State private var cellFrames = GridCellFrames()
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
 
@@ -67,8 +75,10 @@ struct RollGrid: View {
                                     cell(shot)
                                         .opacity(shot.id == hiding ? 0 : 1)
                                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                                            cellFrames.set(frame, for: shot.id)
                                             if shot.id == focus { onFocusFrame?(frame) }
                                         }
+                                        .onDisappear { cellFrames.remove(shot.id) }
                                         .id(shot.id)
                                 }
                             } header: {
@@ -79,6 +89,11 @@ struct RollGrid: View {
                                     .background(.bar)
                             }
                         }
+                    }
+                    .background {
+                        GridSelectGestures(enabled: visible, selecting: selecting,
+                                           onPress: { phase, point in pressSelect(phase, at: point) },
+                                           onSweep: { phase, point in sweepSelect(phase, at: point) })
                     }
                 }
                 // Scrolled explicitly, not with defaultScrollAnchor(.bottom): on a lazy grid
@@ -94,6 +109,7 @@ struct RollGrid: View {
                 }
             }
             .overlay(alignment: .topLeading) { RollCountProbe(store: store) }
+            .overlay(alignment: .topTrailing) { selectionProbe }
             .overlay(alignment: .bottom) {
                 if let progress {
                     ProgressPill(progress: progress).padding(.bottom, selecting ? 70 : 20)
@@ -112,6 +128,7 @@ struct RollGrid: View {
                 // Trashed elsewhere (or by the 30-day sweep): drop it from the selection.
                 selected.formIntersection(ids)
             }
+            .onChange(of: selecting) { _, on in if !on { sweep = nil } }
             // One presentation per anchor view.
             .background {
                 Color.clear.sheet(item: $share) { item in
@@ -160,6 +177,7 @@ struct RollGrid: View {
             .overlay {
                 if store.developing.contains(shot.id) {
                     ProgressView().tint(.white).controlSize(.small)
+                        .allowsHitTesting(false)
                 }
                 if selecting {
                     ZStack(alignment: .bottomTrailing) {
@@ -174,18 +192,24 @@ struct RollGrid: View {
                     .allowsHitTesting(false)
                 }
             }
+            // Only the square is the photo's: the thumbnail is scaled to fill and spills
+            // past it (clipped when drawn, not when hit-tested), so without this a tap near
+            // a cell's edge could land on its neighbour.
             .contentShape(Rectangle())
             .onTapGesture { tap(shot) }
             .accessibilityElement()
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityIdentifier("grid.cell")
+            .accessibilityAction(named: selecting && isSelected ? "Deselect" : "Select") {
+                if selecting { tap(shot) } else { startSelecting(with: shot.id) }
+            }
     }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             if selecting {
-                Button("Cancel") { selecting = false; selected = [] }
+                Button("Cancel") { withAnimation(.snappy(duration: 0.2)) { selecting = false }; selected = [] }
                     .accessibilityIdentifier("grid.cancel")
             } else {
                 Button { showTrash = true } label: {
@@ -201,7 +225,7 @@ struct RollGrid: View {
                 }
             } else {
                 HStack {
-                    Button("Select") { selecting = true }
+                    Button("Select") { withAnimation(.snappy(duration: 0.2)) { selecting = true } }
                         .disabled(store.shots.isEmpty)
                         .accessibilityIdentifier("grid.select")
                     Button(action: onCamera) {
@@ -278,11 +302,92 @@ struct RollGrid: View {
     }
 
     private func tap(_ shot: Shot) {
+        // A long press's finger lifting, or the end of a sweep, is not a tap.
+        guard sweep == nil, Date().timeIntervalSince(pressEnded) > 0.3 else { return }
         if selecting {
             if selected.contains(shot.id) { selected.remove(shot.id) } else { selected.insert(shot.id) }
             Haptics.selectionChanged()
         } else {
             onSelect(shot)
+        }
+    }
+
+    /// The grid's photos in display order (oldest first), as the sweeps count them.
+    private var order: [UUID] { days.flatMap { $0.shots.map(\.id) } }
+
+    /// Select mode with just this photo selected (a long press outside Select mode, or
+    /// VoiceOver's Select action).
+    private func startSelecting(with id: UUID) {
+        selected = [id]
+        withAnimation(.snappy(duration: 0.2)) { selecting = true }
+        Haptics.impact(.medium)
+    }
+
+    /// Holding a photo selects it, entering Select mode if needed; dragging before lifting
+    /// selects the run between. In Select mode, holding a selected photo deselects instead.
+    private func pressSelect(_ phase: GridSelectGestures.Phase, at point: CGPoint) {
+        switch phase {
+        case .began:
+            guard visible, let id = cellFrames.shot(at: point), let i = order.firstIndex(of: id) else { return }
+            if selecting {
+                beginSweep(at: i, id: id)
+                Haptics.impact(.medium)
+            } else {
+                startSelecting(with: id)
+                sweep = GridSweep(anchor: i, adds: true, base: [])
+            }
+        case .changed:
+            extendSweep(to: point)
+        case .ended:
+            sweep = nil
+            pressEnded = Date()
+        }
+    }
+
+    /// A sideways sweep in Select mode selects (or, starting on a selected photo, deselects)
+    /// every photo it crosses.
+    private func sweepSelect(_ phase: GridSelectGestures.Phase, at point: CGPoint) {
+        switch phase {
+        case .began:
+            guard visible, selecting, let id = cellFrames.shot(at: point), let i = order.firstIndex(of: id) else { return }
+            beginSweep(at: i, id: id)
+            Haptics.selectionChanged()
+        case .changed:
+            extendSweep(to: point)
+        case .ended:
+            sweep = nil
+        }
+    }
+
+    private func beginSweep(at index: Int, id: UUID) {
+        let run = GridSweep(anchor: index, adds: !selected.contains(id), base: selected)
+        sweep = run
+        selected = run.selection(in: order)
+    }
+
+    private func extendSweep(to point: CGPoint) {
+        // Between cells (or off the grid) the run stays as it was.
+        guard var run = sweep, let id = cellFrames.shot(at: point), let i = order.firstIndex(of: id),
+              i != run.current else { return }
+        run.current = i
+        sweep = run
+        let next = run.selection(in: order)
+        if next != selected {
+            selected = next
+            Haptics.selectionChanged()
+        }
+    }
+
+    /// UI tests: how many photos are selected (`grid.selection`).
+    @ViewBuilder private var selectionProbe: some View {
+        if TestHooks.isUITest {
+            Text("\(selected.count)")
+                .font(.system(size: 6))
+                .foregroundStyle(.white.opacity(0.02))
+                .frame(width: 20, height: 8)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("grid.selection")
+                .accessibilityLabel("\(selected.count)")
         }
     }
 

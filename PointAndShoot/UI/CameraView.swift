@@ -15,7 +15,6 @@ struct CameraView: View {
     @State private var reticleID = 0
     @State private var pinchStart: CGFloat = 1
     @State private var blink = false
-    @AppStorage("hints.v1.seen") private var hintsSeen = false
     @State private var panAxis: PanAxis?
     @State private var panStartEV: Float = 0
     @State private var evIndicator: Float?
@@ -200,11 +199,6 @@ struct CameraView: View {
             }
 
             Color.black.opacity(blink ? 0.85 : 0).allowsHitTesting(false)
-
-            if !hintsSeen && !TestHooks.isUITest {
-                GestureHints { withAnimation(.easeOut(duration: 0.25)) { hintsSeen = true } }
-                    .transition(.opacity)
-            }
         }
         .aspectRatio(s.mode.isStill ? 3.0 / 4.0 : 9.0 / 16.0, contentMode: .fit)
         .clipped()
@@ -674,49 +668,6 @@ struct PressScaleStyle: ButtonStyle {
             .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? scale : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-
-/// One-time cheat sheet for the gestures, shown on first launch.
-struct GestureHints: View {
-    let dismiss: () -> Void
-
-    private let hints: [(String, String)] = [
-        ("hand.tap", "Tap to focus · hold to lock"),
-        ("arrow.up.and.down", "Drag up/down for exposure"),
-        ("arrow.left.and.right", "Swipe for Photo / Video"),
-        ("arrow.up.left.and.arrow.down.right", "Pinch to zoom"),
-        ("circle.inset.filled", "Hold the shutter for burst"),
-        ("slider.horizontal.3", "Tap focus, WB, ISO, shutter, EV or LOOK to dial it in"),
-        ("arrow.counterclockwise", "Double-tap any control to put it back on auto"),
-        ("chevron.down.circle", "Tap the format pill up top for HEIF/JPEG, RAW and processing"),
-    ]
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.72)
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Quick tour")
-                    .font(.system(size: 22, weight: .bold))
-                ForEach(hints, id: \.1) { hint in
-                    HStack(spacing: 14) {
-                        Image(systemName: hint.0)
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(.yellow)
-                            .frame(width: 28)
-                        Text(hint.1).font(.system(size: 15, weight: .medium))
-                    }
-                }
-                Text("Tap anywhere to start shooting")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.top, 6)
-            }
-            .foregroundStyle(.white)
-            .padding(28)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: dismiss)
     }
 }
 

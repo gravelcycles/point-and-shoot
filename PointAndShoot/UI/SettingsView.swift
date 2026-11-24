@@ -8,7 +8,6 @@ struct SettingsView: View {
     let camera: CameraController
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab = .general
-    @AppStorage("hints.v1.seen") private var hintsSeen = false
     @State private var showLockScreenHelp = false
     @State private var showRAWPicker = false
     @State private var showArchivePicker = false
@@ -209,10 +208,11 @@ struct SettingsView: View {
         }
         Section {
             Button("Show Introduction") {
-                hintsSeen = false
                 dismiss()
+                IntroView.requestShow()
             }
             .settingsRow()
+            .accessibilityIdentifier("settings.showIntro")
             LabeledContent("Version", value: Diag.buildDescription)
             // A button rather than a NavigationLink, for the same clear pressed state.
             Button { showDiagnostics = true } label: {
