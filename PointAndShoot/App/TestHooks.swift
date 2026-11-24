@@ -2,12 +2,16 @@ import Photos
 import UIKit
 
 /// Test modes. The simulator has no camera, so tests run the real UI without the camera
-/// session, permission prompts or the first-launch tour.
+/// session, permission prompts or the first-launch intro.
 enum TestHooks {
     private static let args = ProcessInfo.processInfo.arguments
 
     /// UI tests (`-uitest` launch argument).
     static let isUITest = args.contains("-uitest")
+
+    /// `-uitest-intro`: open on the first-run intro (`IntroView`), which UI tests otherwise
+    /// never see.
+    static let showsIntro = isUITest && args.contains("-uitest-intro")
 
     /// The app is hosting the unit-test bundle (`PointAndShootTests`): show nothing, start
     /// nothing, so the tests own the process.

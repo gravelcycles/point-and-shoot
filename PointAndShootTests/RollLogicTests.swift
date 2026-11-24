@@ -87,4 +87,32 @@ final class RollLogicTests: XCTestCase {
         XCTAssertTrue(release(inLibrary: false), "Trashed before it was shown")
         XCTAssertTrue(release(saved: false), "Nothing was saved")
     }
+
+    // MARK: Grid sweep selection (hold and drag, or sweep sideways in Select mode)
+
+    func testSweepSelectsTheRunBetweenAnchorAndFinger() {
+        let ids = (0..<6).map { _ in UUID() }
+        var run = GridSweep(anchor: 1, adds: true, base: [ids[5]])
+        XCTAssertEqual(run.selection(in: ids), [ids[1], ids[5]])
+        run.current = 3
+        XCTAssertEqual(run.selection(in: ids), [ids[1], ids[2], ids[3], ids[5]])
+        // Back past the anchor: the run follows the finger, the earlier photos drop out.
+        run.current = 0
+        XCTAssertEqual(run.selection(in: ids), [ids[0], ids[1], ids[5]])
+    }
+
+    func testSweepStartingOnASelectedPhotoDeselects() {
+        let ids = (0..<4).map { _ in UUID() }
+        var run = GridSweep(anchor: 2, adds: false, base: Set(ids))
+        run.current = 3
+        XCTAssertEqual(run.selection(in: ids), [ids[0], ids[1]])
+    }
+
+    func testSweepSurvivesTheLibraryShrinking() {
+        let ids = (0..<3).map { _ in UUID() }
+        var run = GridSweep(anchor: 5, adds: true, base: [])
+        run.current = 7
+        XCTAssertEqual(run.selection(in: ids), [ids[2]])
+        XCTAssertEqual(run.selection(in: []), [])
+    }
 }

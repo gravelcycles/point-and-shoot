@@ -6,6 +6,10 @@ destroys your originals.
 
 Native SwiftUI + AVFoundation + Core Image on Metal. iPhone, iOS 17+.
 
+**First launch** opens a short intro: what the app is, how to shoot, looks, the library and
+the editor, then camera and location access with a line on why each is needed. Skip it any
+time; Preferences → General → **Show Introduction** brings it back.
+
 ## Photo
 
 | Control | What it does |
@@ -151,6 +155,9 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
     own screen, with a camera button straight back to shooting; it opens on the photo you
     were looking at. **Select** to export, share, keep, apply a look, paste a grade,
     archive or trash several at once. The **Trash** keeps photos 30 days.
+    - **Selecting works like Photos:** hold a photo to start selecting with it; in Select
+      mode tap (or hold) photos to pick them; keep holding and drag, or sweep sideways
+      across a row in Select mode, to pick a run of photos at once.
 - **30 days by default**: photos you haven't tagged Keep move to the Trash 30 days after
   you took them (Preferences → General → Store New Photos Forever turns that off).
 - **Edit** opens the editor: **Looks · Tone · Color · Texture · Crop**, each with labelled
