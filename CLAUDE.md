@@ -275,6 +275,18 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   Looks possible. Orientation is fixed portrait: back camera `.right`, front
   `.leftMirrored`. `devicePoint(fromViewPoint:)` maps taps to sensor coordinates and must
   stay consistent with that orientation.
+- **Photo orientation comes from gravity when iOS disagrees.**
+  - What it does: `CameraController.captureRotation` uses the rotation coordinator's angle
+    unless it disagrees with `heldOrientation`, the camera screen's `MotionManager.bucket`.
+    In that case gravity decides: back camera 0° when held counter-clockwise, 180° when
+    clockwise; the front camera is swapped.
+  - Why: the coordinator follows iOS's device orientation, which stays portrait with
+    Rotation Lock on, so landscape shots came out portrait while the icons showed
+    landscape.
+  - Motion updates restart whenever the app becomes active, even with the library open,
+    and again when the library closes. Leaving the app from the library used to stop them
+    for good (the owner: "sometimes dies after closing screen or switching to another app").
+  - Each shot logs both angles ("orientation at the shutter").
 - **RAW only.** Every photo is a RAW the app develops itself (`PhotoPlanner.decide`):
   - **ProRAW is the default ("Cleaner").** `CameraSettings.prefersProRAW` = `rawMode !=
     .bayer` (`.off` from older settings counts as ProRAW), and `shootsProRAW` =

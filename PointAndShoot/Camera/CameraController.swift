@@ -91,6 +91,10 @@ final class CameraController: NSObject {
     @ObservationIgnored private var videoInput: AVCaptureDeviceInput?
     @ObservationIgnored private var device: AVCaptureDevice?
     @ObservationIgnored private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    /// How the phone is held, from gravity (`MotionManager.bucket`: 0 portrait, ±90
+    /// landscape), set by the camera screen. It works with Rotation Lock on, where iOS's own
+    /// device orientation (and so the rotation coordinator) can stay portrait.
+    @ObservationIgnored var heldOrientation: Double = 0
     @ObservationIgnored private var inFlight: [Int64: PhotoCaptureProcessor] = [:]
     @ObservationIgnored private var meterTimer: Timer?
     /// The viewfinder's exposure correction under a film look (`ViewfinderMatch`), stops.
@@ -1022,13 +1026,34 @@ final class CameraController: NSObject {
         capturePhoto(burst: true)
     }
 
+    /// The photo's rotation angle. The rotation coordinator follows iOS's device orientation,
+    /// which stays portrait with Rotation Lock on (the owner: "horizontal/vertical switching
+    /// still doesn't work"), so a landscape shot came out portrait while the icons, which
+    /// read gravity, showed landscape. When the two disagree, gravity wins: on the back camera
+    /// rotated counter-clockwise (+90, top to the left) the sensor is upright at 0°, clockwise
+    /// at 180°; the front camera's sensor faces the other way, so those swap.
+    static func captureRotation(coordinator: CGFloat?, held: Double, front: Bool) -> CGFloat {
+        let fromGravity: CGFloat
+        switch held {
+        case 90: fromGravity = front ? 180 : 0
+        case -90: fromGravity = front ? 0 : 180
+        default: fromGravity = 90
+        }
+        guard let coordinator else { return fromGravity }
+        let coordinatorLandscape = abs(coordinator - 90) > 45 && abs(coordinator - 270) > 45
+        let heldLandscape = held != 0
+        return coordinatorLandscape == heldLandscape ? coordinator : fromGravity
+    }
+
     private func capturePhoto(burst: Bool = false) {
         let s = settings
         capturesInFlight += 1
         haptic(burst ? .soft : .medium)
-        let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
-        Diag.log(.capture, "orientation at the shutter: capture rotation \(Int(rotation))° (90 = portrait, 0/180 = landscape)"
-                 + (rotationCoordinator == nil ? ", no rotation coordinator" : ""))
+        let coordinator = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture
+        let rotation = Self.captureRotation(coordinator: coordinator, held: heldOrientation,
+                                            front: currentLens?.position == .front)
+        Diag.log(.capture, "orientation at the shutter: capture rotation \(Int(rotation))° (90 = portrait, 0/180 = landscape); "
+                 + "coordinator \(coordinator.map { "\(Int($0))°" } ?? "none"), held \(MotionManager.name(heldOrientation))")
         let place = s.saveLocation ? location.snapshot() : nil
         let look = s.startingGrade
         sessionQueue.async {

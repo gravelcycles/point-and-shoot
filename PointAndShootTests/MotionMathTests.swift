@@ -47,4 +47,25 @@ final class MotionMathTests: XCTestCase {
         XCTAssertEqual(MotionManager.wrap(-3 * .pi), .pi, accuracy: 1e-12)
         XCTAssertEqual(MotionManager.wrap(2 * .pi + 0.1), 0.1, accuracy: 1e-12)
     }
+
+    /// The photo's rotation (the owner: "horizontal/vertical switching still doesn't work").
+    /// The rotation coordinator stays portrait with Rotation Lock on, so when it disagrees with
+    /// gravity, gravity decides; when they agree, the coordinator's exact angle is kept.
+    func testCaptureRotationFollowsGravityWhenTheCoordinatorDisagrees() {
+        typealias C = CameraController
+        // Rotation Lock: the coordinator says portrait, the phone is held landscape.
+        XCTAssertEqual(C.captureRotation(coordinator: 90, held: 90, front: false), 0)
+        XCTAssertEqual(C.captureRotation(coordinator: 90, held: -90, front: false), 180)
+        XCTAssertEqual(C.captureRotation(coordinator: 90, held: 90, front: true), 180)
+        XCTAssertEqual(C.captureRotation(coordinator: 90, held: -90, front: true), 0)
+        // They agree: keep the coordinator's angle.
+        XCTAssertEqual(C.captureRotation(coordinator: 180, held: -90, front: false), 180)
+        XCTAssertEqual(C.captureRotation(coordinator: 0, held: 90, front: false), 0)
+        XCTAssertEqual(C.captureRotation(coordinator: 90, held: 0, front: false), 90)
+        // The coordinator stuck in landscape after the phone came back upright.
+        XCTAssertEqual(C.captureRotation(coordinator: 0, held: 0, front: false), 90)
+        // No coordinator at all.
+        XCTAssertEqual(C.captureRotation(coordinator: nil, held: 0, front: false), 90)
+        XCTAssertEqual(C.captureRotation(coordinator: nil, held: 90, front: false), 0)
+    }
 }
