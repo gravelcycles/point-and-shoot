@@ -3,9 +3,16 @@
 // the JSON and regenerate.
 
 extension FilmStock {
-    /// Every stock offered as a look, by id (retired stocks live in FilmStock.Legacy).
+    /// Every stock offered as a look, by id (retired stocks: `retiredStocks`, FilmStock.Legacy).
     static let all: [String: FilmStock] = Dictionary(uniqueKeysWithValues: [
-        printLook, phromagraphStock, portrait400Stock, evergreenStock, classicslideStock, lushStock, threestripStock, blockbusterStock, night800Stock, bleachbypassStock, punchStock, noirStock, desertStock, pastelStock, amberStock, sodiumStock, neonStock, slideStock, bleachStock,
+        printLook, phromagraphStock, portrait400Stock, evergreenStock, classicslideStock, lushStock, threestripStock, blockbusterStock, night800Stock, bleachbypassStock, punchStock, noirStock, neonStock, slideStock, bleachStock,
+    ].map { ($0.id, $0) })
+
+    /// Stocks of retired looks (`retired` in film-looks.json), as they last shipped. Never
+    /// offered, prewarmed or counted in the table caches: kept so a photo made with one can
+    /// fill fields its pinned tuning lacks (`FilmStock.namedOrRetired`).
+    static let retiredStocks: [String: FilmStock] = Dictionary(uniqueKeysWithValues: [
+        desertStock, pastelStock, amberStock, sodiumStock,
     ].map { ($0.id, $0) })
 
     /// The stock for a recipe's id (nil = Print, which predates stock ids). A retired id

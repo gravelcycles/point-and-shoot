@@ -44,7 +44,8 @@ enum EditorExtra: String, CaseIterable, Identifiable {
         case .grading: "Colour Grading"
         case .curve: "Tone Curve"
         case .dehaze: "Dehaze"
-        case .masks: "Sky & Subject"
+        // Stored as "masks" (hidden ids in Preferences): the Subject mask was dropped.
+        case .masks: "Sky"
         case .localTone: "Local Tone & Apple Tone"
         }
     }
@@ -52,14 +53,14 @@ enum EditorExtra: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .printer: "Film tool: time the print warmer, cooler, greener or more magenta, like a lab's printer points."
-        case .process: "Film tool: push or pull the negative's development, and flash it to lift the shadows."
-        case .silver: "Film tool: leave silver in the print (bleach bypass) and set how coloured the grain is."
-        case .halation: "Film tool: how far the glow around lights spreads, and its colour."
-        case .grading: "Color: a tint each for shadows, midtones and highlights."
-        case .curve: "Tone: Lightroom-style curve for highlights, lights, darks and shadows."
-        case .dehaze: "Texture: clear haze, or add it."
-        case .masks: "Tone: exposure and saturation for just the sky, or just the subject."
-        case .localTone: "Tone: dodge and burn (lift the shade, hold the sky), and for film looks, print Apple's own rendering as the viewfinder shows it."
+        case .process: "Film tool: push or pull the negative's development, and flash it to open up the deepest shadows."
+        case .silver: "Film tool: leave silver in the print (bleach bypass), and set how coloured the grain is."
+        case .halation: "Film tool: how far the glow around bright lights spreads, and its colour."
+        case .grading: "Color: tint the shadows, midtones and highlights each their own colour."
+        case .curve: "Tone: a four-point curve for highlights, lights, darks and shadows."
+        case .dehaze: "Texture: cut through haze, or add a soft one."
+        case .masks: "Tone: darken or brighten just the sky, and change its colour."
+        case .localTone: "Looks tool, under the looks strip: dodge and burn the light (lift the shade, hold the sky), and for film looks on a RAW, print Apple's own rendering, as the viewfinder shows it."
         }
     }
 
@@ -184,11 +185,6 @@ struct EditorView: View {
                 tabs.insert(EditorSubTab(id: "recovery", name: "Highlight Recovery",
                                          controls: [.slider(adj("highlightRecovery"))]), at: 3)
             }
-            if shows(.localTone) {
-                // Apple Tone: a film look's RAW developed with Apple's rendering (the viewfinder's look).
-                tabs.append(EditorSubTab(id: "local", name: "Local Tone", controls: [.slider(adj("localTone"))]
-                    + (isFilm && session.hasRAW ? [.toggle(id: "appleTone", name: "Apple Tone", keyPath: \.appleToneValue)] : [])))
-            }
             if shows(.curve) {
                 tabs.append(EditorSubTab(id: "curveLights", name: "Curve Lights",
                                          controls: [.slider(adj("curveHighlights")), .slider(adj("curveLights"))]))
@@ -198,8 +194,6 @@ struct EditorView: View {
             if shows(.masks) {
                 tabs.append(EditorSubTab(id: "sky", name: "Sky",
                                          controls: [.slider(adj("skyExposure")), .slider(adj("skySaturation"))]))
-                tabs.append(EditorSubTab(id: "subject", name: "Subject",
-                                         controls: [.slider(adj("subjectExposure")), .slider(adj("subjectSaturation"))]))
             }
             // A film look develops its own way and ignores these, unless Apple Tone is on.
             if session.hasRAW && (!isFilm || session.recipe.printsAppleRender) {
@@ -641,7 +635,64 @@ struct EditorView: View {
         .accessibilityLabel("Look set: \(current?.name ?? "All looks")")
     }
 
+    /// Local Tone (and, for a film look on a RAW, Apple Tone) under the looks strip (the
+    /// owner: "show local tone under the looks editing tab"): how the light is developed
+    /// before the look prints it, so it stays as the look changes. Hidden with Preferences →
+    /// Editor Controls → Local Tone & Apple Tone.
+    private var localToneControls: [EditorControl] {
+        guard shows(.localTone) else { return [] }
+        return [.slider(adj("localTone"))]
+            + (isFilm && session.hasRAW ? [.toggle(id: "appleTone", name: "Apple Tone", keyPath: \.appleToneValue)] : [])
+    }
+
     private var looksPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            looksStrip
+            let controls = localToneControls
+            if !controls.isEmpty {
+                HStack(alignment: .bottom, spacing: 14) {
+                    ForEach(controls) { control in
+                        switch control {
+                        case .toggle(let id, let name, let keyPath):
+                            // Compact, labelled like a slider, so both fit one row.
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(name).font(.system(size: 12, weight: .semibold))
+                                Toggle(name, isOn: Binding(get: { session.recipe[keyPath: keyPath] },
+                                                           set: { v in pushUndo(); withAnimation(.snappy) { session.recipe[keyPath: keyPath] = v } }))
+                                    .labelsHidden()
+                                    .tint(.tan)
+                                    .frame(height: 28)
+                            }
+                            .fixedSize()
+                            .accessibilityIdentifier("editor.toggle.\(id)")
+                        default:
+                            controlView(control)
+                        }
+                    }
+                    Button { showControlHelp = true } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressScaleStyle())
+                    .accessibilityIdentifier("editor.looks.info")
+                    .accessibilityLabel("About Local Tone")
+                    // Its own anchor (one presentation per view).
+                    .sheet(isPresented: $showControlHelp) {
+                        ControlHelpSheet(title: "Local Tone", tabID: "local",
+                                         controls: controls.map(\.help), isFilm: isFilm)
+                    }
+                }
+                .padding(.leading, 20)
+                .padding(.trailing, 10)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var looksStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 lookSetMenu
@@ -684,7 +735,7 @@ struct EditorView: View {
                 .accessibilityLabel("About looks")
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.top, 10)
         }
         .sheet(isPresented: $showFilterGuide) {
             FilterGuide(thumbnails: session.lookThumbnails, selectedID: session.recipe.look, looks: shownLooks) { id in
