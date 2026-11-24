@@ -79,7 +79,7 @@ final class ViewfinderMatchTests: XCTestCase {
     }
 
     func testFilmPhotoWithoutADevelopExposureGetsTheNaturalOne() {
-        var r = Look.named(CameraSettings.printLookID)!.recipe
+        var r = Look.printLook.recipe
         r.rawFilmExposure = nil                       // as saved before 2026-11-14, or a fresh pick
         XCTAssertEqual(r.withFilmDevelopExposure(hasRAW: true, bayer: false, ev100: 10).rawFilmExposure, 1.63)
         XCTAssertEqual(r.withFilmDevelopExposure(hasRAW: true, bayer: true, ev100: 10).rawFilmExposure, 1.0)

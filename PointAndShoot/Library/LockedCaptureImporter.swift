@@ -59,11 +59,8 @@ enum LockedCaptureImporter {
         }
     }
 
-    /// What an in-app photo would start with now (the default grade or the picked look),
-    /// as a still: the camera may have been left in video.
+    /// What an in-app photo would start with now (the default grade or the picked look).
     private static func startingGrade() -> EditRecipe {
-        var s = CameraSettings.load()
-        if !s.mode.isStill { s.mode = .photo }
-        return s.startingGrade ?? EditRecipe()
+        CameraSettings.load().startingGrade ?? EditRecipe()
     }
 }

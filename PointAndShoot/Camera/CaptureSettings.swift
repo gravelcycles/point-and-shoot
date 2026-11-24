@@ -1,29 +1,6 @@
 import AVFoundation
 import Foundation
 
-// MARK: - Modes
-
-enum CaptureMode: String, Codable, CaseIterable, Identifiable {
-    case photo, print, video
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .photo: "PHOTO"
-        case .print: "PRINT"
-        case .video: "VIDEO"
-        }
-    }
-    /// Photo and Print both take stills through the photo pipeline.
-    var isStill: Bool { self != .video }
-}
-
-/// Where the Print film look lives: its own mode (PHOTO · PRINT · VIDEO) or one of the looks.
-enum PrintPlacement: String, Codable, CaseIterable, Identifiable {
-    case mode, filter
-    var id: String { rawValue }
-    var label: String { self == .mode ? "Mode" : "Look" }
-}
-
 /// What container the processed (non-RAW) image goes into.
 enum PhotoFormat: String, Codable, CaseIterable, Identifiable {
     case heif, jpeg
@@ -143,79 +120,6 @@ enum SelfTimer: Int, Codable, CaseIterable, Identifiable {
     var label: String { self == .off ? "Off" : "\(rawValue)s" }
 }
 
-// MARK: - Video
-
-enum VideoResolution: String, Codable, CaseIterable, Identifiable {
-    case hd1080, uhd4K
-    var id: String { rawValue }
-    var label: String { self == .hd1080 ? "HD" : "4K" }
-    var dimensions: CMVideoDimensions {
-        self == .hd1080 ? CMVideoDimensions(width: 1920, height: 1080) : CMVideoDimensions(width: 3840, height: 2160)
-    }
-}
-
-enum VideoCodec: String, Codable, CaseIterable, Identifiable {
-    case hevc, h264, proRes422HQ, proRes422
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .hevc: "HEVC"
-        case .h264: "H.264"
-        case .proRes422HQ: "ProRes HQ"
-        case .proRes422: "ProRes 422"
-        }
-    }
-    var avCodec: AVVideoCodecType {
-        switch self {
-        case .hevc: .hevc
-        case .h264: .h264
-        case .proRes422HQ: .proRes422HQ
-        case .proRes422: .proRes422
-        }
-    }
-}
-
-enum VideoColor: String, Codable, CaseIterable, Identifiable {
-    case sdr, hlg, appleLog
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .sdr: "SDR"
-        case .hlg: "HDR"
-        case .appleLog: "LOG"
-        }
-    }
-    var colorSpace: AVCaptureColorSpace {
-        switch self {
-        case .sdr: .sRGB
-        case .hlg: .HLG_BT2020
-        case .appleLog: .appleLog
-        }
-    }
-    var isTenBit: Bool { self != .sdr }
-}
-
-enum Stabilization: String, Codable, CaseIterable, Identifiable {
-    case off, standard, cinematic, cinematicExtended
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .off: "Off"
-        case .standard: "Standard"
-        case .cinematic: "Cinematic"
-        case .cinematicExtended: "Extended"
-        }
-    }
-    var avMode: AVCaptureVideoStabilizationMode {
-        switch self {
-        case .off: .off
-        case .standard: .standard
-        case .cinematic: .cinematic
-        case .cinematicExtended: .cinematicExtended
-        }
-    }
-}
-
 // MARK: - Assist overlays
 
 enum FrameLines: String, Codable, CaseIterable, Identifiable {
@@ -259,12 +163,17 @@ enum PeakingColor: String, Codable, CaseIterable, Identifiable {
 
 // MARK: - Persisted settings
 
+/// Video and the Print mode were removed (2026-11-24): their saved keys (`mode`,
+/// `printPlacement`, `videoResolution`, `frameRate`, …) are ignored when older settings load,
+/// and `decodeSaved` moves a camera left in Print mode, or a Print look, to Phromagraph.
 struct CameraSettings: Codable, Equatable {
-    var mode: CaptureMode = .photo
-
     // Photo
     var photoFormat: PhotoFormat = .heif
     var rawMode: RawMode = .off
+    /// The phone can shoot ProRAW (an iPhone Pro, 12 Pro or later). Learned from the main
+    /// camera the first time the session runs, and saved so the pickers are right at the
+    /// next launch. Without it every photo is Bayer RAW, and ProRAW isn't offered.
+    var proRAWAvailable: Bool = true
     /// When shooting RAW, also store Apple's processed HEIF/JPEG alongside it (RAW+HEIF pair).
     var keepProcessedWithRAW: Bool = true
     var processing: ProcessingLevel = .natural
@@ -277,28 +186,12 @@ struct CameraSettings: Codable, Equatable {
     var captureLook: String?
     /// The named set of looks the LOOK picker shows (`LookSet` id); nil = all looks.
     var lookSet: String?
-    /// Print as its own mode next to Photo and Video, or as one of the looks. The app
-    /// ignores it: Print is both (the owner, 2026-11-18: the mode is "the simple mode", and
-    /// Photo's LOOK list has it too). Kept so settings round-trip with `main`.
-    var printPlacement: PrintPlacement = .mode
-    /// Print and Zero: ask the camera for a plainer live view (no video HDR, one tone curve
-    /// for the whole frame instead of Apple's local brightening), so the viewfinder tracks
-    /// the photo, which comes from the RAW alone. Experimental: off until tried on device.
+    /// Ask the camera for a plainer live view (no video HDR, one tone curve for the whole
+    /// frame instead of Apple's local brightening), so the viewfinder tracks the photo,
+    /// which comes from the RAW alone. Experimental: off until tried on device.
     var plainLiveView: Bool = false
     /// Lens to reopen on next launch.
     var lastLensID: String?
-
-    // Video
-    var videoResolution: VideoResolution = .uhd4K
-    var frameRate: Int = 24
-    var videoCodec: VideoCodec = .hevc
-    var videoColor: VideoColor = .sdr
-    var stabilization: Stabilization = .standard
-    var recordAudio: Bool = true
-    /// Lock the shutter to a 180° angle (1 / 2×fps) and let ISO float.
-    var shutterAngleLock: Bool = true
-    /// Preview Apple Log through a Rec.709 display transform (recorded file stays Log).
-    var logViewAssist: Bool = true
 
     // Assists
     var showGrid: Bool = true
@@ -310,7 +203,7 @@ struct CameraSettings: Codable, Equatable {
     var zebraThreshold: Double = 0.95
     var frameLines: FrameLines = .none
     var volumeShutter: Bool = true
-    /// Geotag photos and videos (GPS works offline / in airplane mode).
+    /// Geotag photos (GPS works offline / in airplane mode).
     var saveLocation: Bool = true
     var haptics: Bool = true
     /// Off = silent shutter (iOS 18+, where the region allows it). The phone's silent
@@ -351,12 +244,16 @@ struct CameraSettings: Codable, Equatable {
             if let grade = saved["defaultGrade"] as? [String: Any],
                let data = try? JSONSerialization.data(withJSONObject: grade),
                let decoded = EditRecipe.decodeSaved(data),
-               let object = TolerantJSON.object(decoded) {
+               let object = TolerantJSON.object(movingPrintToPhromagraph(decoded)) {
                 saved["defaultGrade"] = object
             } else if saved["defaultGrade"] != nil {
                 // Unreadable: drop just the grade, never the whole setup.
                 saved.removeValue(forKey: "defaultGrade")
             }
+            // A camera left in Print mode (removed) keeps shooting that rendering: Photo with
+            // Phromagraph, the same film fitted to Chromagraph. A camera left in Video just
+            // opens in Photo (there's only Photo now; the `mode` key is ignored).
+            if saved["mode"] as? String == "print" { saved["captureLook"] = "phromagraph" }
             // A look that's no longer offered moves to its successor, or to Original, so
             // the camera never applies (or shows) a look the pickers can't select.
             if let id = saved["captureLook"] as? String, Look.named(id) == nil {
@@ -365,6 +262,19 @@ struct CameraSettings: Codable, Equatable {
             }
             return saved
         }
+    }
+
+    /// A default grade on the Print look (no longer offered) moves to Phromagraph, the same
+    /// rendering fitted to Chromagraph, keeping its sliders. Photos made with Print keep it.
+    static func movingPrintToPhromagraph(_ grade: EditRecipe) -> EditRecipe {
+        guard grade.look == Look.printID, let phromagraph = Look.named("phromagraph") else { return grade }
+        guard var film = grade.film else { return grade.withLook(phromagraph) }
+        var g = grade
+        g.look = phromagraph.id
+        film.stock = phromagraph.id
+        film.tuning = FilmStock.named(phromagraph.id)
+        g.film = film
+        return g
     }
 
     func save() {
@@ -377,7 +287,7 @@ struct CameraSettings: Codable, Equatable {
 // MARK: - Exposure
 
 /// P / S / M, like a real camera. Shutter-priority holds the shutter and floats ISO
-/// against the meter — perfect for locking a 180° shutter for video.
+/// against the meter.
 enum ExposureMode: String, CaseIterable, Identifiable {
     case auto, shutterPriority, manual
     var id: String { rawValue }
@@ -457,14 +367,8 @@ enum Stops {
 }
 
 extension CameraSettings {
-    static let printLookID = "print"
-
-    /// The modes the mode picker offers. Print is always a mode (the simple
-    /// one: no format pill, no LOOK cell) and also one of Photo's looks.
-    var availableModes: [CaptureMode] { [.photo, .print, .video] }
-
-    /// The looks the camera's LOOK picker offers (Print included), from the chosen set
-    /// (`lookSet`) or all of them.
+    /// The looks the camera's LOOK picker offers, from the chosen set (`lookSet`) or all of
+    /// them.
     var filterLooks: [Look] {
         let set = LookSet.named(lookSet)
         return Look.all.filter { offersInStrip($0) && (set == nil || $0.set == set) }
@@ -485,20 +389,12 @@ extension CameraSettings {
 
     private func offersInStrip(_ look: Look) -> Bool { look.id != "none" }
 
-    /// The look applied to stills right now: Print in Print mode, otherwise the chosen
-    /// look (which can be Print too).
-    var activeLook: String? {
-        switch mode {
-        case .video: nil
-        case .print: Self.printLookID
-        case .photo: captureLook
-        }
-    }
+    /// The look applied to new photos: the one picked in the LOOK strip.
+    var activeLook: String? { captureLook }
 
     /// The grade a new shot starts with: the default grade if its look is the active one,
     /// otherwise the active look as designed.
     var startingGrade: EditRecipe? {
-        guard mode.isStill else { return nil }   // video records no grade
         // "none" and nil both mean no look.
         func norm(_ id: String?) -> String? { id == "none" ? nil : id }
         // On today's film engine: a grade saved with older math moves to it with the sliders
@@ -507,30 +403,28 @@ extension CameraSettings {
         return Look.named(activeLook)?.recipe
     }
 
-    /// The RAW choice (Photo mode): ProRAW, cleaner, by default; Bayer RAW, the sensor's
-    /// single frame, faster, when chosen. `.off` (settings from before RAW-only) = ProRAW.
+    /// The RAW choice: ProRAW, cleaner, by default; Bayer RAW, the sensor's single frame,
+    /// faster, when chosen. `.off` (settings from before RAW-only) = ProRAW.
     var prefersProRAW: Bool { rawMode != .bayer }
-    /// Every photo is a RAW (the app's own library develops it). Print always shoots ProRAW:
-    /// it's what Chromagraph shoots, and Print and Phromagraph were fitted on it (on
-    /// Chromagraph's own ProRAW we develop within 0.01 EV of it; on Bayer files it develops
-    /// 1.3 EV darker, docs/film-looks.md §5⅞). Photo follows the RAW choice. Where the lens
-    /// has no ProRAW, `PhotoPlanner` falls back safely.
-    var shootsProRAW: Bool { mode == .print || prefersProRAW }
+    /// Every photo is a RAW (the app's own library develops it): ProRAW when it's chosen
+    /// and the phone has it, otherwise Bayer RAW. Where one lens has no ProRAW,
+    /// `PhotoPlanner` falls back safely.
+    var shootsProRAW: Bool { prefersProRAW && proRAWAvailable }
     /// The active look is a film stock (it develops from scene light).
     var captureLookNeedsRAW: Bool { Look.named(activeLook)?.capturesRAW == true }
-    /// We capture Bayer RAW and develop it ourselves.
-    var developsBayerRAW: Bool { !shootsProRAW }
 
-    /// The plain live view applies now: the option is on and the photo comes from the RAW
-    /// alone (Print, Zero, a RAW-capturing look) in a still mode.
-    /// Every photo develops from the RAW alone (ProRAW or Bayer), so it applies
-    /// in every still mode.
-    var wantsPlainLiveView: Bool { plainLiveView && mode.isStill }
+    /// The plain live view applies: every photo develops from the RAW alone.
+    var wantsPlainLiveView: Bool { plainLiveView }
 
     /// Bayer RAW is the sensor's full frame, and AVFoundation throws (an instant crash) if
     /// it's captured while digitally zoomed. Bayer RAW locks zoom at 1×; ProRAW zooms.
-    var zoomLocked: Bool { mode.isStill && !shootsProRAW }
+    var zoomLocked: Bool { !shootsProRAW }
 
     /// What to call the zoom-locked mode in a toast.
     var zoomLockReason: String { "Bayer RAW" }
+
+    /// Why ProRAW isn't offered on this phone (nil where it is), for the pickers.
+    var proRAWUnavailableReason: String? {
+        proRAWAvailable ? nil : "ProRAW needs an iPhone Pro (12 Pro or later), so photos are Bayer RAW."
+    }
 }

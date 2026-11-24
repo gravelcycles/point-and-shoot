@@ -91,15 +91,9 @@ struct CameraView: View {
                 // Above the viewfinder, so its dropdowns can hang over it.
                 .zIndex(1)
                 .sheet(isPresented: $showFormat) {
-                    Group {
-                        if camera.settings.mode.isStill {
-                            CaptureFormatPanel(camera: camera)
-                        } else {
-                            VideoFormatPanel(camera: camera)
-                        }
-                    }
-                    .presentationDetents([.height(camera.settings.mode.isStill ? 430 : 420)])
-                    .presentationDragIndicator(.visible)
+                    CaptureFormatPanel(camera: camera)
+                        .presentationDetents([.height(CaptureFormatPanel.height(camera))])
+                        .presentationDragIndicator(.visible)
                 }
             ZStack(alignment: .bottom) {
                 previewArea
@@ -130,7 +124,6 @@ struct CameraView: View {
                 renderer: camera.renderer,
                 onTap: { p, size in handleTap(p, size: size, lock: false) },
                 onDoubleTap: {
-                    guard !camera.isRecording else { return }
                     camera.haptic(.light)
                     showSettings = true
                 },
@@ -173,7 +166,6 @@ struct CameraView: View {
                 HStack(alignment: .top) {
                     if s.showHistogram { LiveHistogram(camera: camera) }
                     Spacer()
-                    if s.mode == .video && s.recordAudio { LiveAudioMeter(camera: camera) }
                 }
                 .padding(10)
                 if let toast = camera.toast {
@@ -184,7 +176,7 @@ struct CameraView: View {
                 Spacer()
                 if camera.exposureMode == .manual {
                     LiveExposureMeter(camera: camera)
-                        .padding(.bottom, s.mode.isStill ? 10 : 260)
+                        .padding(.bottom, 10)
                 }
             }
             .allowsHitTesting(false)
@@ -206,9 +198,8 @@ struct CameraView: View {
                     .transition(.opacity)
             }
         }
-        .aspectRatio(s.mode.isStill ? 3.0 / 4.0 : 9.0 / 16.0, contentMode: .fit)
+        .aspectRatio(3.0 / 4.0, contentMode: .fit)
         .clipped()
-        .animation(.smooth(duration: 0.35), value: s.mode)
     }
 
     private var bottomControls: some View {
@@ -227,12 +218,6 @@ struct CameraView: View {
 
             ControlStrip(camera: camera, active: $activeDial)
 
-            ModePicker(modes: camera.settings.availableModes, mode: camera.settings.mode,
-                       disabled: camera.isRecording) { mode in
-                withAnimation(.smooth) { activeDial = nil }
-                camera.update { $0.mode = mode }
-            }
-
             HStack {
                 ThumbnailButton(image: rollThumbnail, rotation: motion.iconRotation) {
                     showLibrary = true
@@ -240,10 +225,8 @@ struct CameraView: View {
                 .accessibilityIdentifier("camera.thumbnail")
                 .overlay(alignment: .top) { RollCountProbe(store: store).offset(y: -12) }
                 .overlay(alignment: .bottom) { ViewerEventProbeView().offset(y: 12) }
-                .disabled(camera.isRecording)
                 Spacer()
-                ShutterButton(mode: camera.settings.mode, isRecording: camera.isRecording,
-                              countingDown: camera.countdown != nil,
+                ShutterButton(countingDown: camera.countdown != nil,
                               burstCount: camera.burstCount,
                               onTap: { camera.shutterPressed() },
                               onBurstStart: { camera.startBurst() },
@@ -259,8 +242,7 @@ struct CameraView: View {
                         .rotationEffect(motion.iconRotation)
                 }
                 .buttonStyle(PressScaleStyle())
-                .disabled(camera.isRecording)
-                .opacity(camera.isRecording ? 0.3 : 1)
+                .accessibilityLabel("Switch camera")
             }
             .padding(.horizontal, 28)
             .padding(.bottom, 6)
@@ -282,13 +264,12 @@ struct CameraView: View {
         )
     }
 
-    /// The dark fade behind the controls is only for where the picture runs under them: video
-    /// (9:16 reaches the control strip) and an open dial panel, whose labels sit on the
-    /// picture. In Photo and Print the 3:4 picture ends above the strip, and the fade only
+    /// The dark fade behind the controls is only for an open dial panel, whose labels sit on
+    /// the picture. Otherwise the 3:4 picture ends above the strip, and the fade only
     /// darkened its bottom ~70 pt behind the lens buttons (the owner: "the bottom part where
     /// the zoom sizes are is darker than the rest"); the lens buttons carry their own discs.
     private var controlsNeedScrim: Bool {
-        !camera.settings.mode.isStill || activeDial != nil
+        activeDial != nil
     }
 
     /// A just-taken shot shows instantly from the capture; once the library has developed
@@ -326,7 +307,7 @@ struct CameraView: View {
     // MARK: - Actions
 
     /// One finger on the viewfinder: vertical drag = exposure compensation (like the
-    /// built-in camera, but in ⅓-stop clicks); horizontal swipe = Photo/Video.
+    /// built-in camera, but in ⅓-stop clicks). A sideways drag does nothing (there's one mode).
     private func handlePan(_ t: CGPoint, _ velocity: CGPoint, _ state: UIGestureRecognizer.State) {
         switch state {
         case .began, .changed:
@@ -349,22 +330,10 @@ struct CameraView: View {
             evHideTask?.cancel()
             withAnimation(.easeOut(duration: 0.12)) { evIndicator = snapped }
         case .cancelled, .failed:
-            // e.g. a second finger turned it into a pinch: no mode switch, no EV change.
+            // e.g. a second finger turned it into a pinch: no EV change.
             panAxis = nil
             withAnimation(.easeOut(duration: 0.3)) { evIndicator = nil }
         default:
-            if panAxis == .horizontal, !camera.isRecording,
-               abs(t.x) > 50 || abs(velocity.x) > 500 {
-                // Swipe left → the next mode to the right (Photo → Print → Video), right → back.
-                let modes = camera.settings.availableModes
-                let i = modes.firstIndex(of: camera.settings.mode) ?? 0
-                let target = modes[t.x < 0 ? min(i + 1, modes.count - 1) : max(i - 1, 0)]
-                if target != camera.settings.mode {
-                    camera.haptic(.light)
-                    withAnimation(.smooth) { activeDial = nil }
-                    camera.update { $0.mode = target }
-                }
-            }
             if panAxis == .vertical {
                 evHideTask = Task { @MainActor in
                     try? await Task.sleep(for: .seconds(1.2))
@@ -376,14 +345,11 @@ struct CameraView: View {
         }
     }
 
-    /// Action button / Siri / Shortcuts asked for a specific mode.
+    /// Action button / Siri / Shortcuts asked for the camera: close the library.
     private func consumeLaunchRequest() {
-        guard let mode = LaunchRequests.pendingMode else { return }
-        LaunchRequests.pendingMode = nil
+        guard LaunchRequests.pending else { return }
+        LaunchRequests.pending = false
         showLibrary = false
-        guard !camera.isRecording, camera.settings.mode != mode else { return }
-        withAnimation(.smooth) { activeDial = nil }
-        camera.update { $0.mode = mode }
     }
 
     private func handleTap(_ p: CGPoint, size: CGSize, lock: Bool) {
@@ -457,23 +423,6 @@ struct GPSIndicator: View {
     }
 }
 
-struct RecordingClock: View {
-    let start: Date
-
-    var body: some View {
-        TimelineView(.periodic(from: start, by: 0.5)) { context in
-            let t = max(0, Int(context.date.timeIntervalSince(start)))
-            HStack(spacing: 6) {
-                Circle().fill(Color.red).frame(width: 8, height: 8)
-                Text(String(format: "%02d:%02d:%02d", t / 3600, (t / 60) % 60, t % 60))
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
-            }
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(Color.red.opacity(0.25), in: Capsule())
-        }
-    }
-}
-
 // MARK: - Bottom controls
 
 struct LensPicker: View {
@@ -486,62 +435,35 @@ struct LensPicker: View {
             // Cropped "lenses" (zoom ≠ 1) are digital zoom: hidden while zoom is locked for RAW.
             ForEach(camera.lenses.filter { $0.position == position && (!camera.settings.zoomLocked || $0.zoom == 1) }) { lens in
                 let selected = lens == camera.currentLens
-                let base = CGFloat(lens.focalLength) / lens.zoom
-                let focal = selected ? Int((base * camera.zoomFactor).rounded()) : lens.focalLength
+                // Relative to the main lens, like the Camera app: 0.5, 1×, 2, 3. The chosen
+                // lens follows a pinch (1.4×).
+                let zoom = selected ? lens.relativeZoom / lens.zoom * camera.zoomFactor : lens.relativeZoom
+                let label = LensZoom.label(zoom)
                 Button {
                     camera.select(lens: lens)
                 } label: {
-                    VStack(spacing: -2) {
-                        Text("\(focal)")
-                            .font(.system(size: selected ? 14 : 12, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .contentTransition(.numericText())
-                        Text("mm").font(.system(size: 7, weight: .semibold))
-                    }
-                    .frame(width: selected ? 44 : 38, height: selected ? 44 : 38)
-                    .background(Circle().fill(Color.black.opacity(0.5)))
-                    .overlay(Circle().stroke(selected ? Color.yellow : Color.white.opacity(0.15), lineWidth: 1.2))
-                    .foregroundStyle(selected ? Color.yellow : Color.white)
-                    .rotationEffect(rotation)
+                    Text(selected ? label + "×" : label)
+                        .font(.system(size: selected ? 14 : 12, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(width: selected ? 44 : 38, height: selected ? 44 : 38)
+                        .background(Circle().fill(Color.black.opacity(0.5)))
+                        .overlay(Circle().stroke(selected ? Color.yellow : Color.white.opacity(0.15), lineWidth: 1.2))
+                        .foregroundStyle(selected ? Color.yellow : Color.white)
+                        .rotationEffect(rotation)
                 }
                 .buttonStyle(PressScaleStyle())
-                .disabled(camera.isRecording && lens.device != camera.currentLens?.device)
+                .accessibilityLabel("\(LensZoom.label(lens.relativeZoom))× lens")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
         .animation(.snappy(duration: 0.25), value: camera.currentLens?.id)
     }
 }
 
-struct ModePicker: View {
-    var modes: [CaptureMode] = CaptureMode.allCases
-    let mode: CaptureMode
-    let disabled: Bool
-    let select: (CaptureMode) -> Void
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(modes) { m in
-                Button { select(m) } label: {
-                    Text(m.label)
-                        .font(.system(size: 13, weight: .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(m == mode ? Color.yellow : Color.white.opacity(0.7))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("mode.\(m.rawValue)")
-            }
-        }
-        .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
-    }
-}
-
 struct ShutterButton: View {
-    let mode: CaptureMode
-    let isRecording: Bool
     let countingDown: Bool
     var burstCount: Int = 0
     let onTap: () -> Void
@@ -560,39 +482,31 @@ struct ShutterButton: View {
             Circle()
                 .stroke(bursting ? Color.yellow : Color.white, lineWidth: 4)
                 .frame(width: 78, height: 78)
-            if mode.isStill {
-                Circle()
-                    .fill(countingDown ? Color.yellow : Color.white)
-                    .frame(width: 64, height: 64)
-                    .scaleEffect(bursting ? 0.82 : 1)
-                if bursting && burstCount > 0 {
-                    Text("\(burstCount)")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.black)
-                        .contentTransition(.numericText())
-                }
-            } else {
-                RoundedRectangle(cornerRadius: isRecording ? 7 : 32, style: .continuous)
-                    .fill(Color.red)
-                    .frame(width: isRecording ? 30 : 64, height: isRecording ? 30 : 64)
+            Circle()
+                .fill(countingDown ? Color.yellow : Color.white)
+                .frame(width: 64, height: 64)
+                .scaleEffect(bursting ? 0.82 : 1)
+            if bursting && burstCount > 0 {
+                Text("\(burstCount)")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.black)
+                    .contentTransition(.numericText())
             }
         }
         .scaleEffect(pressed ? 0.9 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.6), value: pressed)
-        .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isRecording)
-        .animation(.spring(response: 0.3, dampingFraction: 0.72), value: mode)
         .animation(.snappy(duration: 0.12), value: burstCount)
         .contentShape(Circle())
-        // Tap = shoot. Hold (photo) = burst until you let go.
+        // Tap = shoot. Hold = burst until you let go (off while every photo is a RAW:
+        // `CameraController.burstEnabled`).
         .gesture(
             DragGesture(minimumDistance: 0)
                 .updating($touching) { _, state, _ in state = true }
                 .onChanged { _ in
                     guard !pressed else { return }
                     pressed = true
-                    // Burst is Photo-only: Print always shoots RAW, which can't burst.
-                    guard mode == .photo, !countingDown else { return }
+                    guard !countingDown else { return }
                     holdTask = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(380))
                         guard !Task.isCancelled, pressed else { return }
@@ -627,7 +541,7 @@ struct ShutterButton: View {
             }
         }
         .accessibilityElement()
-        .accessibilityLabel(mode.isStill ? "Take photo" : (isRecording ? "Stop recording" : "Start recording"))
+        .accessibilityLabel("Take photo")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onTap() }
     }
@@ -684,12 +598,10 @@ struct GestureHints: View {
     private let hints: [(String, String)] = [
         ("hand.tap", "Tap to focus · hold to lock"),
         ("arrow.up.and.down", "Drag up/down for exposure"),
-        ("arrow.left.and.right", "Swipe for Photo / Video"),
         ("arrow.up.left.and.arrow.down.right", "Pinch to zoom"),
-        ("circle.inset.filled", "Hold the shutter for burst"),
         ("slider.horizontal.3", "Tap focus, WB, ISO, shutter, EV or LOOK to dial it in"),
         ("arrow.counterclockwise", "Double-tap any control to put it back on auto"),
-        ("chevron.down.circle", "Tap the format pill up top for HEIF/JPEG, RAW and processing"),
+        ("chevron.down.circle", "Tap the format pill up top for ProRAW or RAW"),
     ]
 
     var body: some View {

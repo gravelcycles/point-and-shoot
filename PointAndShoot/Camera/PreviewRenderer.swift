@@ -7,8 +7,8 @@ import UIKit
 /// Renders camera frames straight to a CAMetalLayer with Core Image on the GPU.
 ///
 /// Rendering our own preview (instead of AVCaptureVideoPreviewLayer) is what lets us draw
-/// focus peaking, zebras, a live histogram and a Log → Rec.709 view assist on the exact
-/// pixels being recorded. Frames are dropped — never queued — if the GPU is busy, so the
+/// focus peaking, zebras, a live histogram and the capture look on the camera's own
+/// frames. Frames are dropped — never queued — if the GPU is busy, so the
 /// preview never lags behind reality.
 final class PreviewRenderer {
     struct Config {
@@ -16,7 +16,6 @@ final class PreviewRenderer {
         var peakingColor: (CGFloat, CGFloat, CGFloat) = (1, 0.15, 0.1)
         var zebras = false
         var zebraThreshold: Double = 0.95
-        var logAssist = false
         var mirrored = false
         var transitionBlur = false
         var computeHistogram = true
@@ -52,7 +51,6 @@ final class PreviewRenderer {
     private var thumbnailsBusy = false
     private var pendingThumbnails: (() -> Void)?
 
-    private lazy var logCube: Data = Self.makeAppleLogToRec709Cube(dimension: 33)
     private lazy var stripes: CIImage? = {
         let f = CIFilter(name: "CIStripesGenerator", parameters: [
             "inputColor0": CIColor(red: 1, green: 1, blue: 1, alpha: 0.9),
@@ -145,17 +143,7 @@ final class PreviewRenderer {
 
     private func render(_ pixelBuffer: CVPixelBuffer, cfg: Config, size: CGSize, layer: CAMetalLayer?) {
         guard let layer else { return }
-        var image: CIImage
-        if cfg.logAssist {
-            // Read raw Log code values (no color management), map through the view LUT.
-            image = CIImage(cvPixelBuffer: pixelBuffer, options: [.colorSpace: NSNull()])
-            image = image.applyingFilter("CIColorCube", parameters: [
-                "inputCubeDimension": 33,
-                "inputCubeData": logCube,
-            ])
-        } else {
-            image = CIImage(cvPixelBuffer: pixelBuffer)
-        }
+        var image = CIImage(cvPixelBuffer: pixelBuffer)
         image = image.oriented(cfg.mirrored ? .leftMirrored : .right)
 
         let extent = image.extent
@@ -366,52 +354,5 @@ final class PreviewRenderer {
             h.luma = (0..<bins).map { 0.2126 * h.red[$0] + 0.7152 * h.green[$0] + 0.0722 * h.blue[$0] }
             self.onHistogram?(h)
         }
-    }
-
-    // MARK: - Apple Log view LUT
-
-    /// Apple Log (per Apple's published curve) → scene linear → Rec.2020→709 → soft filmic
-    /// shoulder. Output is linear; Core Image encodes it for the display.
-    static func makeAppleLogToRec709Cube(dimension n: Int) -> Data {
-        var cube = [Float]()
-        cube.reserveCapacity(n * n * n * 4)
-        let step = 1 / Float(n - 1)
-        for b in 0..<n {
-            for g in 0..<n {
-                for r in 0..<n {
-                    let R = appleLogDecode(Float(r) * step)
-                    let G = appleLogDecode(Float(g) * step)
-                    let B = appleLogDecode(Float(b) * step)
-                    let r709 = 1.6605 * R - 0.5876 * G - 0.0728 * B
-                    let g709 = -0.1246 * R + 1.1329 * G - 0.0083 * B
-                    let b709 = -0.0182 * R - 0.1006 * G + 1.1187 * B
-                    cube.append(filmic(r709))
-                    cube.append(filmic(g709))
-                    cube.append(filmic(b709))
-                    cube.append(1)
-                }
-            }
-        }
-        return cube.withUnsafeBufferPointer { Data(buffer: $0) }
-    }
-
-    static func appleLogDecode(_ p: Float) -> Float {
-        let r0: Float = -0.05641088
-        let rt: Float = 0.01
-        let c: Float = 47.28711236
-        let b: Float = 0.00964052
-        let g: Float = 0.08550479
-        let d: Float = 0.69336945
-        let pt = c * (rt - r0) * (rt - r0)
-        if p >= pt { return powf(2, (p - d) / g) - b }
-        if p > 0 { return sqrtf(p / c) + r0 }
-        return r0
-    }
-
-    private static func filmic(_ v: Float) -> Float {
-        let x = max(0, v) * 1.2
-        let white: Float = 6
-        let y = x * (1 + x / (white * white)) / (1 + x)
-        return min(1, y)
     }
 }

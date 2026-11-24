@@ -1,6 +1,6 @@
 # Point & Shoot
 
-A camera for people who think in stops and shutter angles. You get a real camera when you
+A camera for people who think in stops and shutter speeds. You get a real camera when you
 want one and a point-and-shoot when you don't, plus a Snapseed-style editor that never
 destroys your originals.
 
@@ -10,16 +10,15 @@ Native SwiftUI + AVFoundation + Core Image on Metal. iPhone, iOS 17+.
 
 | Control | What it does |
 |---|---|
-| **RAW** (format pill) | Every photo is a RAW the app develops itself: **ProRAW · Cleaner** (default; Apple's multi-frame DNG, far less noise, zoom works, a moment longer per shot) or **RAW · Faster** (the Bayer sensor frame, ready in under half a second, real noise, zoom stays at 1×). Print always shoots ProRAW. |
-| **Resolution** | ProRAW at 12 MP or the sensor max; Bayer RAW is always 12 MP |
-| **Modes** | PHOTO · **PRINT** (the simple mode: always the Print film look, nothing to set) · VIDEO |
+| **RAW** (format pill) | Every photo is a RAW the app develops itself: **ProRAW · Cleaner** (default; Apple's multi-frame DNG, far less noise, zoom works, a moment longer per shot) or **RAW · Faster** (the Bayer sensor frame, ready in under half a second, real noise, zoom stays at 1×). On iPhones without ProRAW (anything but a Pro, 12 Pro or later) every photo is Bayer RAW, and the pickers say why. |
+| **Resolution** | ProRAW at 12 MP or the full 48 MP, on phones with a 48 MP sensor; Bayer RAW is always 12 MP |
 | Flash, self-timer | Dropdowns under the top bar: Off/Auto/On; Off/3s/10s |
 
 Responsive capture and zero shutter lag are turned on wherever the hardware supports them.
 
 - **The top bar** has big round buttons for flash, self-timer and settings (⚙︎), each with
   a haptic click; flash and self-timer drop down their choices. The **format pill** in the
-  middle ("ProRAW · Print ▾") opens a panel with labelled choices for RAW and resolution.
+  middle ("ProRAW · Phromagraph ▾") opens a panel with labelled choices for RAW and resolution.
 - **One control row** under the viewfinder: FOCUS, WB, ISO, SHUTTER, EV and LOOK. White
   means the camera is deciding, yellow means you set it. Tap one to dial it in.
 - **Double-tap any control** (FOCUS, WB, ISO, SHUTTER, EV, LOOK) to put it back on auto.
@@ -34,7 +33,7 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     - **Named sets.** Looks come in sets you can switch between from the stack button at
       the left of the LOOK strip (and in the editor's Looks tool), so whole families can
       be compared. **About** groups them by set.
-      - **Essentials:** **Print** and **Phromagraph** (film from the sensor, below),
+      - **Essentials:** **Phromagraph** (film from the sensor, below),
         **Punch** (a vivid negative pushed hard) and **Noir** (pushed black and white).
       - **Film Stocks:** **Portrait 400** (soft into real blacks, luminous skin, olive
         greens), **Evergreen** (Fuji-style emerald greens, pink-leaning skin), **Slide**
@@ -59,15 +58,8 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
     using the camera's own light reading, so a night shot doesn't come out a stop brighter
     than you framed it. Manual ISO, shutter and exposure compensation preview exactly. Photos edited before this
     keep their original rendering.
-- **Print: film, from the sensor.** Print is a real film emulation rather than a set of
+- **Film from the sensor.** The film looks are a real film emulation rather than a set of
   slider moves.
-  - **It's a mode:** **PHOTO · PRINT · VIDEO**. Tap it or swipe to it.
-  - **It's single-purpose:** Print mode always shoots RAW, so there's no format or look
-    to fiddle with. Flash, timer and exposure stay.
-  - **Or make it a look:** Settings → Photo → **Print film look** → Look puts it in the
-    LOOK list instead.
-  - **Always ProRAW, and it zooms.** Print shoots Apple ProRAW, what Chromagraph shoots and
-    what Print was matched on.
   - **Developed from the RAW alone, at natural brightness:** each shot's brightness comes
     from its own ISO, shutter and aperture, about where the iPhone's camera puts the scene,
     a touch under, so dim rooms stay dim and sun never blows out past Chromagraph's level.
@@ -76,19 +68,22 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   - **Plain live view** (Preferences → Camera, experimental): asks the camera for a plainer
     feed, with no video HDR and no local brightening, so the viewfinder tracks the RAW
     photo more closely.
-  - **How it works:** Print runs
-    the sensor data through a model of a Kodak Vision3 negative printed to print film:
+  - **How it works:** the sensor data runs through a model of a Kodak Vision3 negative
+    printed to print film:
     - dense blacks with a long, soft toe
     - a highlight shoulder that never clips harshly
     - warm highlights over cool shadows (color crossover)
     - film color, where rich colors get darker rather than louder and reds lean orange
     - a red-orange halation glow around bright lights
     - fine film grain that lives in the mid-tones
-  - **In the editor:** Tune's sliders work inside the film model, and Details adds
-    **Grain**, **Halation** and **Crossover**.
+  - **In the editor:** Tone's sliders work inside the film model, and Texture adds
+    **Grain** and **Halation**.
+  - **Print**, the first film look (once also its own mode), is no longer offered:
+    Phromagraph is the same rendering, fitted to Chromagraph. Photos made with Print look
+    exactly as before and are still called Print; a camera or Default Grade left on Print
+    moves to Phromagraph.
 - **Phromagraph: Chromagraph's look, measured.** A look that's fitted to Chromagraph
-  Camera's own renders of its own RAWs (13 shots of the same scenes, pixel for pixel),
-  kept separate from Print.
+  Camera's own renders of its own RAWs (13 shots of the same scenes, pixel for pixel).
   - Creamy highlights and skies, teal-leaning mid-tones, dense soft blacks and only a faint
     glow around lights.
   - Like every look, it develops from the RAW at Chromagraph's brightness.
@@ -111,39 +106,27 @@ Responsive capture and zero shutter lag are turned on wherever the hardware supp
   **A** returns that control to auto.
 - **Tap** to focus and meter. **Hold** to lock AE/AF. **Pinch** to zoom.
 - **Drag up/down on the viewfinder** for exposure compensation in ⅓-stop clicks, with a
-  sun slider. **Swipe sideways** to switch Photo/Video.
-- **Lenses by focal length** (13 / 24 / 48 / 77 / 120 mm, depending on the phone),
-  including the 48 mm crop from the 48 MP main sensor. Within the same glass the zoom
-  ramps smoothly. Between lenses the preview blurs and settles instead of freezing.
-
-## Video, for cinematographers
-
-- 4K / HD at 24, 25, 30, 48, 50, 60, 100 or 120 fps (whatever the lens supports)
-- **SDR (Rec.709), HDR (HLG), or Apple Log** (iPhone 15 Pro and later)
-- **HEVC, H.264, ProRes 422 / 422 HQ**, at higher-than-phone bitrates
-- **180° shutter lock**: shutter = 1/(2×fps) with auto ISO, so motion blur looks natural
-- Stabilization off / standard / cinematic / cinematic extended
-- **Log view assist**: preview Apple Log through a Rec.709 transform while the file stays Log
-- Audio meter and recording clock
-- **Recording time left** for your current settings. If storage runs low, recording
-  stops and saves cleanly before the phone is full.
-- If the phone gets hot, peaking, zebras and the histogram pause so recording stays
-  smooth.
+  sun slider.
+- **Lenses by zoom, like the Camera app:** 0.5, 1×, 2, 3 or 5 (relative to the main lens,
+  depending on the phone), including the 2× crop from a 48 MP main sensor. The chosen lens
+  shows the live zoom as you pinch (1.4×). Within the same glass the zoom ramps smoothly.
+  Between lenses the preview blurs and settles instead of freezing.
 
 ## Assists
 
 Focus peaking (in four colors), zebras with an adjustable threshold, a live RGB + luma
 histogram (off by default; turn it on in Settings), a horizon level that appears only
 when you're within about 12° of level and turns yellow when you're dead on, a rule-of-thirds grid, and frame lines (1:1, 4:5, 16:9, 1.85,
-2.39) that follow how you're holding the phone. All of them are drawn on the GPU from the
-same frames being recorded.
+2.39) that follow how you're holding the phone. All of them are drawn on the GPU on the
+live picture. If the phone gets hot, peaking, zebras and the histogram pause until it
+cools down.
 
-**Geotagging works in airplane mode.** Photos and videos are tagged with GPS position,
+**Geotagging works in airplane mode.** Photos are tagged with GPS position,
 altitude, and which way the camera was facing (compass). All of it uses the phone's GPS
 chip and magnetometer, so no signal is needed. Without network help the first fix can take
 a minute, and it works best outdoors. The location icon in the top bar shows the status:
 green means locked, pulsing yellow means searching. Tap it to see the accuracy. The
-location is written into the file itself (EXIF / QuickTime), so it survives sharing.
+location is written into the file itself (EXIF), so it survives sharing.
 
 The **volume buttons** fire the shutter. On iPhone 16, **Camera Control** adjusts zoom and
 exposure.
@@ -171,7 +154,7 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
   you took them (Preferences → General → Store New Photos Forever turns that off).
 - **Edit** opens the editor: **Looks · Tone · Color · Texture · Crop**, each with labelled
   sliders (double-tap one to reset it; every drag is one Undo step).
-  - **Looks**: Print, Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks;
+  - **Looks**: Phromagraph (Chromagraph, measured), Punch and Noir; Film Stocks;
     Movie; and Grades, with live thumbnails and a set menu. Every look develops from the
     RAW.
   - **Optional controls** (each can be switched off in Preferences → Processing → Editor
@@ -197,7 +180,7 @@ Chromagraph. Nothing reaches your camera roll until you tap Export, or turn on A
     Discard.
 - **Preferences** (⚙︎, or double-tap the viewfinder): General (storage, Auto Export,
   location, Import RAW Photos, Import Archive, Diagnostics), Camera (RAW format, shooting,
-  assists, video) and Processing (Default Grade, export format, size and quality).
+  viewfinder, controls) and Processing (Default Grade, export format, size and quality).
 - **Import & archive**: bring RAW files in from Photos, archive RAWs to Photos or to a zip
   (with each photo's grade), and import that zip back later.
 
@@ -217,15 +200,11 @@ next time you open the app.
 To set it up: long-press Control Center → **Add a Control** → Point & Shoot. On the Lock
 Screen: long-press → Customize → Lock Screen → tap the camera button → Point & Shoot.
 
-A second control, **Record Video**, opens the full app straight into Video mode (after Face
-ID if the phone is locked). Put it in Control Center, on the other Lock Screen button, or on
-the Action button (Settings → Action Button → Controls).
-
 ## Shortcuts & the Action button
 
-**Take a Photo** and **Record a Video** appear in the Shortcuts app, Siri ("Take a photo
-with Point & Shoot") and Spotlight. To set up the Action button, go to Settings → Action
-Button → Shortcut → Point & Shoot. The app opens straight into that mode.
+**Take a Photo** appears in the Shortcuts app, Siri ("Take a photo with Point & Shoot")
+and Spotlight. To set up the Action button, go to Settings → Action Button → Shortcut →
+Point & Shoot. The app opens straight to the camera.
 
 ## Developing
 
@@ -258,9 +237,9 @@ up automatically.
 ```
 PointAndShoot/
   App/            entry point
-  Camera/         CameraController (session, lenses, exposure, capture, recording),
-                  PreviewRenderer (Metal preview + peaking/zebras/histogram/Log LUT),
-                  PhotoCaptureProcessor, ZeroDeveloper, VideoRecorder, CaptureSettings
+  Camera/         CameraController (session, lenses, exposure, capture),
+                  PreviewRenderer (Metal preview + peaking/zebras/histogram/live look),
+                  PhotoCaptureProcessor, PhotoPlanner, LensZoom, ZeroDeveloper, CaptureSettings
   UI/             CameraView, ControlStrip + DialPanel, ScrubDial, Overlays, SettingsView
   Editor/         EditorView, EditSession, EditPipeline (Core Image graph), EditRecipe,
                   CropOverlay, MetalImageView, FilmModel + FilmPipeline (the Print look)

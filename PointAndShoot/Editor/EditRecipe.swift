@@ -683,7 +683,7 @@ enum LookSet: String, CaseIterable, Identifiable {
     /// What the set is, for the picker and the guide's section header.
     var detail: String {
         switch self {
-        case .essentials: "Print (when it isn't a mode), Phromagraph, Punch and Noir."
+        case .essentials: "Phromagraph, Punch and Noir."
         case .stocks: "Real film stocks: each renders skin, foliage and skies its own way, with dense blacks and dye-dense color."
         case .movie: "Movie grades built like film: Technicolor, teal and orange, tungsten night, bleach bypass."
         case .grades: "An earlier, softer pass: color casts, split toning and lifted blacks. Here to compare."
@@ -724,17 +724,8 @@ struct Look: Identifiable {
 
     static let all: [Look] = [
         Look(id: "none", name: "Original", detail: "No look: the photo exactly as captured.") { _ in },
-        // Negative printed to print film, applied to the RAW sensor data (FilmModel.swift).
-        // Dense blacks, a long soft highlight shoulder, warm highlights over cool shadows,
-        // film color, halation and grain.
-        Look(id: "print", name: "Print", detail: "Film from the sensor: a cinema negative printed to print film. Dense blacks, soft highlights, warm-over-cool color, halation and fine grain. Shoots RAW.",
-             capturesRAW: true) { r in
-            // Pin Print's tuning as it is right now (see FilmRecipe.tuning).
-            r.film = FilmRecipe(stock: FilmStock.printLook.id, tuning: FilmStock.printLook,
-                                engine: FilmRecipe.currentEngine)
-            r.rawFilmExposure = nil   // settled per photo, by its RAW type
-            r.grain = FilmRecipe.defaultGrain
-        },
+        // Print is no longer offered (2026-11-24, `Look.printLook`); Phromagraph is the same
+        // rendering, fitted to Chromagraph.
         // Fitted to Chromagraph Camera's own renders of its RAWs (scripts/phromagraph.py),
         // separate from Print: Print is our film model tuned by eye; Phromagraph is the
         // measured match. Grain starts off, as in Chromagraph; the Grain slider at 50
@@ -796,10 +787,28 @@ struct Look: Identifiable {
     /// Original). Their photos render exactly as before (pinned tuning or
     /// `FilmStock.Legacy`); only the camera's choice and the pickers move on.
     static let retired: [String: (name: String, successor: String?)] = [
+        printID: ("Print", "phromagraph"),
         "natural": ("Natural", nil), "warm400": ("Warm 400", nil), "portrait": ("Skin", "portrait400"),
         "cool": ("Cool Air", "evergreen"), "cine": ("Cine", "blockbuster"), "chrome": ("Chrome", "classicslide"),
         "faded": ("Faded", nil), "mono400": ("Mono 400", "noir"), "silver": ("Silver", "noir"),
     ]
+
+    static let printID = "print"
+
+    /// Print, the first film look: a cinema negative printed to print film (FilmModel.swift),
+    /// retired from the pickers (2026-11-24, the owner: "remove print as a main mode and as a
+    /// look") since Phromagraph is the same rendering fitted to Chromagraph. Photos made
+    /// with it render from their pinned tuning and are still called Print. This builds the
+    /// recipe picking it did (tests, and edits that need a Print recipe); `FilmStock.printLook`
+    /// stays the default stock and the base of the others.
+    static let printLook = Look(id: printID, name: "Print", detail: "Film from the sensor: a cinema negative printed to print film. Dense blacks, soft highlights, warm-over-cool color, halation and fine grain. Shoots RAW.",
+                                capturesRAW: true) { r in
+        // Pin Print's tuning as it is right now (see FilmRecipe.tuning).
+        r.film = FilmRecipe(stock: FilmStock.printLook.id, tuning: FilmStock.printLook,
+                            engine: FilmRecipe.currentEngine)
+        r.rawFilmExposure = nil   // settled per photo, by its RAW type
+        r.grain = FilmRecipe.defaultGrain
+    }
 
     /// The name to show for a recipe's look id, retired looks included (nil = no look).
     static func displayName(_ id: String?) -> String? {

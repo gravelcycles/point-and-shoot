@@ -140,9 +140,9 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
         XCTAssertTrue(types.contains(.alternatePhoto), "Zero develop + DNG wasn't saved as a pair")
     }
 
-    private func bake(_ lookID: String) async throws {
+    private func bake(_ look: Look) async throws {
+        let lookID = look.id
         let id = try await PhotoLibrary.savePhoto(primary: jpeg(width: 320, height: 240), rawCompanion: nil)
-        let look = try XCTUnwrap(Look.named(lookID), "no look \(lookID)")
         try await RecipeBaker.apply(look.recipe, toAssetWithID: try XCTUnwrap(id))
         let a = try asset(id)
         XCTAssertTrue(a.hasAdjustments, "\(lookID): the baked look didn't land on the asset")
@@ -157,10 +157,11 @@ final class PhotoLibraryIntegrationTests: XCTestCase {
     }
 
     func testBakingALookEditsTheAssetAndReopens() async throws {
-        try await bake("noir")
+        try await bake(try XCTUnwrap(Look.named("noir")))
     }
 
     func testBakingPrintWithoutRAWStillWorks() async throws {
-        try await bake(CameraSettings.printLookID)
+        // Print is retired from the pickers; its recipe still bakes (older photos).
+        try await bake(Look.printLook)
     }
 }

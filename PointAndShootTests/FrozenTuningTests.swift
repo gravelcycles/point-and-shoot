@@ -30,7 +30,7 @@ final class FrozenTuningTests: XCTestCase {
         return m
     }
 
-    private var printRecipe: EditRecipe { Look.named(CameraSettings.printLookID)!.recipe }
+    private var printRecipe: EditRecipe { Look.printLook.recipe }
 
     func testStockTuningRoundTripsThroughJSON() throws {
         for stock in FilmStock.all.values {
@@ -112,7 +112,9 @@ final class FrozenTuningTests: XCTestCase {
     /// The filters replaced by the looks keep rendering exactly as they were made:
     /// pinned tuning first, else the frozen history, never Print or a current look.
     func testRetiredLooksStillRenderWithTheirOwnTuning() throws {
-        for (id, entry) in Look.retired {
+        // Print left the pickers but its stock stays (the default stock, the base of the
+        // others): `testPrintIsRetiredFromThePickersButStillRendersAndIsNamed`.
+        for (id, entry) in Look.retired where id != Look.printID {
             XCTAssertNil(FilmStock.all[id], "\(id) is retired but still offered")
             let shipped = try XCTUnwrap(FilmStock.Legacy.v2[id], "\(id) missing from the frozen history")
             var unpinned = EditRecipe()
@@ -122,6 +124,23 @@ final class FrozenTuningTests: XCTestCase {
             XCTAssertEqual(FilmStock.namedOrRetired(id), shipped, id)
             XCTAssertEqual(Look.displayName(id), entry.name, "the editor should still name \(id)")
         }
+    }
+
+    /// Print is no longer a look you can pick, but photos made with it render exactly as
+    /// before (pinned tuning, or the frozen history) and are still called Print.
+    func testPrintIsRetiredFromThePickersButStillRendersAndIsNamed() {
+        XCTAssertNil(Look.named(Look.printID), "Print isn't offered")
+        XCTAssertFalse(Look.all.contains { $0.id == Look.printID })
+        XCTAssertEqual(Look.displayName(Look.printID), "Print")
+        XCTAssertEqual(Look.retired[Look.printID]?.successor, "phromagraph")
+        XCTAssertNotNil(FilmStock.all[FilmStock.printLook.id], "Print's stock stays: the default and the others' base")
+        let pinned = printRecipe
+        XCTAssertEqual(pinned.look, Look.printID)
+        XCTAssertEqual(FilmStock.resolved(for: pinned), FilmStock.printLook)
+        var unpinned = pinned
+        unpinned.film?.tuning = nil
+        unpinned.film?.stock = nil
+        XCTAssertEqual(FilmStock.resolved(for: unpinned), FilmStock.Legacy.v2[Look.printID] ?? FilmStock.printLook)
     }
 
     func testRetiredPinnedTuningMissingAFieldFillsFromItsOwnStock() throws {
@@ -521,8 +540,7 @@ final class FrozenTuningTests: XCTestCase {
 
         // A Default Grade saved with older math starts new shots on today's engine.
         var settings = CameraSettings()
-        settings.mode = .photo
-        settings.captureLook = CameraSettings.printLookID
+        settings.captureLook = Look.printID
         var grade = printRecipe
         grade.film?.engine = 4
         grade.shadows = 30
@@ -600,7 +618,7 @@ final class FrozenTuningTests: XCTestCase {
         var older = FilmStock.printLook
         older.exposure += 1
         r.film?.tuning = older
-        Look.named(CameraSettings.printLookID)!.apply(&r)
+        Look.printLook.apply(&r)
         XCTAssertEqual(r.film?.tuning, FilmStock.printLook, "Re-picking a look should pin its current tuning")
     }
 
@@ -617,7 +635,7 @@ final class FrozenTuningTests: XCTestCase {
         var edited = older
         edited.resetTone()
         XCTAssertEqual(edited.rawFilmExposure, 2.31, "Resetting tone keeps the photo's develop exposure")
-        Look.named(CameraSettings.printLookID)!.apply(&edited)
+        Look.printLook.apply(&edited)
         XCTAssertNil(edited.rawFilmExposure)
         // Pasting a film look leaves it to the target's RAW; pasting a plain one keeps it.
         var target = EditRecipe()

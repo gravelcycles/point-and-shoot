@@ -87,11 +87,6 @@ struct LiveHistogram: View {
     var body: some View { HistogramView(histogram: camera.histogram) }
 }
 
-struct LiveAudioMeter: View {
-    let camera: CameraController
-    var body: some View { AudioMeter(level: camera.audioLevel) }
-}
-
 struct LiveExposureMeter: View {
     let camera: CameraController
     var body: some View { ExposureMeter(offset: camera.meterOffset) }
@@ -229,25 +224,6 @@ struct FocusReticle: View {
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("focus.reticle")
-    }
-}
-
-struct AudioMeter: View {
-    let level: Float // dBFS
-
-    var body: some View {
-        let normalized = CGFloat(max(0, min(1, (level + 50) / 50)))
-        GeometryReader { geo in
-            ZStack(alignment: .bottom) {
-                Capsule().fill(Color.white.opacity(0.2))
-                Capsule()
-                    .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .bottom, endPoint: .top))
-                    .frame(height: geo.size.height * normalized)
-            }
-        }
-        .frame(width: 4, height: 54)
-        .animation(.linear(duration: 0.07), value: normalized)
-        .allowsHitTesting(false)
     }
 }
 

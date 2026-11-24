@@ -78,6 +78,28 @@ call: "let's make that the default now. no more 2 apps". Reference for what was 
   Archive here. `scripts/deploy-iphone.sh` reads the bundle ID from the project.
 - **Branches:** work on `claude/*` from `main` again; `claude/raw-studio` is retired.
 
+**Simplified for release (2026-11-24, `claude/camera-simplify`).** At the owner's call:
+- **Video is gone** ("remove video as well. doesn't even show up in photos taken lol"):
+  Video mode, `VideoRecorder`, recording UI, the video format panel and settings, the Log
+  view LUT, the 180° shutter lock, audio capture and the microphone permission, the "Record
+  a Video" shortcut and the "Record Video" control. The video data output stays: it feeds
+  the Metal viewfinder.
+- **Print is no longer a mode or a look** ("remove print as a main mode and as a look"):
+  `CaptureMode` is gone (Photo is the only mode, no mode picker), and Print left `Look.all`.
+  Photos made with Print render exactly as before and are still called Print
+  (`Look.retired`, `Look.printLook` builds its recipe; `FilmStock.printLook` stays the
+  default stock and the base of the others).
+- **Old settings still load:** removed keys (`mode`, `printPlacement`, `frameRate`, …) are
+  ignored by `TolerantJSON`. A camera saved in Print mode, a Print capture look and a
+  Default Grade on Print move to Phromagraph (the grade keeps its sliders,
+  `CameraSettings.movingPrintToPhromagraph`); one saved in Video opens in Photo.
+- **Lens chips read 0.5 / 1× / 2 / 3** (zoom relative to the main lens, `LensZoom`), not mm.
+- **Phones without ProRAW** (non-Pro): `CameraSettings.proRAWAvailable`, learned from the
+  main camera's photo output and saved, makes every photo Bayer RAW with no per-shot toast;
+  the pickers show "Bayer RAW" and say ProRAW needs an iPhone Pro.
+- **Preferences tidied:** the Film Controls Update section is gone (migration stays on;
+  `FilmMigration.enabledKey` is still read), and so are the video and Print settings.
+
 ---
 
 ## 2. First session on the Mac: start here
@@ -143,17 +165,17 @@ reports; Claude reads logs, fixes, and opens PRs.**
 ```
 PointAndShoot/                    app target (synchronized folder: new files auto-included)
   App/PointAndShootApp.swift      @main; owns CameraController + ShotStore (loads it, runs retention)
-  App/Shortcuts.swift             App Intents: "Take a Photo"/"Record a Video" (Action button, Siri)
+  App/Shortcuts.swift             App Intent "Take a Photo" (Action button, Siri); `LaunchRequests`
   Camera/CameraController.swift   ★ the engine: session, lenses, exposure/focus/WB, capture, burst,
-                                  recording, metering timer, storage/thermal, Camera Control
+                                  metering timer, thermal, Camera Control, ProRAW support
   Camera/CaptureSettings.swift    all persisted settings + enums + photographic stop tables
-  Camera/PreviewRenderer.swift    Metal viewfinder: CI pipeline, peaking, zebras, histogram, Log LUT,
+  Camera/PreviewRenderer.swift    Metal viewfinder: CI pipeline, peaking, zebras, histogram,
                                   live capture Look, lens-switch blur
   Camera/PhotoCaptureProcessor.swift  AVCapturePhotoCaptureDelegate; GPS EXIF; save; bake Look (BakeQueue)
   Camera/PhotoPlanner.swift       pure capture decisions (RAW kind, prioritization, flash, 12 MP) — unit-tested
   Camera/ViewfinderMatch.swift    pure viewfinder exposure correction from the meter (film looks) — unit-tested
   Camera/ZeroDeveloper.swift      "Zero" processing: neutral CIRAWFilter develop of Bayer DNG
-  Camera/VideoRecorder.swift      AVAssetWriter recorder (video+audio, location metadata)
+  Camera/LensZoom.swift           lens labels relative to the main lens (0.5 / 1× / 2 / 3) — unit-tested
   Camera/LocationTagger.swift     CoreLocation GPS + compass; EXIF/ISO6709 builders
   UI/CameraView.swift             main screen, top bar, lens picker, shutter (tap/hold-burst),
                                   thumbnail, gestures, hints, launch-request handling
@@ -175,7 +197,7 @@ PointAndShoot/                    app target (synchronized folder: new files aut
   Library/PhotoViewer.swift       viewer: filmstrip, Keep, trash + Undo, export, zoom (RAW detail render)
   Library/LibraryView.swift       grid by day, Select (export/share/keep/grade/archive/trash), Trash view
   Library/ZoomableImageView.swift Photos-style zoom for viewer pages (UIScrollView: pinch+pan, double-tap)
-  Library/PhotoLibrary.swift      Photos helpers (save for export/archive, video save)
+  Library/PhotoLibrary.swift      Photos helpers (save for export/archive)
   Library/LockedCaptureImporter.swift  moves Lock Screen shots (parked DNGs) into the library
   Library/RollLogic.swift         pure viewer selection + thumbnail handoff rules — unit-tested
   App/TolerantJSON.swift          decodes saved settings/recipes from any app version (missing keys → defaults)
@@ -197,8 +219,7 @@ PointAndShootTests/               unit + integration tests, hosted in the app (@
                                   recipe back-compat, capture planner, roll logic, film pipeline, Photos library
 PointAndShootUITests/             simulator UI tests (tap targets, tap-through, roll/viewer/delete flows); -uitest
 Shared/CameraCaptureIntent.swift  CameraCaptureIntent (compiled into app + both extensions)
-Shared/OpenVideoControlIntent.swift  "Record Video" control's intent (opens the app in Video mode)
-PointAndShootWidgets/             ControlWidget extension: Camera + Record Video controls (Control Center /
+PointAndShootWidgets/             ControlWidget extension: the Camera control (Control Center /
                                   Lock Screen / Action button)
 PointAndShootLockedCapture/       LockedCameraCapture extension: lean Lock Screen camera
 Config/*-Info.plist               NSExtension dicts for the two extensions (merged with generated plist)
@@ -231,8 +252,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 ### Threading (important)
 - **`sessionQueue`** (serial): all `AVCaptureSession` / `AVCaptureDevice` configuration,
   plus `lockForConfiguration` via `withLockedDevice`.
-- **`dataQueue`** (serial): video and audio sample buffers, plus every `VideoRecorder`
-  call.
+- **`dataQueue`** (serial): the viewfinder's sample buffers.
 - **`PreviewRenderer.renderQueue`**: GPU rendering. Frames are **dropped, never queued**,
   while the renderer is busy. Histograms run on a utility queue every 5th frame.
 - **Main thread:** every `@Observable` UI property. The controller hops back with
@@ -242,25 +262,27 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 
 ### Key design decisions (and why)
 - **Physical lenses, not the virtual multi-cam device.** Manual controls and Bayer RAW are
-  reliable per physical lens. Lenses are labelled by 35 mm-equivalent focal length, computed
-  from the FOV and snapped to marketing values (13/24/48/77/120). The "48 mm" option is the
+  reliable per physical lens. Each lens's 35 mm-equivalent focal length is computed from the
+  FOV and snapped to marketing values (13/24/48/77/120); the picker labels it relative to
+  the main lens (`LensZoom.relative`: 0.5, 1×, 2, 2.5, 3, 5). The "2" crop option is the
   main lens at 2× zoom on 48 MP sensors.
 - **Custom Metal preview** (video data output → Core Image → `CAMetalLayer`) instead of
-  `AVCaptureVideoPreviewLayer`. This is what makes peaking, zebras, histogram, Log assist
-  and live Looks possible. Orientation is fixed portrait: back camera `.right`, front
+  `AVCaptureVideoPreviewLayer`. This is what makes peaking, zebras, histogram and live
+  Looks possible. Orientation is fixed portrait: back camera `.right`, front
   `.leftMirrored`. `devicePoint(fromViewPoint:)` maps taps to sensor coordinates and must
   stay consistent with that orientation.
-- **AVAssetWriter** for video (not `AVCaptureMovieFileOutput`), so the same buffers feed
-  the preview and the file. Writer settings start from
-  `recommendedVideoSettings(forVideoCodecType:…)`. HEVC/H.264 bitrate is pixels × fps ×
-  0.16 bits per pixel (0.22 for 10-bit).
 - **RAW only.** Every photo is a RAW the app develops itself (`PhotoPlanner.decide`):
   - **ProRAW is the default ("Cleaner").** `CameraSettings.prefersProRAW` = `rawMode !=
-    .bayer` (`.off` from older settings counts as ProRAW), and **Print always shoots
-    ProRAW**: `shootsProRAW` = Print mode || `prefersProRAW`. `CameraController.proRAWActive`
-    must equal it: when it didn't, every "ProRAW" shot silently came out Bayer. Photo ↔
-    Print rebuilds the session only for someone who picked Bayer for Photo.
-  - **Bayer RAW ("Faster")** (the sensor's single frame) is the opt-in for Photo mode. The
+    .bayer` (`.off` from older settings counts as ProRAW), and `shootsProRAW` =
+    `prefersProRAW` && `proRAWAvailable`. `CameraController.proRAWActive` must equal it:
+    when it didn't, every "ProRAW" shot silently came out Bayer. A change reconfigures the
+    session.
+  - **No ProRAW on the phone** (non-Pro iPhones): `proRAWAvailable` is learned from the main
+    camera's `isAppleProRAWSupported` after each reconfigure and saved
+    (`learnProRAWSupport`). False → Bayer RAW for every shot with no fallback toast, zoom
+    locked like any Bayer RAW, and the pickers show "Bayer RAW" with
+    `proRAWUnavailableReason` instead of the choice.
+  - **Bayer RAW ("Faster")** (the sensor's single frame) is the opt-in. The
     pickers say the trade-off (`RawMode.choice`, `.tradeoff`): ProRAW is cleaner (Apple's
     multi-frame merge, zoom works) but takes ~1–3 s per shot on an iPhone 12 Pro; Bayer is
     ready in under half a second, noisier, zoom locked at 1×.
@@ -272,16 +294,15 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - The old processing levels (Apple/Balanced/Natural/Zero) are gone from the UI.
 - **Bayer RAW forces `.speed` prioritization and 12 MP dimensions** (avoids
   `NSInvalidArgumentException`). ProRAW uses `.quality`, at 12 MP or max.
-- **Zoom is locked at 1× only with Bayer RAW** (`zoomLocked` = still mode && Bayer).
+- **Zoom is locked at 1× only with Bayer RAW** (`zoomLocked` = `!shootsProRAW`).
   AVFoundation throws on Bayer RAW when `videoZoomFactor > 1` (crashed on device). ProRAW
-  and video zoom normally; the planner never requests Bayer while zoomed.
+  zooms normally; the planner never requests Bayer while zoomed.
 - **No burst:** RAW can't burst. `CameraController.burstEnabled` is false; the code stays.
 - **The camera's quick preview is kept.** Each capture keeps a 1440 px preview
   (`capture.jpg`): the instant thumbnail, the RAW stand-in where it can't decode (the
   simulator), and a film look's brightness reference when there's no viewfinder key.
 - **Exposure modes** are P / S / M. S (shutter priority) is implemented by us: a 15 Hz
-  meter loop adjusts ISO from `exposureTargetOffset` in custom mode, with gain 0.6. The
-  180° shutter lock in video uses S with shutter = 1/(2·fps).
+  meter loop adjusts ISO from `exposureTargetOffset` in custom mode, with gain 0.6.
 - **`suspendForBrowsing()`:** opening the roll waits for `capturesInFlight == 0` before
   stopping the session, so a shot still being processed is never dropped.
 - **Edits are a grade.** A shot's edit is its `EditRecipe` in `recipe.json`; the RAW is
@@ -325,7 +346,6 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     `recipes[id]` is unchanged.
   - **Editor saves only settle the RAW develop.** Brightness comes from the grade: picking a
     film look pins the fixed exposure, and the default grade keeps it.
-  - **Videos still go straight to Photos.**
 
 ### Library, trash and retention (every state)
 | Where / when | What happens |
@@ -352,7 +372,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     strip (stack button, `CameraSettings.lookSet`, nil = all) and the editor's Looks tool
     (`@AppStorage("editor.lookSet")`) show one set or all; the guide groups by set. The
     owner compares whole families on the phone.
-    - Essentials: Original, Print, Phromagraph, Punch, Noir.
+    - Essentials: Original, Phromagraph, Punch, Noir (Print left the pickers, 2026-11-24).
     - Film Stocks: Portrait 400, Evergreen, Slide, Lush.
     - Movie: Three-Strip, Blockbuster, Night 800, Bleach Bypass.
     - Grades: PR #35's first pass, with its ids and tunings untouched (Desert, Pastel, Amber
@@ -469,12 +489,12 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
           per shot ("grey-scale fit error").
         - A processed photo (no RAW) on engine 1 keeps its engine (its un-render changed).
         - **Recoverable:** before a shot's grade is first migrated, it's saved next to it as
-          `recipe.before-migration.json` (never overwritten by a later migration). Preferences
-          → Processing → Film Controls Update: "Update Older Edits" (`FilmMigration.enabledKey`,
-          on by default; off, nothing migrates anywhere) and "Restore Edits from Before the
-          Update…" (`ShotStore.restorePreMigrationGrades`: puts every backup back, re-renders,
-          and turns migration off so it isn't redone). A fit that yields a non-finite number
-          leaves the edit as it was.
+          `recipe.before-migration.json` (never overwritten by a later migration).
+          `FilmMigration.enabledKey` (on by default; off, nothing migrates anywhere) and
+          `ShotStore.restorePreMigrationGrades` (puts every backup back, re-renders, and turns
+          migration off so it isn't redone) remain, but their Preferences section ("Film
+          Controls Update") was removed for release (2026-11-24). A fit that yields a
+          non-finite number leaves the edit as it was.
     - 6: grain sized to the frame and as strong at every size, like Chromagraph's
       (`FilmPipeline.addGrain` `frame`): σ = stock grain size × 3 (‰ of the long side) ×
       the Grain Size slider, std = grain density × 0.88 × amount, no averaging down for
@@ -576,7 +596,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     Original (`CameraSettings.decodeSaved`). Never reuse a
     retired id for a different look.
   - Vignette, structure and so on stay as ordinary recipe extras (`Look.film(_:_:)`).
-- **Only Print and Phromagraph capture RAW** (`Look.capturesRAW`). The others apply to
+- **Only Phromagraph (and the retired Print) capture RAW** (`Look.capturesRAW`). The others apply to
   whatever Photo mode's processing produced, and develop from RAW when the shot has a DNG.
 - **Phromagraph** (`phromagraph`, a look, never a mode) is a separate stock *fitted* to
   Chromagraph Camera's own exports of its own ProRAWs, where Print was calibrated from
@@ -685,24 +705,19 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
       `display = 1.273·s/(1+0.808·s)`, channel ratios kept (so Apple's saturation stacked
       under the film's), and exposure applied *before* un-rendering (+1 EV clipped
       everything above display 0.5). Kept bit-exact for older edits.
-- **Where Print appears:** `CameraSettings.printPlacement`, under Settings → Photo →
-  "Print film look". **Print is both** (the owner, 2026-11-18): always a mode
-  ("the simple mode") and always one of Photo's looks. `printPlacement` is ignored and its
-  setting hidden (kept so settings round-trip with `main`).
-  - **Mode (default):** PHOTO · PRINT · VIDEO. `CaptureMode.print` is a still mode
-    (`isStill`), so it uses the photo pipeline.
-    - It drops the controls that don't apply: no format pill (always RAW), no LOOK
-      cell (Print *is* the look), and no burst (RAW can't burst).
-    - Photo ↔ Print switches without rebuilding the session. Only a ProRAW on/off change
-      reconfigures (`CameraController.proRAWActive`).
-    - Print is left out of the LOOK list.
-  - **Look:** Print is the first item under LOOK, and there is no Print mode.
-  - `CameraSettings.activeLook` is what actually gets applied: Print in Print mode,
-    otherwise the chosen look.
-  - The editor's Looks tool always includes Print (under Essentials, or All).
-- **Capture:** the Print mode (or the Print look) makes the camera shoot Bayer RAW and
-  keep the DNG (`CameraSettings.developsBayerRAW`). `RecipeBaker` then renders the edit
-  from the in-memory DNG.
+- **Print is retired from the pickers** (2026-11-24, the owner: "remove print as a main mode
+  and as a look"). It used to be both a mode (PHOTO · PRINT · VIDEO) and a look. Now:
+  - It's in `Look.retired` (name "Print", successor Phromagraph), not `Look.all`: the LOOK
+    strip, the editor's Looks tool, Apply Look and the Default Grade picker don't offer it.
+  - Its photos render from their pinned tuning (or `FilmStock.Legacy`) and the viewer and
+    editor still call it Print (`Look.displayName`). `FilmStock.printLook` stays in
+    `FilmStock.all`: it's the default when `film.stock` is nil and the base the other
+    stocks inherit from in `film-looks.json`.
+  - `Look.printLook` builds the recipe picking Print did, for tests and older-photo code.
+  - Saved settings move on (`CameraSettings.decodeSaved`): capture look Print → Phromagraph,
+    `mode` "print" → Phromagraph, a Default Grade on Print → Phromagraph with its sliders.
+- **Capture:** every photo keeps its DNG; `RecipeBaker` / `ShotRenderer` render the edit
+  from it.
   - **Noise.** A Bayer RAW is a single frame with none of Apple's multi-frame noise
     reduction, so the develop has to clean it up.
     - The baker starts from the camera's own luminance NR for the shot, never below
@@ -765,9 +780,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
         render queue never builds one. LOOK-strip thumbnails stay uncorrected.
       - Measured with CIRAWFilter's default render standing in for the live video: check
         on the device (`docs/film-looks.md` §5⅞).
-    - **Plain live view** (Settings → Photo, `CameraSettings.plainLiveView`, off by
-      default, experimental). Where the photo comes from the RAW alone (Print, Zero,
-      `wantsPlainLiveView`), `CameraController.applyPlainLiveView` turns video HDR off and
+    - **Plain live view** (Preferences → Camera → Viewfinder, `CameraSettings.plainLiveView`,
+      off by default, experimental). Every photo comes from the RAW alone
+      (`wantsPlainLiveView`), so when it's on `CameraController.applyPlainLiveView` turns video HDR off and
       global tone mapping on (`isGlobalToneMappingEnabled`, where the format supports it).
       That's one tone curve for the whole frame instead of Apple's local brightening.
       - It's re-applied after every reconfigure, because a format change resets it.
@@ -825,9 +840,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
 | Shutter-priority ISO gain / deadband | `shutterPriorityStep` | 0.6 / 0.08 EV |
 | EV drag sensitivity | `CameraView.handlePan` | 170 pt per EV, snapped to ⅓ stop |
 | Editor swipe sensitivity | `EditorView.adjustGesture` | full range over 860 pt |
-| Apple Log view LUT | `PreviewRenderer.makeAppleLogToRec709Cube` | Apple's published Log curve + Rec.2020→709 + simple filmic shoulder (not an official LUT) |
 | Zero develop NR / sharpening | `ZeroDeveloper.configureNeutral` | chroma NR 0.3, sharpness 0.1 |
-| Storage reserve / auto-stop | `updateStorage` | 1 GB reserve / stop under 600 MB |
 | GPS "good" / max staleness | `LocationTagger` | ≤ 50 m / 10 min |
 | Film looks: RAW develop brightness | `EditRecipe.filmRAWExposure(bayer:ev100:)` | natural: min(1.83 + 0.122·(EV100 − 10) − 0.2, 1.86), minus 0.63 for Bayer (`naturalBias`, `brightestFilmExposure`, `bayerScale`), settled per photo. `print-stock.json` `exposure` (0) still sets the look's own grey placement (~11.5% display for scene grey) |
 | Print: halation strength / radii | `print-stock.json` `halation`, `halation_spread` | R 0.15, G 0.04, B 0.005; σ 2 + 6 ‰ of long side |
@@ -861,15 +874,9 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     all of them visible at once; don't hide them behind a "more"/PRO toggle (tried in #12,
     reverted). White = auto, yellow = manual.
   - Scrub dials for ISO (⅓ stops), shutter (⅓ stops), EV, Kelvin WB and manual focus.
-  - Tap to focus/meter, hold to lock AE/AF, drag ↕ for EV, swipe ↔ for Photo/Video, pinch
+  - Tap to focus/meter, hold to lock AE/AF, drag ↕ for EV, pinch
     to zoom.
   - Remembers the last lens used.
-- **Video:**
-  - HD/4K at 24–120 fps (filtered per lens); SDR, HLG or Apple Log; HEVC, H.264 or ProRes
-    (422 / 422 HQ).
-  - Stabilization modes, 180° shutter lock, Log view assist.
-  - Audio meter, recording time left with auto-stop when storage is low, thermal pause of
-    the assists.
 - **Assists:** peaking (4 colors), zebras, RGB+luma histogram (default off), level (shown
   only within ~12° of level), grid, frame lines
   (1:1, 4:5, 16:9, 1.85, 2.39). Frame lines follow the phone's held orientation.
@@ -878,7 +885,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   - iPhone 16 Camera Control gets system zoom and EV sliders.
   - The Action button works via App Shortcuts or the Control.
 - **GPS:** works offline. Written to EXIF (position, altitude, speed, compass heading),
-  QuickTime ISO 6709 metadata, and `PHAsset.location`.
+  and `PHAsset.location` on export.
 - **Library** (§4 "Library, trash and retention"):
   - The viewer opens on the newest shot. A shot still saving gets its "Developing…" page
     at once (over the camera's preview once it arrives), never the previous photo
@@ -1044,7 +1051,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
     back-compat, the capture planner's crash invariants, viewer/thumbnail logic, every
     look through the film pipeline on the simulator GPU, and the real Photos library
     (save, RAW pairs with a generated DNG, Zero develop orientation, baking a look).
-  - `PointAndShootUITests`: tap targets, Print zoom lock, settings, and the roll flows
+  - `PointAndShootUITests`: tap targets, the Bayer RAW zoom lock, settings, and the roll flows
     (viewer, delete with iOS's confirmation, Don't Allow, grid batch delete) against
     photos seeded with `-uitest-seed N`.
   - Photos access: the seeding app asks for full access and `LibraryFlowTests` taps
@@ -1101,7 +1108,7 @@ CLOUD_BUILD.md                    browser-only TestFlight setup for the owner
   Attach each one to its own anchor: the button that opens it, or a `Color.clear` in a
   `.background { … }` (see `PhotoViewer`).
 - **Re-render discipline:** values that change several times a second (histogram, meter
-  offset, audio level, ISO/shutter in auto) must be read inside small leaf views, e.g.
+  offset, ISO/shutter in auto) must be read inside small leaf views, e.g.
   `LiveHistogram(camera:)`, never in `CameraView`'s body. Reading them there re-renders the
   whole screen on every tick and makes controls feel sticky.
 - **UI tests:** `PointAndShootUITests` runs in the simulator with the `-uitest` launch
@@ -1171,7 +1178,12 @@ to be wrong.
    same scene, in the viewer, zoomed in and in an export; then Grain 5 and Grain Size at
    both ends. Crisp, about a pixel across at 2880 px, neutral on greys; bigger is a little
    stronger. Older photos with grain open migrated (engine 6's default becomes Size 3.00 at
-   ~0.8); Preferences → Processing → Restore Edits puts them back.
+   ~0.8). The pre-migration backup stays next to each shot (no restore button any more).
+9. **Camera, simplified (2026-11-24).** No mode picker; sideways swipes do nothing. Lens
+   chips read 0.5 / 1× / 2 / 3 and the chosen one follows a pinch. A camera left in Print
+   opens on Phromagraph; a Print photo still says Print in the viewer and editor. ⚠️ On a
+   non-Pro iPhone (if one's at hand): the format pill reads "RAW", the panel and
+   Preferences show "Bayer RAW" with the reason, no toast on each shot, zoom locked at 1×.
 
 1. **Launch & preview**
    - The camera permission prompt appears.
@@ -1200,11 +1212,6 @@ to be wrong.
    between lenses; the app reopens on the last lens.
 6. **Burst:** holding gives a counter; no crash with RAW selected (burst should skip RAW);
    all burst shots appear in Photos.
-7. **Video**
-   - 4K and HD at 24/30/60; HLG; Apple Log on 15 Pro+ (view assist on/off); HEVC vs ProRes.
-   - Recorded orientation is correct, audio is in sync, the file plays in Photos with
-     correct color (HDR badge for HLG).
-   - The time-left estimate is plausible; peaking and zebras work in video.
 8. **Assists:** histogram responds; zebras on blown highlights; level; frame lines rotate
    with landscape.
 9. **GPS:** test in airplane mode outdoors. The icon turns green, and the photo shows its
@@ -1241,26 +1248,21 @@ to be wrong.
       editor still names its look. A camera left on a retired look opens on its
       successor: Chrome → Slide, Skin → Portrait 400, Cool Air → Evergreen,
       Cine → Blockbuster, Mono 400 / Silver → Noir. The rest open on Original.
-13. **Shortcuts / Action button:** "Take a Photo" and "Record a Video" in the Shortcuts app
-    open the right mode.
+13. **Shortcuts / Action button:** "Take a Photo" in the Shortcuts app
+    opens the camera (closing the library if it's open).
 14. **iOS 18 Control + Lock Screen camera**
     - Add the control to Control Center and the Lock Screen.
     - Locked: the extension opens without unlock and captures.
     - ⚠️ Whether the extension can write to Photos directly. If not, shots should appear
       after opening the app (`LockedCaptureImporter`).
     - "Full app" hands off after Face ID.
-15. **Print look**
-    - Tap PRINT (or swipe from PHOTO). It switches instantly with no session blur, and the
-      viewfinder shows the look live with moving grain at full frame rate.
-    - Print mode shows no format pill, no LOOK cell, and doesn't burst. Flash, timer and
-      exposure controls are still there.
-    - Settings → Print film look → Look: PRINT leaves the mode picker and appears under
-      LOOK. The format pill then reads "Print · RAW" when it's picked.
-    - Shoot, then check in Photos: the shot is Edited, and the DNG is kept. ⚠️ The saved
-      photo should be about as bright as Chromagraph on the same scene, and close to the
-      viewfinder. If every shot is off by the same amount, change
-      `EditRecipe.filmRAWExposure`. If the viewfinder alone is off, the un-render
-      (engine 2) is the place to look.
+15. **Film looks (Phromagraph)**
+    - Pick it under LOOK: it switches instantly with no session blur, and the viewfinder
+      shows the look live with moving grain at full frame rate.
+    - Shoot: the DNG is kept. ⚠️ The saved photo should be about as bright as Chromagraph
+      on the same scene, and close to the viewfinder. If every shot is off by the same
+      amount, change `EditRecipe.filmRAWExposure`. If the viewfinder alone is off, the
+      un-render (engine 2) is the place to look.
     - ⚠️ Viewfinder vs saved photo per scene (`ViewfinderMatch`): night street, dim room,
       overcast, full sun. Then with manual ISO, manual shutter and EV ±1: the preview
       should get brighter/darker exactly like the photo. The Diagnostics log shows each
@@ -1268,20 +1270,18 @@ to be wrong.
       saves (or sun brighter), steepen the 0.122 slope; if every scene is off the same way,
       move the 0.03 offset.
     - Open a Print photo from before 2026-11-14 in the editor: it opens ~2 stops brighter
-      with Save enabled (no need to tap Print); Save keeps it.
-    - ⚠️ Settings → Photo → Plain live view: the viewfinder should track the saved photo
-      more closely in Print, especially in contrasty and dim scenes, with no hitch when
-      switching Photo ↔ Print. The Diagnostics log says whether the phone supports it.
+      with Save enabled; Save keeps it.
+    - ⚠️ Preferences → Camera → Plain live view: the viewfinder should track the saved
+      photo more closely, especially in contrasty and dim scenes. The Diagnostics log says
+      whether the phone supports it.
     - Look for red-orange halation around lamps and sunlit edges, and fine grain. Check
       there is no banding in skies or shadow gradients.
     - Indoors at night, the shot shouldn't look noisy. Fine grain should be visible
       only when you zoom in.
-    - Editor: Print from the Looks tool. Details → Grain/Halation/Crossover respond;
-      Tune sliders behave. Revert in Photos gives the neutral Zero develop.
     - Switch the look back to Original: sharpening and the RAW tab's tone sliders return.
 16. **Robustness:**
-    - Background/foreground while recording; incoming call; low storage.
-    - Deny each permission (camera, mic, photos, location) and confirm graceful messages.
+    - Background/foreground while a shot develops; incoming call; low storage.
+    - Deny each permission (camera, photos, location) and confirm graceful messages.
 
 ---
 
@@ -1291,7 +1291,6 @@ to be wrong.
 - Home-screen widget showing the latest shot.
 - A "safe mode" that disables RAW/extras if the session fails to start.
 - Editor: selective/brush adjustments, healing, curves UI, LUT import.
-- Video: looks / LUT on record, false color, waveform, timecode.
 - Deferred photo processing (iOS 17 `isAutoDeferredPhotoDeliveryEnabled`) for even faster
   shot-to-shot.
 - App Store submission workflow (unlisted distribution). Apps installed from the App Store
@@ -1301,7 +1300,6 @@ to be wrong.
   - Multi-frame highlight-retention capture (bracket and merge, ~2 stops) so halation and
     the shoulder see real highlights.
   - A contrast pivot.
-  - A Print-mode default exposure placement tuned on device.
   - An "optical" (white bloom) halation mode.
   - Grain amplitude that varies with density.
   - Fitting against real reference pairs (see §4).

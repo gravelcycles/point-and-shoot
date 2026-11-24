@@ -360,7 +360,7 @@ final class ShotStoreTests: XCTestCase {
             var copied = session.recipe
             copied.rawFilmExposure = nil
             session.apply(look: Look.all[0])   // Original
-            session.paste(Look.named(CameraSettings.printLookID)!.recipe)
+            session.paste(Look.printLook.recipe)
             XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): pasting a look")
             session.recipe = copied                      // undo, or any direct change
             XCTAssertEqual(session.recipe.rawFilmExposure, expected, "\(kind): setting the grade")
