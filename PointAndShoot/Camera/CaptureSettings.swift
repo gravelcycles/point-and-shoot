@@ -350,7 +350,8 @@ struct CameraSettings: Codable, Equatable {
             var saved = saved
             if let grade = saved["defaultGrade"] as? [String: Any],
                let data = try? JSONSerialization.data(withJSONObject: grade),
-               let decoded = EditRecipe.decodeSaved(data),
+               // A grade on a retired look moves on like the camera's choice, or goes.
+               let decoded = EditRecipe.decodeSaved(data).flatMap(Look.movingOffRetired),
                let object = TolerantJSON.object(decoded) {
                 saved["defaultGrade"] = object
             } else if saved["defaultGrade"] != nil {

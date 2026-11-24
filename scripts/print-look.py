@@ -90,8 +90,18 @@ def check_look_sets(specs, swift_path=LOOKS_SWIFT):
         if "film(" in head and not mfilm:
             unreadable.append(f'{mid.group(1)}: write its stock as film("id")')
     problems = list(unreadable)
+    # Retired looks (`"retired": true`): out of Look.all, named in Look.retired, so their
+    # photos keep their name and a saved camera choice moves on.
+    block = re.search(r"static let retired: \[String: .*?\n    \]", src, re.S)
+    retired_app = set(re.findall(r'"(\w+)": \("', block.group(0))) if block else set()
     for lid, spec in specs.items():
         want = spec.get("set", "essentials")
+        if spec.get("retired"):
+            if lid in app:
+                problems.append(f"{lid}: retired in film-looks.json but still in Look.all")
+            if lid not in retired_app:
+                problems.append(f"{lid}: retired in film-looks.json but missing from Look.retired")
+            continue
         if lid not in app:
             problems.append(f"{lid}: in film-looks.json but not in Look.all")
         elif app[lid][0] != want:
@@ -107,7 +117,8 @@ def export_swift(stock_path=STOCK, out=SWIFT):
     """Writes every film stock (Print + the looks in film-looks.json) to Swift."""
     import filmlooks
     check_look_sets(filmlooks.load_looks()["looks"])
-    stocks = filmlooks.all_stocks(F.load_stock(stock_path))
+    stocks = filmlooks.all_stocks(F.load_stock(stock_path), retired=True)
+    retired = filmlooks.retired_ids()
     ind = "                "
 
     def curve(c, pad="            "):
@@ -128,11 +139,26 @@ def export_swift(stock_path=STOCK, out=SWIFT):
         "// the JSON and regenerate.",
         "",
         "extension FilmStock {",
-        "    /// Every stock offered as a look, by id (retired stocks live in FilmStock.Legacy).",
+        "    /// Every stock offered as a look, by id (retired stocks: `retiredStocks`, FilmStock.Legacy).",
         "    static let all: [String: FilmStock] = Dictionary(uniqueKeysWithValues: [",
-        "        " + ", ".join(ident(k) for k in stocks) + ",",
+        "        " + ", ".join(ident(k) for k in stocks if k not in retired) + ",",
         "    ].map { ($0.id, $0) })",
         "",
+    ]
+    if retired:
+        lines += [
+            "    /// Stocks of retired looks (`retired` in film-looks.json), as they last shipped. Never",
+            "    /// offered, prewarmed or counted in the table caches: kept so a photo made with one can",
+            "    /// fill fields its pinned tuning lacks (`FilmStock.namedOrRetired`).",
+            "    static let retiredStocks: [String: FilmStock] = Dictionary(uniqueKeysWithValues: [",
+            "        " + ", ".join(ident(k) for k in stocks if k in retired) + ",",
+            "    ].map { ($0.id, $0) })",
+            "",
+        ]
+    else:
+        lines += ["    /// Stocks of retired looks, as they last shipped (none at the moment).",
+                  "    static let retiredStocks: [String: FilmStock] = [:]", ""]
+    lines += [
         "    /// The stock for a recipe's id (nil = Print, which predates stock ids). A retired id",
         "    /// gives Print here: render recipes through `FilmStock.resolved(for:)`, which knows them.",
         "    static func named(_ id: String?) -> FilmStock { all[id ?? \"print\"] ?? printLook }",

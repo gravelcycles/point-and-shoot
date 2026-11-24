@@ -156,13 +156,21 @@ def load_looks(path=LOOKS):
 PHROMAGRAPH = os.path.join(HERE, "phromagraph-stock.json")
 
 
-def all_stocks(print_stock, looks_path=LOOKS):
+def all_stocks(print_stock, looks_path=LOOKS, retired=False):
     """{id: stock} for Print, Phromagraph (fitted on its own: scripts/phromagraph.py) and
-    every filter in film-looks.json."""
+    every look in film-looks.json; looks marked `retired` (no longer offered) only with
+    `retired=True` (export-swift still writes them, for older photos' pinned tunings)."""
     out = {"print": print_stock}
     if os.path.exists(PHROMAGRAPH):
         with open(PHROMAGRAPH) as f:
             out["phromagraph"] = json.load(f)
     for lid, spec in load_looks(looks_path)["looks"].items():
+        if spec.get("retired") and not retired:
+            continue
         out[lid] = build_stock(spec.get("name", lid), spec, print_stock)
     return out
+
+
+def retired_ids(looks_path=LOOKS):
+    """The looks in film-looks.json that are no longer offered (`"retired": true`)."""
+    return {lid for lid, spec in load_looks(looks_path)["looks"].items() if spec.get("retired")}

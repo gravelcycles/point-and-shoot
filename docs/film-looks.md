@@ -191,6 +191,13 @@ columns: Three-Strip and Night 800 were retuned for it).
 **Retired camera choices now land on a successor:** Skin → Portrait 400, Cool Air →
 Evergreen, Cine → Blockbuster.
 
+**Four Grades retired (2026-11-24, the owner: "remove desert through sodium looks"):**
+Desert, Pastel, Amber Haze and Sodium. Their specs stay in `film-looks.json` with
+`"retired": true`, so `export-swift` still writes their stocks (unchanged) into
+`FilmStock.retiredStocks`, never `FilmStock.all`: photos that pinned them render and fill
+gaps as before, while the prewarm, the table caches, `spread` and `scope` skip them.
+Desert and Pastel move to Portrait 400, Sodium to Night 800, Amber Haze to Original.
+
 **The Saturation slider was additive, and is fixed from film engine 3.** It spread density
 about the mean, which brightens a saturated colour's dominant channel (a yellow at +50 went
 from 0.34 to 0.57 luminance). From engine 3 it pivots on the least dense channel like

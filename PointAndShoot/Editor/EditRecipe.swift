@@ -51,6 +51,7 @@ struct EditRecipe: Codable, Equatable {
     var dehaze: Double?
     /// Masks: exposure (50 per stop, ±2) and saturation (−100…100) of the sky and of the subject.
     /// nil = the default (0), so older edits decode and an untouched slider changes nothing.
+    /// The Subject sliders left the editor (2026-11-24); grades that used them still render so.
     var skyExposure: Double?
     var skySaturation: Double?
     var subjectExposure: Double?
@@ -448,6 +449,9 @@ struct EditRecipe: Codable, Equatable {
         rawFilmExposure = keep.rawFilmExposure
         // How the RAW is developed, like the settings above: it stays as the look changes.
         appleTone = keep.appleTone
+        // Local Tone sits under the looks strip: it's the light the look prints, so trying
+        // another look keeps it.
+        localTone = keep.localTone
     }
 }
 
@@ -633,7 +637,7 @@ struct Adjustment: Identifiable {
         .init(id: "halationColor", name: "Halation Colour", range: -100...100, keyPath: \.filmHalationColor),
     ]
 
-    /// Colour grading, tone curve, dehaze and masks (every look).
+    /// Colour grading, tone curve, dehaze, Local Tone, Highlight Recovery and the sky mask.
     static let extras: [Adjustment] = [
         .init(id: "gradeShadowHue", name: "Shadows Hue", range: 0...360, keyPath: \.gradeShadowHueValue, format: Adjustment.degrees),
         .init(id: "gradeShadowAmount", name: "Shadows Tint", range: 0...100, keyPath: \.gradeShadowAmountValue),
@@ -650,8 +654,6 @@ struct Adjustment: Identifiable {
         .init(id: "highlightRecovery", name: "Highlight Recovery", range: 0...100, keyPath: \.highlightRecoveryValue),
         .init(id: "skyExposure", name: "Sky Exposure", range: -100...100, keyPath: \.skyExposureValue, format: Adjustment.stops),
         .init(id: "skySaturation", name: "Sky Saturation", range: -100...100, keyPath: \.skySaturationValue),
-        .init(id: "subjectExposure", name: "Subject Exposure", range: -100...100, keyPath: \.subjectExposureValue, format: Adjustment.stops),
-        .init(id: "subjectSaturation", name: "Subject Saturation", range: -100...100, keyPath: \.subjectSaturationValue),
     ]
 
     static let raw: [Adjustment] = [
@@ -686,7 +688,7 @@ enum LookSet: String, CaseIterable, Identifiable {
         case .essentials: "Print (when it isn't a mode), Phromagraph, Punch and Noir."
         case .stocks: "Real film stocks: each renders skin, foliage and skies its own way, with dense blacks and dye-dense color."
         case .movie: "Movie grades built like film: Technicolor, teal and orange, tungsten night, bleach bypass."
-        case .grades: "An earlier, softer pass: color casts, split toning and lifted blacks. Here to compare."
+        case .grades: "An earlier pass at movie grades, kept to compare: neon night, seventies slide and a gritty bleach bypass."
         }
     }
 
@@ -723,7 +725,7 @@ struct Look: Identifiable {
     }
 
     static let all: [Look] = [
-        Look(id: "none", name: "Original", detail: "No look: the photo exactly as captured.") { _ in },
+        Look(id: "none", name: "Original", detail: "No look: the RAW developed close to how the Camera app would, with no film rendering.") { _ in },
         // Negative printed to print film, applied to the RAW sensor data (FilmModel.swift).
         // Dense blacks, a long soft highlight shoulder, warm highlights over cool shadows,
         // film color, halation and grain.
@@ -739,7 +741,7 @@ struct Look: Identifiable {
         // separate from Print: Print is our film model tuned by eye; Phromagraph is the
         // measured match. Grain starts off, as in Chromagraph; the Grain slider at 50
         // gives Chromagraph's grain 1.25.
-        Look(id: "phromagraph", name: "Phromagraph", detail: "Matched to Chromagraph's own renders: creamy highlights, teal-leaning mid-tones, dense soft blacks and a faint glow. Grain off; add it with the Grain slider. Shoots RAW.",
+        Look(id: "phromagraph", name: "Phromagraph", detail: "Matched to Chromagraph's own renders: creamy highlights, teal-leaning mid-tones, dense soft blacks and a faint glow. Grain off; add it with the Grain slider.",
              capturesRAW: true, apply: film("phromagraph") { $0.grain = 0 }),
         Look(id: "punch", name: "Punch", detail: "Vivid color negative pushed hard: maximum color, bold contrast, bright and clean, with extra crunch.",
              apply: film("punch") { $0.structure = 15 }),
@@ -773,16 +775,9 @@ struct Look: Identifiable {
         // Grades: the first cinematic pass (PR #35), kept to compare against the two sets
         // above. Same ids, tunings and extras as it shipped, so its photos and saved
         // choices keep meaning the same look; only its Slide and Bleach Bypass are renamed
-        // (Slide 70s, Bleach Grit) next to the new ones (classicslide, bleachbypass).
+        // (Slide 70s, Bleach Grit) next to the new ones (classicslide, bleachbypass). Its
+        // Desert, Pastel, Amber Haze and Sodium are retired (`Look.retired`).
         // Never reuse an id for a different look.
-        Look(id: "desert", name: "Desert", detail: "Inspired by desert epics: warm ochre and sand, quiet color, soft lifted blacks and a long, gentle highlight roll-off.",
-             set: .grades, apply: film("desert") { $0.vignette = 14 }),
-        Look(id: "pastel", name: "Pastel", detail: "A storybook grade: high key and soft, candy pinks, butter yellows, mint and warm cream whites.",
-             set: .grades, apply: film("pastel") { $0.structure = -8 }),
-        Look(id: "amber", name: "Amber Haze", detail: "Orange fog over a future city: nearly monochrome amber, smoky highlights and a wide, warm glow.",
-             set: .grades, apply: film("amber") { $0.vignette = 18 }),
-        Look(id: "sodium", name: "Sodium", detail: "A streetlight thriller: green-yellow sodium light, muddy desaturated shadows, cold skin and a low key.",
-             set: .grades, apply: film("sodium") { $0.vignette = 24 }),
         Look(id: "neon", name: "Neon Night", detail: "Neon-lit romance: saturated reds against green shadows, crushed blacks and a strong red glow around lights.",
              set: .grades, apply: film("neon") { $0.vignette = 26 }),
         Look(id: "slide", name: "Slide 70s", detail: "Seventies slide film: rich reds, deep blue skies, dense blacks, warm light and hard contrast.",
@@ -799,7 +794,20 @@ struct Look: Identifiable {
         "natural": ("Natural", nil), "warm400": ("Warm 400", nil), "portrait": ("Skin", "portrait400"),
         "cool": ("Cool Air", "evergreen"), "cine": ("Cine", "blockbuster"), "chrome": ("Chrome", "classicslide"),
         "faded": ("Faded", nil), "mono400": ("Mono 400", "noir"), "silver": ("Silver", "noir"),
+        // PR #35's softer Grades (2026-11-24, the owner: "remove desert through sodium looks").
+        // Their stocks stay generated, out of `FilmStock.all` (`FilmStock.retiredStocks`).
+        "desert": ("Desert", "portrait400"), "pastel": ("Pastel", "portrait400"),
+        "amber": ("Amber Haze", nil), "sodium": ("Sodium", "night800"),
     ]
+
+    /// A default grade on a look that's no longer offered, moved on like the camera's
+    /// choice: its successor as designed, or nil (no default grade: new shots start from
+    /// the look as designed). A current look, or none, comes back unchanged.
+    static func movingOffRetired(_ grade: EditRecipe) -> EditRecipe? {
+        guard let id = grade.look, id != "none", named(id) == nil else { return grade }
+        guard let next = retired[id]?.successor.flatMap({ named($0) }) else { return nil }
+        return grade.withLook(next).asDefaultGrade
+    }
 
     /// The name to show for a recipe's look id, retired looks included (nil = no look).
     static func displayName(_ id: String?) -> String? {
@@ -850,15 +858,16 @@ extension FilmStock {
     static func resolved(for recipe: EditRecipe) -> FilmStock? {
         guard let film = recipe.film else { return nil }
         if let pinned = film.tuning { return pinned }
-        if let id = film.stock { return Legacy.v2[id] ?? named(id) }
+        if let id = film.stock { return Legacy.v2[id] ?? namedOrRetired(id) }
         return recipe.rawNoiseReduction < EditRecipe.filmMinimumNoiseReduction
             ? Legacy.printV1 : (Legacy.v2[printLook.id] ?? printLook)
     }
 
-    /// The stock for an id, including retired looks' stocks (as they last shipped, from
-    /// the frozen history). For filling gaps in an older pinned tuning, never for picking.
+    /// The stock for an id, including retired looks' stocks as they last shipped (generated
+    /// in `retiredStocks`, or the frozen history for the looks retired before pinning). For
+    /// filling gaps in an older pinned tuning, never for picking.
     static func namedOrRetired(_ id: String?) -> FilmStock {
-        if let id, all[id] == nil, let retired = Legacy.v2[id] { return retired }
+        if let id, all[id] == nil, let retired = retiredStocks[id] ?? Legacy.v2[id] { return retired }
         return named(id)
     }
 }

@@ -1,5 +1,5 @@
 {
- "about": "The looks: film stocks and movie grades in the Print model, each with its own tone, colour and texture. Built by scripts/filmlooks.py; exported with scripts/print-look.py export-swift. Keys left out inherit from Print. grey = display luminance of 18% grey; slope = log-log contrast below the shoulder; shoulder = how hard highlights turn; white/floor = display white and black; printer/crossover = [red, blue] or [red, green, blue] log-exposure offsets (+ = less of that colour) / [red, blue] gamma splits; interlayer = saturation; channel_mix = 3x3 scene RGB mix (rows normalised to 1); crosstalk = 0..1 of print-dye density coupling; grain = density std at 4032 px; shadow_tint/highlight_tint = split toning, offsets on the encoded print output weighted (1-Y)^2 / Y^2 (made luminance-neutral by filmlooks.py). Looks stay far apart: nearest-neighbour mean ΔE (Oklab) >= 0.06 on the test images, Print included. hue_twists = film color by hue, [hue deg, width deg, rotate deg, saturation, stops] each (0 red, 60 yellow, 120 green, 180 cyan, 240 blue, 300 magenta; skin ~30, foliage ~80, sky ~225), on scene light in log space so neutrals are untouched; dye_saturation = saturation in print density (saturated colors get darker; < 0 drains them like retained silver); key_black = Technicolor's black key image of the green record (denser reds, blues, magentas). set = which named set the look belongs to (essentials, stocks, movie, grades; mirrors Look.set in EditRecipe.swift); spread measures each set on its own.",
+ "about": "The looks: film stocks and movie grades in the Print model, each with its own tone, colour and texture. Built by scripts/filmlooks.py; exported with scripts/print-look.py export-swift. Keys left out inherit from Print. grey = display luminance of 18% grey; slope = log-log contrast below the shoulder; shoulder = how hard highlights turn; white/floor = display white and black; printer/crossover = [red, blue] or [red, green, blue] log-exposure offsets (+ = less of that colour) / [red, blue] gamma splits; interlayer = saturation; channel_mix = 3x3 scene RGB mix (rows normalised to 1); crosstalk = 0..1 of print-dye density coupling; grain = density std at 4032 px; shadow_tint/highlight_tint = split toning, offsets on the encoded print output weighted (1-Y)^2 / Y^2 (made luminance-neutral by filmlooks.py). Looks stay far apart: nearest-neighbour mean ΔE (Oklab) >= 0.06 on the test images, Print included. hue_twists = film color by hue, [hue deg, width deg, rotate deg, saturation, stops] each (0 red, 60 yellow, 120 green, 180 cyan, 240 blue, 300 magenta; skin ~30, foliage ~80, sky ~225), on scene light in log space so neutrals are untouched; dye_saturation = saturation in print density (saturated colors get darker; < 0 drains them like retained silver); key_black = Technicolor's black key image of the green record (denser reds, blues, magentas). set = which named set the look belongs to (essentials, stocks, movie, grades; mirrors Look.set in EditRecipe.swift); spread measures each set on its own. retired = no longer offered (out of Look.all, listed in Look.retired): still exported, into FilmStock.retiredStocks rather than FilmStock.all, so photos made with it can fill fields their pinned tuning lacks; spread and scope skip it.",
  "looks": {
   "portrait400": {
    "name": "Portrait 400",
@@ -664,6 +664,7 @@
   "desert": {
    "name": "Desert",
    "set": "grades",
+   "retired": true,
    "about": "A desert epic: warm ochre and sand, low saturation, soft lifted blacks and a long, gentle highlight roll-off. No teal.",
    "grey": 0.15,
    "slope": 1.6,
@@ -703,6 +704,7 @@
   "pastel": {
    "name": "Pastel",
    "set": "grades",
+   "retired": true,
    "about": "A storybook grade: high key and soft, candy pinks, butter yellows and mint, warm cream whites.",
    "grey": 0.27,
    "slope": 0.95,
@@ -759,6 +761,7 @@
   "amber": {
    "name": "Amber Haze",
    "set": "grades",
+   "retired": true,
    "about": "Orange fog over a future city: nearly monochrome amber, smoky lifted highlights, a wide warm glow.",
    "grey": 0.21,
    "slope": 1.0,
@@ -812,6 +815,7 @@
   "sodium": {
    "name": "Sodium",
    "set": "grades",
+   "retired": true,
    "about": "Streetlight thriller: a green-yellow sodium cast, muddy desaturated shadows, cold skin, low key.",
    "grey": 0.12,
    "slope": 1.4,
