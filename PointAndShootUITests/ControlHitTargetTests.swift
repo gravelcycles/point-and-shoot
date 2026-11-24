@@ -96,31 +96,20 @@ final class ControlHitTargetTests: XCTestCase {
         XCTAssertTrue(app.buttons["strip.ev"].waitForExistence(timeout: 3))
     }
 
-    func testModePickerSwitchesToVideo() {
-        tapOffLabel(app.buttons["mode.video"], dx: 0.5, dy: 0.95)
-        XCTAssertTrue(app.buttons["topbar.videoformat"].waitForExistence(timeout: 3),
-                      "Tapping VIDEO didn't switch to video mode")
-    }
-
-    /// Print mode is the simple mode: it always shoots RAW and *is* the look, so the format
-    /// pill and the LOOK cell go away; the photo controls stay. Back in Photo they return,
-    /// and Print is one of Photo's looks too.
-    func testPrintModeDropsFormatAndFilterControls() {
-        tapOffLabel(app.buttons["mode.print"], dx: 0.5, dy: 0.95)
-        let gone = NSPredicate(format: "exists == false")
-        expectation(for: gone, evaluatedWith: app.buttons["topbar.format"])
-        expectation(for: gone, evaluatedWith: app.buttons["strip.look"])
-        waitForExpectations(timeout: 3)
-        XCTAssertTrue(app.buttons["topbar.timer"].exists, "Print mode should keep the self-timer")
-        XCTAssertTrue(app.buttons["strip.ev"].exists, "Print mode should keep exposure controls")
-
-        tapOffLabel(app.buttons["mode.photo"], dx: 0.5, dy: 0.95)
-        XCTAssertTrue(app.buttons["topbar.format"].waitForExistence(timeout: 3),
-                      "Back in Photo, the format pill should return")
+    /// Photo is the only mode (Video and the Print mode were removed): no mode picker, and
+    /// the photo controls are all there. Print isn't one of the looks any more (Phromagraph is
+    /// the same rendering).
+    func testPhotoIsTheOnlyModeAndPrintIsNotALook() {
+        for mode in ["photo", "print", "video"] {
+            XCTAssertFalse(app.buttons["mode.\(mode)"].exists, "mode.\(mode) should be gone")
+        }
+        XCTAssertTrue(app.buttons["topbar.format"].exists, "the format pill should be there")
+        XCTAssertTrue(app.buttons["topbar.timer"].exists, "the self-timer should be there")
         let strip = app.buttons["strip.look"]
-        XCTAssertTrue(strip.exists, "Back in Photo, LOOK should return")
+        XCTAssertTrue(strip.exists, "LOOK should be there")
         tapOffLabel(strip, dx: 0.1)
-        XCTAssertTrue(app.buttons["filter.print"].waitForExistence(timeout: 3), "Print should be one of Photo's looks too")
+        XCTAssertTrue(app.buttons["filter.phromagraph"].waitForExistence(timeout: 3), "Phromagraph should be a look")
+        XCTAssertFalse(app.buttons["filter.print"].exists, "Print is no longer one of the looks")
     }
 
     func testFilterCardsSelectAndDoubleTapResets() {
@@ -160,11 +149,11 @@ final class ControlHitTargetTests: XCTestCase {
         XCTAssertTrue(info.waitForExistence(timeout: 3))
         info.tap()
         // The guide opens at half height and its List is lazy: only the first few rows
-        // exist until scrolled, so pick one near the top (Original, Print, Phromagraph, …).
-        let print = app.buttons["guide.print"]
-        XCTAssertTrue(print.waitForExistence(timeout: 4), "Look guide didn't open")
-        print.tap()
-        expectation(for: NSPredicate(format: "label CONTAINS 'Print'"), evaluatedWith: app.buttons["strip.look"])
+        // exist until scrolled, so pick one near the top (Original, Phromagraph, Punch, …).
+        let phromagraph = app.buttons["guide.phromagraph"]
+        XCTAssertTrue(phromagraph.waitForExistence(timeout: 4), "Look guide didn't open")
+        phromagraph.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS 'Phromagraph'"), evaluatedWith: app.buttons["strip.look"])
         waitForExpectations(timeout: 3)
     }
 

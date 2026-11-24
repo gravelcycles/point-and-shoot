@@ -24,10 +24,8 @@ struct ControlStrip: View {
             item(.ev, title: camera.exposureMode == .manual ? "METER" : "EV",
                  value: camera.exposureMode == .manual ? Stops.evLabel(camera.meterOffset) : Stops.evLabel(camera.exposureBias),
                  manual: camera.exposureBias != 0, enabled: camera.exposureMode != .manual)
-            if camera.settings.mode == .photo {
-                item(.look, title: "LOOK", value: Look.named(camera.settings.activeLook)?.name ?? "Off",
-                     manual: camera.settings.activeLook != nil, enabled: true)
-            }
+            item(.look, title: "LOOK", value: Look.named(camera.settings.activeLook)?.name ?? "Off",
+                 manual: camera.settings.activeLook != nil, enabled: true)
         }
         .padding(.horizontal, 6)
     }

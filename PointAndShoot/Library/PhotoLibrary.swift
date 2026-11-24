@@ -111,21 +111,6 @@ enum PhotoLibrary {
     }
 
     @discardableResult
-    static func saveVideo(at url: URL, location: CLLocation? = nil) async throws -> String? {
-        try await ensureAddAccess()
-        let box = IDBox()
-        try await PHPhotoLibrary.shared().performChanges {
-            let options = PHAssetResourceCreationOptions()
-            options.shouldMoveFile = true
-            let request = PHAssetCreationRequest.forAsset()
-            request.location = location
-            request.addResource(with: .video, fileURL: url, options: options)
-            box.value = request.placeholderForCreatedAsset?.localIdentifier
-        }
-        return box.value
-    }
-
-    @discardableResult
     static func saveCopy(data: Data, location: CLLocation? = nil) async throws -> String? {
         try await ensureAddAccess()
         let box = IDBox()
@@ -279,24 +264,9 @@ enum PhotoLibrary {
         return uti.contains("raw-image") || uti.contains("dng")
     }
 
-    /// Writes the original file (HEIC/JPEG/DNG/MOV, full quality and metadata) to a temp
+    /// Writes the original file (HEIC/JPEG/DNG, full quality and metadata) to a temp
     /// URL for the share sheet.
     static func exportForSharing(_ asset: PHAsset) async -> URL? {
-        if asset.mediaType == .video {
-            // Copy the movie out of Photos' private storage so share targets can read it.
-            let resources = PHAssetResource.assetResources(for: asset)
-            guard let resource = resources.first(where: { $0.type == .fullSizeVideo })
-                    ?? resources.first(where: { $0.type == .video }) else { return nil }
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(resource.originalFilename)
-            try? FileManager.default.removeItem(at: url)
-            let options = PHAssetResourceRequestOptions()
-            options.isNetworkAccessAllowed = true
-            return await withCheckedContinuation { cont in
-                PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
-                    cont.resume(returning: error == nil ? url : nil)
-                }
-            }
-        }
         let result: (Data, String)? = await withCheckedContinuation { cont in
             let options = PHImageRequestOptions()
             options.isNetworkAccessAllowed = true

@@ -147,13 +147,4 @@ struct TaggedLocation {
         gps[kCGImagePropertyGPSTimeStamp as String] = formatter.string(from: location.timestamp)
         return gps
     }
-
-    /// ISO 6709 string for QuickTime video metadata.
-    var iso6709: String {
-        let c = location.coordinate
-        if location.verticalAccuracy >= 0 {
-            return String(format: "%+09.5f%+010.5f%+.3f/", c.latitude, c.longitude, location.altitude)
-        }
-        return String(format: "%+09.5f%+010.5f/", c.latitude, c.longitude)
-    }
 }

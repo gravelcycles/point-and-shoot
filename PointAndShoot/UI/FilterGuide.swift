@@ -5,7 +5,7 @@ import SwiftUI
 struct FilterGuide: View {
     let thumbnails: [String: UIImage]
     let selectedID: String?
-    /// The looks to list (the camera leaves Print out while it's a mode).
+    /// The looks to list.
     var looks: [Look] = Look.all
     let onPick: (String?) -> Void
     @Environment(\.dismiss) private var dismiss

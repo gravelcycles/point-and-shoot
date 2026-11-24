@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// Every control has a visible background, a 44 pt tap target and a haptic click, and the
 /// cryptic format badges are gone. Instead the pill states what you'll capture
-/// ("HEIF · Natural") and opens a panel with labelled choices, so nothing changes blindly.
+/// ("ProRAW · Phromagraph") and opens a panel with labelled choices, so nothing changes blindly.
 struct TopBar: View {
     let camera: CameraController
     let rotation: Angle
@@ -19,51 +19,32 @@ struct TopBar: View {
         let s = camera.settings
         let haptics = s.haptics
         HStack(spacing: 8) {
-            if s.mode.isStill {
-                // Each opens a dropdown of its choices: nothing cycles blindly.
-                TopBarButton(symbol: s.flash.symbol, active: s.flash != .off || panel == .flash,
-                             enabled: camera.supportsFlash, rotation: rotation, haptics: haptics,
-                             label: "Flash \(s.flash.rawValue)") { toggle(.flash) }
-                .accessibilityIdentifier("topbar.flash")
-            } else {
-                Color.clear.frame(width: 44, height: 44)
-            }
+            // Each opens a dropdown of its choices: nothing cycles blindly.
+            TopBarButton(symbol: s.flash.symbol, active: s.flash != .off || panel == .flash,
+                         enabled: camera.supportsFlash, rotation: rotation, haptics: haptics,
+                         label: "Flash \(s.flash.rawValue)") { toggle(.flash) }
+            .accessibilityIdentifier("topbar.flash")
 
             Spacer(minLength: 4)
 
-            if camera.isRecording, let start = camera.recordingStart {
-                VStack(spacing: 2) {
-                    RecordingClock(start: start)
-                    if let left = camera.recordingTimeLeft {
-                        Text(CameraFormat.timeLeft(left) + " left")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(left < 300 ? Color.red : Color.white.opacity(0.6))
-                    }
-                }
-            } else if s.mode != .print {
-                // Print mode has nothing to choose here: it always shoots RAW.
-                FormatPill(title: CameraFormat.summary(s),
-                           subtitle: s.mode == .video ? camera.recordingTimeLeft.map { CameraFormat.timeLeft($0) + " left" } : nil,
-                           highlighted: CameraFormat.isPro(s),
-                           haptics: haptics) {
-                    showFormat = true
-                }
-                .accessibilityIdentifier(s.mode == .photo ? "topbar.format" : "topbar.videoformat")
+            FormatPill(title: CameraFormat.summary(s),
+                       highlighted: CameraFormat.isPro(s),
+                       haptics: haptics) {
+                showFormat = true
             }
+            .accessibilityIdentifier("topbar.format")
 
             Spacer(minLength: 4)
 
-            if s.mode.isStill {
-                TopBarButton(symbol: "timer", caption: s.selfTimer == .off ? nil : s.selfTimer.label,
-                             active: s.selfTimer != .off || panel == .timer, rotation: rotation,
-                             haptics: haptics, label: "Self-timer") { toggle(.timer) }
-                .accessibilityIdentifier("topbar.timer")
-            }
+            TopBarButton(symbol: "timer", caption: s.selfTimer == .off ? nil : s.selfTimer.label,
+                         active: s.selfTimer != .off || panel == .timer, rotation: rotation,
+                         haptics: haptics, label: "Self-timer") { toggle(.timer) }
+            .accessibilityIdentifier("topbar.timer")
             GPSIndicator(tagger: camera.location, rotation: rotation) {
                 camera.haptic(.light)
                 camera.toast = camera.location.statusText
             }
-            TopBarButton(symbol: "gearshape.fill", enabled: !camera.isRecording, rotation: rotation,
+            TopBarButton(symbol: "gearshape.fill", rotation: rotation,
                          haptics: haptics, label: "Settings") {
                 showSettings = true
             }
@@ -78,7 +59,7 @@ struct TopBar: View {
         }
         .foregroundStyle(.white)
         .overlay(alignment: .top) {
-            if let panel, s.mode.isStill, !camera.isRecording {
+            if let panel {
                 ZStack(alignment: .top) {
                     // A tap anywhere else closes it (and doesn't focus the viewfinder).
                     Color.white.opacity(0.001)
@@ -92,8 +73,6 @@ struct TopBar: View {
                 }
             }
         }
-        .onChange(of: camera.settings.mode) { _, _ in panel = nil }
-        .onChange(of: camera.isRecording) { _, _ in panel = nil }
     }
 
     private func toggle(_ p: TopPanel) {
@@ -227,7 +206,7 @@ struct TopBarButton: View {
     }
 }
 
-/// "HEIF · Natural ▾": says what you'll capture; tap to change it.
+/// "ProRAW · Phromagraph ▾": says what you'll capture; tap to change it.
 struct FormatPill: View {
     let title: String
     var subtitle: String?
@@ -272,25 +251,13 @@ struct FormatPill: View {
 
 enum CameraFormat {
     static func summary(_ s: CameraSettings) -> String {
-        if s.mode == .video {
-            return "\(s.videoResolution.label) · \(s.frameRate) · \(s.videoColor.label) · \(s.videoCodec.label)"
-        }
         let look = Look.named(s.activeLook)?.name
         return [s.shootsProRAW ? "ProRAW" : "RAW", look].compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// Highlight the pill when you've stepped beyond the defaults (RAW, Zero, Log/HDR, ProRes).
+    /// Highlight the pill while shooting ProRAW.
     static func isPro(_ s: CameraSettings) -> Bool {
-        if s.mode == .video {
-            return s.videoColor != .sdr || s.videoCodec == .proRes422HQ || s.videoCodec == .proRes422
-        }
-        return s.shootsProRAW
-    }
-
-    static func timeLeft(_ seconds: TimeInterval) -> String {
-        let m = Int(seconds / 60)
-        if m >= 60 { return "\(m / 60)h \(m % 60)m" }
-        return m < 1 ? "<1 min" : "\(m) min"
+        s.shootsProRAW
     }
 }
 
@@ -301,30 +268,47 @@ struct CaptureFormatPanel: View {
     let camera: CameraController
     @Environment(\.dismiss) private var dismiss
 
+    /// The sheet's height: shorter where there's no resolution to choose.
+    static func height(_ camera: CameraController) -> CGFloat {
+        showsResolution(camera) ? 400 : 300
+    }
+
+    /// Max resolution only means something on a 48 MP sensor, shooting ProRAW.
+    static func showsResolution(_ camera: CameraController) -> Bool {
+        camera.settings.shootsProRAW && (camera.supportsMaxResolution || TestHooks.isUITest)
+    }
+
     var body: some View {
         let s = camera.settings
         VStack(alignment: .leading, spacing: 18) {
             PanelHeader(title: "Photo format") { dismiss() }
 
             PanelRow(title: "RAW", note: rawNote(s)) {
-                Picker("RAW", selection: Binding(get: { s.shootsProRAW ? RawMode.proRAW : .bayer },
-                                                 set: { v in camera.update { $0.rawMode = v } })) {
-                    ForEach([RawMode.proRAW, .bayer]) { mode in
-                        Text(mode.choice).tag(mode)
-                            .disabled(mode == .proRAW && !camera.supportsProRAW && !TestHooks.isUITest)
+                if s.proRAWAvailable {
+                    Picker("RAW", selection: Binding(get: { s.shootsProRAW ? RawMode.proRAW : .bayer },
+                                                     set: { v in camera.update { $0.rawMode = v } })) {
+                        ForEach([RawMode.proRAW, .bayer]) { mode in
+                            Text(mode.choice).tag(mode)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                } else {
+                    // No ProRAW on this phone: nothing to choose, and the note says why.
+                    Text("Bayer RAW")
+                        .font(.system(size: 15, weight: .semibold))
+                        .accessibilityIdentifier("format.rawFixed")
                 }
-                .pickerStyle(.segmented)
-                .disabled(s.mode == .print)
             }
 
-            PanelRow(title: "Resolution", note: s.shootsProRAW ? "ProRAW at the sensor's full resolution, or 12 MP." : "Bayer RAW is always the sensor's 12 MP frame.") {
-                Picker("Resolution", selection: camera.binding(\.resolution)) {
-                    ForEach(PhotoResolution.allCases) { Text($0.label).tag($0) }
+            if Self.showsResolution(camera) {
+                PanelRow(title: "Resolution", note: "ProRAW at the sensor's full 48 MP, or 12 MP (smaller files, faster).") {
+                    Picker("Resolution", selection: camera.binding(\.resolution)) {
+                        ForEach(PhotoResolution.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
             }
-            .disabled(!s.shootsProRAW)
+            Spacer(minLength: 0)
         }
         .padding(20)
         .sensoryFeedback(.selection, trigger: s) { _, _ in s.haptics }
@@ -332,68 +316,10 @@ struct CaptureFormatPanel: View {
     }
 
     private func rawNote(_ s: CameraSettings) -> String {
-        s.mode == .print
-            ? "Print always shoots ProRAW: cleaner, and what Print was matched on. Zoom works."
-            : (s.shootsProRAW ? RawMode.proRAW : .bayer).tradeoff
-    }
-}
-
-struct VideoFormatPanel: View {
-    let camera: CameraController
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        let s = camera.settings
-        VStack(alignment: .leading, spacing: 18) {
-            PanelHeader(title: "Video format") { dismiss() }
-
-            PanelRow(title: "Resolution", note: nil) {
-                Picker("Resolution", selection: camera.binding(\.videoResolution)) {
-                    ForEach(VideoResolution.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            PanelRow(title: "Frame rate", note: s.shutterAngleLock ? "Shutter locks to 1/\(s.frameRate * 2) (180°)." : nil) {
-                Picker("Frame rate", selection: camera.binding(\.frameRate)) {
-                    ForEach(frameRates(s), id: \.self) { Text("\($0)").tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            PanelRow(title: "Color", note: colorNote(s.videoColor)) {
-                Picker("Color", selection: camera.binding(\.videoColor)) {
-                    ForEach(camera.supportedColors) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            PanelRow(title: "Codec", note: nil) {
-                Picker("Codec", selection: camera.binding(\.videoCodec)) {
-                    ForEach(codecs(s)) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
+        if let reason = s.proRAWUnavailableReason {
+            return reason + " " + RawMode.bayer.tradeoff
         }
-        .padding(20)
-        .sensoryFeedback(.selection, trigger: s) { _, _ in s.haptics }
-        .preferredColorScheme(.dark)
-    }
-
-    private func frameRates(_ s: CameraSettings) -> [Int] {
-        var rates = camera.supportedFrameRates
-        if !rates.contains(s.frameRate) { rates.append(s.frameRate) }
-        return rates.sorted()
-    }
-
-    private func codecs(_ s: CameraSettings) -> [VideoCodec] {
-        let available = camera.supportedCodecs.isEmpty ? [VideoCodec.hevc, .h264] : camera.supportedCodecs
-        return available.filter { !(s.videoColor.isTenBit && $0 == .h264) }
-    }
-
-    private func colorNote(_ c: VideoColor) -> String {
-        switch c {
-        case .sdr: "Standard color. Plays everywhere."
-        case .hlg: "HDR (HLG): bright highlights on HDR screens."
-        case .appleLog: "Apple Log: flat, for color grading. Preview shows a 709 view."
-        }
+        return (s.shootsProRAW ? RawMode.proRAW : .bayer).tradeoff
     }
 }
 

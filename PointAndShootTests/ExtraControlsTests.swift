@@ -6,7 +6,7 @@ import XCTest
 /// The Film tool (printer lights, push/pull, flashing, silver, grain colour, halation size
 /// and colour) and the extras for every look (colour grading, tone curve, dehaze, masks).
 final class ExtraControlsTests: XCTestCase {
-    private var printRecipe: EditRecipe { Look.named(CameraSettings.printLookID)!.recipe }
+    private var printRecipe: EditRecipe { Look.printLook.recipe }
 
     private func image() -> CIImage {
         CIFilter(name: "CILinearGradient", parameters: [

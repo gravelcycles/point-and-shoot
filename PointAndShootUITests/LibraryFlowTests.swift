@@ -229,10 +229,10 @@ final class LibraryFlowTests: XCTestCase {
         let applyLook = app.buttons["Apply Look…"]   // menu items are found by label
         XCTAssertTrue(applyLook.waitForExistence(timeout: 3), "the ⋯ menu has no Apply Look")
         applyLook.tap()
-        let print = app.buttons["grid.look.print"]
-        XCTAssertTrue(print.waitForExistence(timeout: 4), "Apply Look doesn't list Print")
-        print.tap()
-        XCTAssertTrue(app.staticTexts["Print applied to 2"].waitForExistence(timeout: 4), "no confirmation that the look was applied")
+        let phromagraph = app.buttons["grid.look.phromagraph"]
+        XCTAssertTrue(phromagraph.waitForExistence(timeout: 4), "Apply Look doesn't list Phromagraph")
+        phromagraph.tap()
+        XCTAssertTrue(app.staticTexts["Phromagraph applied to 2"].waitForExistence(timeout: 4), "no confirmation that the look was applied")
     }
 
     // MARK: Selecting in the grid (like Photos)

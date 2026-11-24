@@ -202,7 +202,6 @@ enum Diag {
         @unknown default: "?"
         }
         return "access: camera \(av(AVCaptureDevice.authorizationStatus(for: .video)))"
-            + ", mic \(av(AVCaptureDevice.authorizationStatus(for: .audio)))"
             + ", photos \(ph(PHPhotoLibrary.authorizationStatus(for: .readWrite)))"
             + " (add \(ph(PHPhotoLibrary.authorizationStatus(for: .addOnly))))"
             + ", location \(loc)"

@@ -31,7 +31,8 @@ final class PipelineTests: XCTestCase {
 
     func testEveryLookRendersFiniteVariedPixels() throws {
         let base = testImage()
-        for look in Look.all {
+        // Print too: retired from the pickers, its photos still render.
+        for look in Look.all + [Look.printLook] {
             let out = EditPipeline.apply(look.recipe, to: base, developedFromRAW: false)
             XCTAssertFalse(out.extent.isInfinite, "\(look.id): infinite extent")
             let px = try pixels(of: out)

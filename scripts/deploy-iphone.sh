@@ -116,5 +116,5 @@ if ! xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID"; then
   echo "Installed, but iOS refused to launch it. If this is the first install from this Apple ID:"
   echo "  iPhone → Settings → General → VPN & Device Management → (your Apple ID) → Trust, then open Point & Shoot."
 fi
-say "Done. Allow Camera, Microphone, Photos and Location when asked."
+say "Done. Allow Camera, Photos and Location when asked."
 say "Lock Screen camera: hold the Lock Screen → Customize → Lock Screen → tap a bottom button → Point & Shoot."

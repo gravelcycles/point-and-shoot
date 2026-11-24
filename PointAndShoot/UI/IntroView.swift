@@ -177,7 +177,7 @@ private enum IntroPage: Int, CaseIterable, Identifiable {
     var points: [Point] {
         switch self {
         case .welcome:
-            [Point("camera.aperture", "Apple ProRAW by default: the cleanest file an iPhone makes."),
+            [Point("camera.aperture", "Apple ProRAW on an iPhone Pro, the cleanest file an iPhone makes; Bayer RAW on other iPhones."),
              Point("arrow.uturn.backward", "The original is never touched: change the look, or go back to it, any time.")]
         case .shooting:
             [Point("hand.tap", "Tap to focus and expose there."),

@@ -143,7 +143,7 @@ struct SettingsView: View {
         } header: {
             Text("RAW File Storage")
         } footer: {
-            Text("When off, photos move to the Trash 30 days after they were taken unless you tag them Keep (the bookmark in the viewer). The Trash empties itself after another 30 days. Photos you exported stay in Photos either way.")
+            Text("When off, photos move to the Trash 30 days after they're taken unless tagged Keep (the bookmark in the viewer). The Trash empties itself after another 30 days. Exported photos stay in Photos.")
         }
         Section {
             Toggle("Auto Export", isOn: camera.binding(\.autoExport))
@@ -151,14 +151,14 @@ struct SettingsView: View {
         } header: {
             Text("Auto Export to Photo Library")
         } footer: {
-            Text("Renders every shot right after capture with its look and saves it to your Photo Library. When off, nothing reaches Photos until you tap Export.")
+            Text("Saves every new photo to your Photo Library with its look, right after it's developed. When off, nothing reaches Photos until you tap Export.")
         }
         Section {
             Toggle("Geotag Photos", isOn: camera.binding(\.saveLocation))
         } header: {
             Text("Location")
         } footer: {
-            Text("Records where a photo was taken into its RAW file and carries it through to anything you export or share. Uses the GPS chip and compass, so it works in airplane mode; the first fix can take a minute without signal.")
+            Text("Saves where each photo was taken, in the RAW and in anything you export or share. Uses GPS, so it works in airplane mode; the first fix can take a minute without signal.")
         }
         Section {
             Button {
@@ -177,7 +177,7 @@ struct SettingsView: View {
         } header: {
             Text("Import from Photos")
         } footer: {
-            Text("Choose RAW files from your Photo Library to copy into Point & Shoot's library, with your default grade. The originals stay where they are.")
+            Text("Copies RAW files from your Photo Library into Point & Shoot, with your default grade. The originals stay in Photos.")
         }
         Section {
             Button {
@@ -244,13 +244,18 @@ struct SettingsView: View {
     @ViewBuilder
     private func cameraTab(_ s: CameraSettings) -> some View {
         Section {
-            Picker("RAW", selection: Binding(get: { s.prefersProRAW ? RawMode.proRAW : .bayer },
-                                             set: { v in camera.update { $0.rawMode = v } })) {
-                Text(RawMode.proRAW.choice).tag(RawMode.proRAW).disabled(!camera.supportsProRAW)
-                Text(RawMode.bayer.choice).tag(RawMode.bayer)
+            if s.proRAWAvailable {
+                Picker("RAW", selection: Binding(get: { s.prefersProRAW ? RawMode.proRAW : .bayer },
+                                                 set: { v in camera.update { $0.rawMode = v } })) {
+                    Text(RawMode.proRAW.choice).tag(RawMode.proRAW)
+                    Text(RawMode.bayer.choice).tag(RawMode.bayer)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settings.rawMode")
+            } else {
+                LabeledContent("RAW", value: "Bayer RAW")
+                    .accessibilityIdentifier("settings.rawMode")
             }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("settings.rawMode")
             if s.shootsProRAW && camera.supportsMaxResolution {
                 Picker("Resolution", selection: camera.binding(\.resolution)) {
                     ForEach(PhotoResolution.allCases) { Text($0.label).tag($0) }
@@ -259,21 +264,21 @@ struct SettingsView: View {
         } header: {
             Text("RAW Format")
         } footer: {
-            Text((s.prefersProRAW ? RawMode.proRAW : .bayer).tradeoff + " Print always shoots ProRAW.")
+            if let reason = s.proRAWUnavailableReason {
+                Text(reason + " " + RawMode.bayer.tradeoff)
+            } else {
+                Text((s.prefersProRAW ? RawMode.proRAW : .bayer).tradeoff)
+            }
         }
         Section {
-            Toggle("Plain live view", isOn: camera.binding(\.plainLiveView))
-                .accessibilityIdentifier("settings.plainLiveView")
+            Picker("Flash", selection: camera.binding(\.flash)) {
+                ForEach(FlashSetting.allCases) { Text($0.menuLabel).tag($0) }
+            }
             Picker("Self-timer", selection: camera.binding(\.selfTimer)) {
                 ForEach(SelfTimer.allCases) { Text($0.label).tag($0) }
             }
-            Picker("Flash", selection: camera.binding(\.flash)) {
-                ForEach(FlashSetting.allCases) { Text($0.rawValue.capitalized).tag($0) }
-            }
         } header: {
             Text("Shooting")
-        } footer: {
-            Text("Plain live view: every photo here develops from the RAW alone, but iPhones only give the viewfinder Apple's processed video. This asks for a plainer feed (no video HDR, no local brightening) so the viewfinder tracks the photo more closely. Experimental.")
         }
         Section {
             Toggle("Grid", isOn: camera.binding(\.showGrid))
@@ -296,10 +301,12 @@ struct SettingsView: View {
             Picker("Frame lines", selection: camera.binding(\.frameLines)) {
                 ForEach(FrameLines.allCases) { Text($0.label).tag($0) }
             }
+            Toggle("Plain live view", isOn: camera.binding(\.plainLiveView))
+                .accessibilityIdentifier("settings.plainLiveView")
         } header: {
             Text("Viewfinder")
         } footer: {
-            Text("Frame lines show a crop over the viewfinder; the whole sensor frame is always recorded.")
+            Text("Focus peaking shows while focusing by hand. Frame lines mark a crop; the whole frame is always saved. Plain live view (experimental) shows a flatter picture, closer to how the RAW develops.")
         }
         Section {
             Toggle("Volume buttons take photo", isOn: camera.binding(\.volumeShutter))
@@ -311,70 +318,15 @@ struct SettingsView: View {
         } header: {
             Text("Controls & Sound")
         } footer: {
-            Text((camera.canSilenceShutter || TestHooks.isUITest
-                  ? "The shutter is silent unless you turn Shutter sound on. "
-                  : "This iPhone or region doesn't let apps mute the shutter (it needs iOS 18, and some countries require the click); the Ring/Silent switch still mutes it. ")
-                 + "Tap to focus and meter, hold to lock AE/AF, drag up or down for exposure, swipe sideways to change mode, double-tap for Preferences.")
+            Text(camera.canSilenceShutter || TestHooks.isUITest
+                 ? "The shutter is silent unless Shutter sound is on."
+                 : "This iPhone or region doesn't let apps mute the shutter. The Ring/Silent switch still does.")
         }
-        videoSection(s)
         Section {
             Button("Reset Camera Settings", role: .destructive) { confirmReset = .camera }
                 .settingsRow()
         } footer: {
-            Text("Factory settings for RAW format, shooting, viewfinder, controls and video. Your library, export options and default grade aren't touched.")
-        }
-    }
-
-    @ViewBuilder
-    private func videoSection(_ s: CameraSettings) -> some View {
-        Section {
-            Picker("Resolution", selection: camera.binding(\.videoResolution)) {
-                ForEach(VideoResolution.allCases) { Text($0.label).tag($0) }
-            }
-            Picker("Frame rate", selection: camera.binding(\.frameRate)) {
-                ForEach(frameRates(s), id: \.self) { Text("\($0) fps").tag($0) }
-            }
-            Picker("Color", selection: camera.binding(\.videoColor)) {
-                ForEach(VideoColor.allCases) { color in
-                    Text(colorName(color)).tag(color)
-                        .disabled(s.mode == .video && !camera.supportedColors.contains(color))
-                }
-            }
-            Picker("Codec", selection: camera.binding(\.videoCodec)) {
-                ForEach(VideoCodec.allCases) { codec in
-                    Text(codec.label).tag(codec)
-                        .disabled(!camera.supportedCodecs.contains(codec) || (s.videoColor.isTenBit && codec == .h264))
-                }
-            }
-            Picker("Stabilization", selection: camera.binding(\.stabilization)) {
-                ForEach(Stabilization.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                        .disabled(s.mode == .video && !camera.supportedStabilization.contains(mode))
-                }
-            }
-            Toggle("Record audio", isOn: camera.binding(\.recordAudio))
-            Toggle("180° shutter", isOn: camera.binding(\.shutterAngleLock))
-            if s.videoColor == .appleLog {
-                Toggle("Log view assist (Rec.709 preview)", isOn: camera.binding(\.logViewAssist))
-            }
-        } header: {
-            Text("Video")
-        } footer: {
-            Text("Videos are saved straight to Photos. 180° shutter locks the shutter at 1/(2 × fps) for natural motion blur and floats ISO to hold exposure. Apple Log needs an iPhone 15 Pro or later; ProRes depends on model and storage.")
-        }
-    }
-
-    private func frameRates(_ s: CameraSettings) -> [Int] {
-        var rates = camera.supportedFrameRates
-        if !rates.contains(s.frameRate) { rates.append(s.frameRate) }
-        return rates.sorted()
-    }
-
-    private func colorName(_ c: VideoColor) -> String {
-        switch c {
-        case .sdr: "SDR (Rec.709)"
-        case .hlg: "HDR (HLG, Dolby Vision)"
-        case .appleLog: "Apple Log"
+            Text("Factory settings for RAW format, shooting, viewfinder and controls. Your library, export options and default grade stay as they are.")
         }
     }
 
@@ -411,7 +363,6 @@ struct SettingsView: View {
         }
         DefaultGradeSection(camera: camera)
         EditorControlsSection()
-        FilmUpdateSection()
     }
 
     /// "Importing 3 of 12" and a bar, under the import buttons while an import runs.
@@ -444,7 +395,7 @@ struct SettingsView: View {
                 s.saveLocation = fresh.saveLocation
             case .camera:
                 var next = fresh
-                // Keep the library, export and grade settings, and the mode/lens you're on.
+                // Keep the library, export and grade settings, and the look/lens you're on.
                 next.storeForever = s.storeForever
                 next.autoExport = s.autoExport
                 next.saveLocation = s.saveLocation
@@ -453,8 +404,8 @@ struct SettingsView: View {
                 next.exportQuality = s.exportQuality
                 next.defaultGrade = s.defaultGrade
                 next.captureLook = s.captureLook
-                next.mode = s.mode
                 next.lastLensID = s.lastLensID
+                next.proRAWAvailable = s.proRAWAvailable   // what the phone can do, not a choice
                 s = next
             case .export:
                 s.exportFormat = fresh.exportFormat
@@ -550,38 +501,6 @@ struct DefaultGradeSection: View {
     }
 }
 
-/// The film-engine migration: on by default; Restore puts back every grade's backup.
-private struct FilmUpdateSection: View {
-    @AppStorage(FilmMigration.enabledKey) private var enabled = true
-    @State private var confirmRestore = false
-    @State private var message: String?
-
-    var body: some View {
-        Section {
-            Toggle("Update Older Edits", isOn: $enabled)
-                .accessibilityIdentifier("settings.migrate")
-            Button("Restore Edits from Before the Update…") { confirmRestore = true }
-                .settingsRow()
-                .confirmationDialog("Restore edits from before the update?", isPresented: $confirmRestore,
-                                    titleVisibility: .visible) {
-                    Button("Restore") {
-                        let n = ShotStore.shared.restorePreMigrationGrades()
-                        message = n == 1 ? "1 edit restored." : "\(n) edits restored."
-                    }
-                } message: {
-                    Text("Photos go back to the grades they had before they were moved to the current film controls, and Update Older Edits turns off.")
-                }
-        } header: {
-            Text("Film Controls Update")
-        } footer: {
-            Text("Edits made with older film controls move to the current ones with settings that match how they looked. The edit from before is kept, so it can be put back.")
-        }
-        .alert("Restore", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(message ?? "") }
-    }
-}
-
 /// Which of the editor's optional controls show (all by default). Stored in the same
 /// place the editor reads (`EditorExtra.storageKey`).
 private struct EditorControlsSection: View {
@@ -659,7 +578,7 @@ private struct LockScreenHelp: View {
                     Text("Touch and hold the Lock Screen, tap Customize, then Lock Screen. Tap a bottom control, remove the default, and pick Point & Shoot → Camera.")
                 }
                 Section("Control Center") {
-                    Text("Open Control Center, tap +, then Add a Control, and pick Point & Shoot → Camera (or Record Video).")
+                    Text("Open Control Center, tap +, then Add a Control, and pick Point & Shoot → Camera.")
                 }
                 Section("Action Button") {
                     Text("Settings → Action Button → Controls → Point & Shoot → Camera.")
