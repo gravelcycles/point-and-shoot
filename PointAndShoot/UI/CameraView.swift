@@ -41,15 +41,23 @@ struct CameraView: View {
         .onAppear {
             camera.start()
             motion.start()
+            camera.heldOrientation = motion.bucket
             consumeLaunchRequest()
             Task { await LockedCaptureImporter.importPending() }
         }
         .onReceive(NotificationCenter.default.publisher(for: LaunchRequests.notification)) { _ in
             consumeLaunchRequest()
         }
+        .onChange(of: motion.bucket) { _, held in camera.heldOrientation = held }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .active where !showLibrary:
+            case .active where showLibrary:
+                // Back to the app with the library open: the camera waits for it to close, but
+                // orientation restarts now. It used to stay stopped for good, so rotation died
+                // after leaving the app from the library (the owner: "sometimes dies after
+                // closing screen or switching to another app").
+                motion.start()
+            case .active:
                 camera.start()
                 motion.start()
                 store.applyRetention(storeForever: camera.settings.storeForever)
@@ -65,7 +73,12 @@ struct CameraView: View {
         .onChange(of: showLibrary) { _, open in
             // Hand the camera back while browsing/editing — but only once any shot still
             // developing has been saved.
-            if open { camera.suspendForBrowsing() } else { camera.resumeAfterBrowsing() }
+            if open {
+                camera.suspendForBrowsing()
+            } else {
+                camera.resumeAfterBrowsing()
+                motion.start()
+            }
         }
         .onChange(of: camera.toast) { _, toast in
             if let toast { Diag.log(.ui, "toast: \(toast)") }
